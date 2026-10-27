@@ -25,10 +25,16 @@ export interface SessionSearch {
 	hits: SessionHit[];
 	/** Transcripts that were looked at, so "no match" can say how much it covered. */
 	scanned: number;
+	/** The byte budget of the call ran out before every transcript was read, so older ones may hold more matches. */
+	truncated?: boolean;
 }
 
 /** A transcript is read up to this many bytes, and a line longer than the line cap is skipped (tool results and images). */
-const MAX_FILE_BYTES = 24 * 1024 * 1024;
+const MAX_FILE_BYTES = 8 * 1024 * 1024;
+/** All transcripts of one call together are read up to this many bytes. */
+const MAX_TOTAL_BYTES = 200 * 1024 * 1024;
+/** How much of a transcript's start is read to learn its folder. */
+const HEAD_BYTES = 256 * 1024;
 const MAX_LINE_CHARS = 1024 * 1024;
 /** At most this many transcripts are opened per call, newest first. */
 const MAX_FILES = 400;
@@ -95,6 +101,53 @@ async function codexFiles(): Promise<Candidate[]> {
 	return out;
 }
 
+/** The complete lines in the first bytes of a file (a line cut by the end of the window is dropped). */
+async function headLines(file: string): Promise<string[]> {
+	const fh = await fs.promises.open(file, 'r').catch(() => undefined);
+	if (!fh) {
+		return [];
+	}
+	try {
+		const buf = Buffer.alloc(HEAD_BYTES);
+		const { bytesRead } = await fh.read(buf, 0, HEAD_BYTES, 0);
+		const lines = buf.toString('utf8', 0, bytesRead).split('\n');
+		if (bytesRead === HEAD_BYTES) {
+			lines.pop();
+		}
+		return lines;
+	} catch {
+		return [];
+	} finally {
+		await fh.close().catch(() => undefined);
+	}
+}
+
+/**
+ * Whether the transcript belongs to one of the folders, read from its first lines: Codex's session_meta cwd (which
+ * also gives the session id), the first Claude line that has a cwd. The Claude folder key is lossy (a b and a-b
+ * share one), so the key alone is not proof.
+ */
+async function owned(c: Candidate, folders: string[]): Promise<Candidate | undefined> {
+	const lines = await headLines(c.file);
+	for (const line of c.agent === 'codex' ? lines.slice(0, 1) : lines) {
+		let e: { type?: string; cwd?: unknown; payload?: { id?: string; cwd?: unknown } };
+		try {
+			e = JSON.parse(line);
+		} catch {
+			continue;
+		}
+		if (c.agent === 'codex') {
+			const cwd = e.type === 'session_meta' ? e.payload?.cwd : undefined;
+			return typeof cwd === 'string' && folders.some(f => same(f, cwd)) ? { ...c, id: e.payload?.id ?? c.id } : undefined;
+		}
+		if (typeof e.cwd === 'string') {
+			const cwd = e.cwd;
+			return folders.some(f => same(f, cwd)) ? c : undefined;
+		}
+	}
+	return undefined;
+}
+
 const same = (a: string, b: string) => {
 	const x = path.resolve(a);
 	const y = path.resolve(b);
@@ -149,29 +202,23 @@ export function snippetAround(text: string, words: string[]): string {
 }
 
 /** Streams one transcript; resolves the hit (with the first prompt) or undefined. Stops at the first match. */
-async function searchFile(c: Candidate, words: string[], cwd: string[] | undefined): Promise<SessionHit | undefined> {
+async function searchFile(c: Candidate, words: string[], budget: { left: number; cut: boolean }): Promise<SessionHit | undefined> {
+	// The end option stops the read at the per-file cap, so a huge file never buffers beyond it.
 	const stream = fs.createReadStream(c.file, { encoding: 'utf8', end: MAX_FILE_BYTES - 1 });
 	const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
+	// Bytes are counted as they stream, and the read is closed when the call's budget is spent.
+	stream.on('data', chunk => {
+		budget.left -= Buffer.byteLength(chunk as string);
+		if (budget.left < 0 && !budget.cut) {
+			budget.cut = true;
+			lines.close();
+		}
+	});
 	let prompt = '';
-	let id = c.id;
+	const id = c.id;
 	let snippet: string | undefined;
-	let first = true;
 	try {
 		for await (const line of lines) {
-			if (c.agent === 'codex' && first) {
-				first = false;
-				// Codex keeps every folder's sessions together; session_meta, the first line, says whose this is.
-				try {
-					const meta = JSON.parse(line) as { type?: string; payload?: { id?: string; cwd?: string } };
-					if (meta.type !== 'session_meta' || !meta.payload?.cwd || !cwd?.some(f => same(f, meta.payload!.cwd!))) {
-						return undefined;
-					}
-					id = meta.payload.id ?? id;
-				} catch {
-					return undefined;
-				}
-				continue;
-			}
 			if (line.length > MAX_LINE_CHARS) {
 				continue;
 			}
@@ -215,7 +262,7 @@ async function searchFile(c: Candidate, words: string[], cwd: string[] | undefin
  * The newest transcripts of these workspace folders whose prompts or answers contain every word of the query.
  * A hit is a session, shown with the first match in it.
  */
-export async function searchSessions(opts: { folders: string[]; query: string; limit: number; agent?: SessionAgent }): Promise<SessionSearch> {
+export async function searchSessions(opts: { folders: string[]; query: string; limit: number; agent?: SessionAgent; budgetBytes?: number; maxFiles?: number }): Promise<SessionSearch> {
 	const words = queryWords(opts.query);
 	if (!words.length || !opts.folders.length) {
 		return { hits: [], scanned: 0 };
@@ -223,28 +270,43 @@ export async function searchSessions(opts: { folders: string[]; query: string; l
 	const all = [
 		...(opts.agent === 'codex' ? [] : await claudeFiles(opts.folders)),
 		...(opts.agent === 'claude' ? [] : await codexFiles()),
-	].sort((a, b) => b.modified - a.modified).slice(0, MAX_FILES);
+	].sort((a, b) => b.modified - a.modified);
+	const maxFiles = opts.maxFiles ?? MAX_FILES;
+	const budget = { left: opts.budgetBytes ?? MAX_TOTAL_BYTES, cut: false };
 	const hits: SessionHit[] = [];
 	let scanned = 0;
-	for (const c of all) {
-		if (hits.length >= opts.limit) {
+	// The cap counts this workspace's transcripts only: other folders' Codex rollouts must not use up the window.
+	for (const candidate of all) {
+		if (hits.length >= opts.limit || scanned >= maxFiles) {
+			break;
+		}
+		const c = await owned(candidate, opts.folders);
+		if (!c) {
+			continue;
+		}
+		if (budget.left <= 0) {
+			budget.cut = true;
 			break;
 		}
 		scanned++;
-		const hit = await searchFile(c, words, opts.folders).catch(() => undefined);
+		const hit = await searchFile(c, words, budget).catch(() => undefined);
 		if (hit) {
 			hits.push(hit);
 		}
+		if (budget.cut) {
+			break;
+		}
 	}
-	return { hits, scanned };
+	return { hits, scanned, truncated: budget.cut };
 }
 
 export function formatSessions(query: string, r: SessionSearch): string {
+	const cut = r.truncated ? `\nThe search stopped early: the read budget of ${MAX_TOTAL_BYTES / 1024 / 1024} MB per call was used up, so older sessions were not searched.` : '';
 	if (!r.hits.length) {
-		return `No past session of this workspace mentions "${query}" (${r.scanned} transcript${r.scanned === 1 ? '' : 's'} looked at). Try fewer or different words.`;
+		return `No past session of this workspace mentions "${query}" (${r.scanned} transcript${r.scanned === 1 ? '' : 's'} looked at). Try fewer or different words.${cut}`;
 	}
 	return [
 		`${r.hits.length} past session${r.hits.length === 1 ? '' : 's'} for "${query}", newest first:`,
 		...r.hits.map(h => `- [${h.agent}] ${h.date} session ${h.id}\n  first prompt: ${h.prompt || '(none)'}\n  match: ${h.snippet}`),
-	].join('\n');
+	].join('\n') + cut;
 }
