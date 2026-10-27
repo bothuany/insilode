@@ -401,6 +401,12 @@ export const TOOLS: ToolDef[] = [
 		},
 		annotations: ro('Control the tour', false),
 	},
+	{
+		name: 'search_sessions',
+		description: "Search this workspace's past Claude Code and Codex conversations for what the user asked and what the agent answered (not tool output), to find out whether something was done, decided or debugged before. All words of `query` must occur in one message, any case. Returns, newest session first, the agent, session id, date, the session's first prompt and a snippet around the match. Use it when the user says \"we did this before\" or before redoing a task; to find code use `find_symbol` or grep instead.",
+		inputSchema: { type: 'object', properties: { query: str('Words that must all occur in a prompt or an answer, e.g. "rate limit alert".'), limit: int('Maximum sessions (default 10, at most 50).'), agent: { type: 'string', enum: ['claude', 'codex'], description: 'Only the sessions of this agent. Omit for both.' } }, required: ['query'], additionalProperties: false },
+		annotations: ro('Search past sessions'),
+	},
 ];
 
 export const TOOL_NAMES = new Set(TOOLS.map(t => t.name));

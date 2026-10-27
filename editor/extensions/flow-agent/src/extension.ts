@@ -14,9 +14,11 @@ import { watchGazeSetting } from './gazeHost';
 import { registerPlaceholderModels } from './models';
 import { AttentionNotifier } from './notify';
 import { pickAgent } from './pick';
+import { PrEvents } from './prEvents';
 import { startOrResume } from './resume';
 import { AgentSessionType } from './sessionType';
 import { WorktreeRows } from './worktreeActions';
+import { cleanupWorktrees, runWorktreeSetup } from './worktreeCleanup';
 
 export function activate(context: vscode.ExtensionContext) {
 	const log = vscode.window.createOutputChannel('Insilode Agents', { log: true });
@@ -52,6 +54,7 @@ export function activate(context: vscode.ExtensionContext) {
 		worktrees,
 		dock,
 		new AttentionNotifier(agents),
+		new PrEvents(agents),
 		new DesktopStatus(agents, log),
 		vscode.window.registerWebviewViewProvider('flow.agents', dock, { webviewOptions: { retainContextWhenHidden: true } }),
 		vscode.commands.registerCommand('flow.agents.newClaude', () => agents.spawn('claude')),
@@ -85,6 +88,8 @@ export function activate(context: vscode.ExtensionContext) {
 		}),
 		vscode.commands.registerCommand('flow.agents.chooseAskTarget', () => router.choose()),
 		vscode.commands.registerCommand('flow.agents.keptWorktrees', () => worktrees.showKept()),
+		vscode.commands.registerCommand('flow.agents.cleanupWorktrees', () => cleanupWorktrees(agents)),
+		vscode.commands.registerCommand('flow.agents.runWorktreeSetup', () => runWorktreeSetup(agents)),
 		// Called by the harness map's context X-ray (Compact, Measure): it names a session by id and a kind, never text, and
 		// the session's own state decides (Agents.slash), so an Enter never lands on a permission prompt. `check` types nothing.
 		vscode.commands.registerCommand('flow.agents.slash', (id: unknown, kind: unknown, check: unknown) => typeof id === 'string' && (kind === 'compact' || kind === 'context')

@@ -155,6 +155,33 @@ test('a session silent since its start may be waiting on a startup question; any
 	assert.equal(a.nextAttention({ failures: 0, need }, { event: 'PermissionRequest', tool: 'Bash', described: 'Running ls' }, 9).need.source, 'permission', 'a real question replaces it')
 })
 
+test('a permission request from a subagent is an approval that names it', () => {
+	const r = run([{ event: 'PermissionRequest', tool: 'Bash', described: 'Running ls', agentId: 'a1', agentType: 'Explore' }])
+	assert.equal(r.need.kind, 'approval')
+	assert.equal(r.need.text, 'Explore (subagent) wants to: Running ls')
+	assert.deepEqual(r.need.subagent, { type: 'Explore' })
+})
+
+test('agent_type without agent_id is a --agent session, not a subagent', () => {
+	const r = run([{ event: 'PermissionRequest', tool: 'Bash', described: 'Running ls', agentType: 'reviewer' }])
+	assert.equal(r.need.text, 'Wants to: Running ls')
+	assert.equal(r.need.subagent, undefined)
+})
+
+test('a permission notification from a subagent names it, and a request already shown is kept', () => {
+	const n = run([{ event: 'Notification', notificationType: 'permission_prompt', message: 'needs permission', agentId: 'a1', agentType: 'Plan' }])
+	assert.equal(n.need.text, 'Plan (subagent): needs permission')
+	const kept = run([{ event: 'PermissionRequest', tool: 'Bash', described: 'Running ls', agentId: 'a1', agentType: 'Plan' }, { event: 'Notification', notificationType: 'permission_prompt', message: 'x', agentId: 'a1', agentType: 'Plan' }])
+	assert.equal(kept.need.text, 'Plan (subagent) wants to: Running ls')
+})
+
+test('digestMessage counts distinct sessions per kind, the latest entry of a session winning', () => {
+	assert.equal(a.digestMessage([]), undefined)
+	assert.equal(a.digestMessage([{ session: 'a', kind: 'approval' }, { session: 'b', kind: 'question' }, { session: 'c', kind: 'approval' }, { session: 'd', kind: 'done' }, { session: 'e', kind: 'done' }]), '3 agents need you, 2 finished')
+	assert.equal(a.digestMessage([{ session: 'a', kind: 'approval' }, { session: 'a', kind: 'done' }]), '1 finished')
+	assert.equal(a.digestMessage([{ session: 'a', kind: 'approval' }, { session: 'b', kind: 'error' }]), '1 agent needs you, 1 hit an error')
+})
+
 test('notifications: once per new need, never while you look at the agent or with the kind turned off', () => {
 	const on = { quiet: false, enabled: () => true, watched: false }
 	const asking = { name: 'Claude 2', state: 'blocked', need: { kind: 'question', source: 'ask', text: 'Tea or coffee?', at: 3 }, unread: false, since: 1 }

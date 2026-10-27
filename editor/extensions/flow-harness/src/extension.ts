@@ -9,7 +9,9 @@ import { isTracked, itemKey, mcpKey, usageLabel, type HookLike } from './activit
 import { ContextBudget, UsageLimits } from './context';
 import { costLabel, delta, loadCosts, tok, totals, totalsBefore, trackCosts, type Cost } from './cost';
 import { FrictionView } from './frictionView';
+import { flowModel, toRequest } from './harnessFlow';
 import { HookStudio } from './hooks';
+import { LimitAlerts } from './limitAlerts';
 import { Live } from './live';
 import { McpManager } from './mcpManager';
 import { MemoryActions } from './memoryActions';
@@ -28,6 +30,7 @@ export function activate(context: vscode.ExtensionContext) {
 	let harness: Harness | undefined;
 	const budget = new ContextBudget();
 	const limits = new UsageLimits();
+	const alerts = new LimitAlerts();
 	const tree = new HarnessTree();
 	const view = vscode.window.createTreeView('flowHarness.map', { treeDataProvider: tree, showCollapseAll: true });
 	const studio = new HookStudio(() => harness?.root);
@@ -266,7 +269,18 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('flowHarness.showContext', () => budget.showDetails()),
 		// Called by flow-agent: the plans' usage limits as the CLIs report them, and every permission question with its
 		// answer. Each agent's context fill shows in flow-agent's own Agents dock.
-		vscode.commands.registerCommand('flowHarness.reportLimits', (l: unknown) => limits.report(l)),
+		vscode.commands.registerCommand('flowHarness.reportLimits', (l: unknown) => {
+			limits.report(l);
+			alerts.report(l);
+		}),
+		// Called by flow-view's harness flow panel: the diagram's model for one mode (protocol/harness.ts).
+		// The panel can open before the first scan is done (right after the window loads): wait for it rather than answer an empty diagram.
+		vscode.commands.registerCommand('flowHarness.flowModel', async (request: unknown) => {
+			if (!harness) {
+				await refresh();
+			}
+			return flowModel(toRequest(request), harness, live);
+		}),
 		vscode.commands.registerCommand('flowHarness.recordPermission', (r: PermissionRequest) => inbox.record(r)),
 		// Called by flow-agent with every hook event of the agents it runs: what they used, what failed, what you typed.
 		vscode.commands.registerCommand('flowHarness.recordEvent', (e: unknown) => live.record(e)),

@@ -137,3 +137,33 @@ test('a resumed conversation: the session line counts from this CLI start, like 
 	await fresh.update(file)
 	assert.equal(fresh.snapshot().earlier, undefined, 'a conversation that started with this CLI has no earlier part')
 })
+
+test('subagent transcripts are counted apart, each message once across lines and files, and read incrementally', async () => {
+	const { mkdirSync } = await import('node:fs')
+	const dir = mkdtempSync(join(tmp, 'sess-'))
+	const transcript = join(dir, 'abc.jsonl')
+	writeFileSync(transcript, assistant('main', u1) + '\n')
+	const sub = join(dir, 'abc', 'subagents')
+	mkdirSync(sub, { recursive: true })
+	assert.equal(c.subagentDir(transcript), sub)
+	const side = (id, usage, agentId) => assistant(id, usage).replace('{', `{"isSidechain":true,"agentId":"${agentId}",`)
+	// the same message spans two lines; a second agent file; a non-agent file is ignored
+	writeFileSync(join(sub, 'agent-a1.jsonl'), [side('s1', u1, 'a1'), side('s1', u1, 'a1'), side('s2', u2, 'a1')].join('\n') + '\n')
+	writeFileSync(join(sub, 'agent-a2.jsonl'), side('s3', u2, 'a2') + '\n')
+	writeFileSync(join(sub, 'notes.jsonl'), side('s9', u1, 'x') + '\n')
+	const t = new c.CostTracker('claude')
+	await t.update(transcript)
+	let snap = t.snapshot()
+	assert.deepEqual(snap.session.tokens, { input: 10, output: 200, cacheRead: 1000, cacheWrite: 300 })
+	assert.deepEqual(snap.subagents, { input: 20, output: 400, cacheRead: 3600, cacheWrite: 400 })
+	// a later line only adds what is new
+	appendFileSync(join(sub, 'agent-a2.jsonl'), side('s4', u1, 'a2') + '\n')
+	await t.update(transcript)
+	assert.deepEqual(t.snapshot().subagents, { input: 30, output: 600, cacheRead: 4600, cacheWrite: 700 })
+	// no subagents: the field is absent
+	const solo = join(dir, 'solo.jsonl')
+	writeFileSync(solo, assistant('m', u1) + '\n')
+	const t2 = new c.CostTracker('claude')
+	await t2.update(solo)
+	assert.equal(t2.snapshot().subagents, undefined)
+})

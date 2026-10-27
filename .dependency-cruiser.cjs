@@ -107,7 +107,7 @@ module.exports = {
 			comment: 'A module nothing imports is dead code or a missing entry point.',
 			from: {
 				orphan: true,
-				pathNot: ['\\.d\\.ts$', '(^|/)(esbuild|vite\\.[^/]+\\.config)\\.(mjs|ts)$', '/src/extension\\.ts$', '/poly/worker\\.ts$', '/mcp/insilode-mcp\\.ts$', '^ui/src/(webview|board/board)\\.tsx$', '^site/src/(canvas|home|try)\\.ts$'],
+				pathNot: ['\\.d\\.ts$', '(^|/)(esbuild|vite\\.[^/]+\\.config)\\.(mjs|ts)$', '/src/extension\\.ts$', '/poly/worker\\.ts$', '/mcp/insilode-mcp\\.ts$', '^ui/src/(webview|board/board|harness/harness)\\.tsx$', '^site/src/(canvas|home|try)\\.ts$'],
 			},
 			to: {},
 		},
