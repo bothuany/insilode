@@ -25,9 +25,27 @@ export interface PrState {
 	counts: { pass: number; fail: number; pending: number };
 	/** The names of failing checks, the first few. */
 	failing: string[];
+	/** GitHub's review decision: APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED or empty. */
+	reviewDecision: string;
+	/** MERGEABLE, CONFLICTING or UNKNOWN (GitHub has not worked it out yet: not a conflict). */
+	mergeable: string;
+	/** The commit the PR's branch is at: a new push is a new commit. */
+	headRefOid: string;
+	comments: PrNote[];
+	reviews: PrNote[];
+	/** Login of whoever opened the PR. */
+	author: string;
 }
 
-export const PR_FIELDS = 'number,state,isDraft,title,url,statusCheckRollup';
+/** A comment or a review: `state` is the review's (CHANGES_REQUESTED, APPROVED, COMMENTED, ...), empty for a comment. */
+export interface PrNote {
+	id: string;
+	author: string;
+	body: string;
+	state: string;
+}
+
+export const PR_FIELDS = 'number,state,isDraft,title,url,statusCheckRollup,reviewDecision,mergeable,headRefOid,comments,reviews,author';
 
 const FAIL = new Set(['FAILURE', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE', 'ERROR']);
 const PASS = new Set(['SUCCESS', 'NEUTRAL', 'SKIPPED']);
@@ -44,6 +62,21 @@ function outcome(c: Record<string, unknown>): 'pass' | 'fail' | 'pending' {
 	}
 	const conclusion = up(c.conclusion);
 	return FAIL.has(conclusion) ? 'fail' : PASS.has(conclusion) ? 'pass' : 'pending';
+}
+
+const str = (v: unknown) => typeof v === 'string' ? v : '';
+
+function notes(v: unknown, review: boolean): PrNote[] {
+	const out: PrNote[] = [];
+	for (const n of Array.isArray(v) ? v : []) {
+		const o = n && typeof n === 'object' ? n as Record<string, unknown> : undefined;
+		const id = o && (typeof o.id === 'string' || typeof o.id === 'number') ? String(o.id) : '';
+		if (o && id) {
+			const a = o.author && typeof o.author === 'object' ? (o.author as Record<string, unknown>).login : undefined;
+			out.push({ id, author: str(a), body: str(o.body).slice(0, 1000), state: review ? str(o.state).toUpperCase() : '' });
+		}
+	}
+	return out;
 }
 
 /** `gh pr view --json` output as a PrState; undefined for anything without a PR number and a URL. */
@@ -69,7 +102,12 @@ export function parsePr(json: unknown): PrState | undefined {
 		}
 	}
 	const checks: Checks = counts.fail ? 'fail' : counts.pending ? 'pending' : counts.pass ? 'pass' : 'none';
-	return { number: o.number, state, title: typeof o.title === 'string' ? o.title.slice(0, 200) : '', url: o.url, checks, counts, failing };
+	const author = o.author && typeof o.author === 'object' ? str((o.author as Record<string, unknown>).login) : '';
+	return {
+		number: o.number, state, title: typeof o.title === 'string' ? o.title.slice(0, 200) : '', url: o.url, checks, counts, failing,
+		reviewDecision: str(o.reviewDecision).toUpperCase(), mergeable: str(o.mergeable).toUpperCase(), headRefOid: str(o.headRefOid),
+		comments: notes(o.comments, false), reviews: notes(o.reviews, true), author,
+	};
 }
 
 /** Runs a program with arguments (never a shell) and gives its stdout, or rejects with its stderr. */
