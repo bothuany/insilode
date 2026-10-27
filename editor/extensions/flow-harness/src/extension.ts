@@ -274,7 +274,13 @@ export function activate(context: vscode.ExtensionContext) {
 			alerts.report(l);
 		}),
 		// Called by flow-view's harness flow panel: the diagram's model for one mode (protocol/harness.ts).
-		vscode.commands.registerCommand('flowHarness.flowModel', (request: unknown) => flowModel(toRequest(request), harness, live)),
+		// The panel can open before the first scan is done (right after the window loads): wait for it rather than answer an empty diagram.
+		vscode.commands.registerCommand('flowHarness.flowModel', async (request: unknown) => {
+			if (!harness) {
+				await refresh();
+			}
+			return flowModel(toRequest(request), harness, live);
+		}),
 		vscode.commands.registerCommand('flowHarness.recordPermission', (r: PermissionRequest) => inbox.record(r)),
 		// Called by flow-agent with every hook event of the agents it runs: what they used, what failed, what you typed.
 		vscode.commands.registerCommand('flowHarness.recordEvent', (e: unknown) => live.record(e)),
