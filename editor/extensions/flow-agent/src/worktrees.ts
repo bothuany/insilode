@@ -14,6 +14,7 @@
 import { execFile } from 'child_process';
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { unlinkAll } from './worktreeSafety';
 
 /** What a session started in a worktree remembers about it. */
 export interface Worktree {
@@ -26,6 +27,17 @@ export interface Worktree {
 	/** The main checkout it belongs to. */
 	root: string;
 }
+
+/**
+ * Steps the vscode side adds around a worktree's life (worktreeCleanup.ts: the repository's setup file, which needs the
+ * workspace trust and dialogs), so this file stays free of vscode and agents.ts keeps calling the same two functions.
+ */
+export const worktreeHooks: {
+	/** After `git worktree add`, before the agent starts. Throwing stops the start and the worktree is removed again. */
+	created?: (wt: Worktree) => Promise<void>;
+	/** Before removal. A failure is the hook's to report; removal goes on. */
+	beforeRemove?: (wt: Worktree) => Promise<void>;
+} = {};
 
 export interface GitResult {
 	code: number;
@@ -249,7 +261,16 @@ export async function createWorktree(cwd: string, slug: string): Promise<Worktre
 	if (r.code !== 0) {
 		throw new Error(firstLine(r));
 	}
-	return { path: dir, branch: newBranch, base: info.branch, root: info.root };
+	const wt = { path: dir, branch: newBranch, base: info.branch, root: info.root };
+	if (worktreeHooks.created) {
+		try {
+			await worktreeHooks.created(wt);
+		} catch (e) {
+			await removeWorktree(wt, true); // no half-made worktree is left behind; its branch stays, empty of work
+			throw e;
+		}
+	}
+	return wt;
 }
 
 export async function aheadBehind(wt: Worktree): Promise<{ ahead: number; behind: number } | undefined> {
@@ -315,7 +336,20 @@ export async function merge(wt: Worktree, kind: 'fast-forward' | 'merge'): Promi
 	return { ok: false, reason: `${firstLine(r)}${kind === 'merge' ? ' (the merge was aborted; nothing changed)' : ''}` };
 }
 
+/**
+ * Removes the worktree folder: the teardown commands first, then every link in it is unlinked and checked to be gone,
+ * and only then git deletes the folder. `git worktree remove --force` on Git for Windows follows junctions and symlinks
+ * and deletes what they point at (the main checkout's node_modules once); see worktreeSafety.ts.
+ */
 export async function removeWorktree(wt: Worktree, force: boolean): Promise<{ ok: true } | { ok: false; reason: string }> {
+	await worktreeHooks.beforeRemove?.(wt).catch(() => undefined);
+	try {
+		await unlinkAll(wt.path);
+	} catch (e) {
+		if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+			return { ok: false, reason: (e as Error).message };
+		}
+	}
 	const r = await git(wt.root, removeArgs(wt.path, force), 60_000);
 	return r.code === 0 ? { ok: true } : { ok: false, reason: firstLine(r) };
 }
