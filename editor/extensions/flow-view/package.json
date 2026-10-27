@@ -293,10 +293,6 @@
       ],
       "commandPalette": [
         {
-          "command": "flow.showHarnessFlow",
-          "when": "false"
-        },
-        {
           "command": "flow.showTarget",
           "when": "false"
         },
