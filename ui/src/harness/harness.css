@@ -1,0 +1,110 @@
+/* The harness flow diagram. Same theme variables as the main canvas (webview.css), defined here too because this page loads on its own. */
+:root {
+  --fl-canvas: var(--vscode-editor-background, #181818);
+  --fl-text: var(--vscode-editor-foreground, #d4d4d4);
+  --fl-muted: var(--vscode-descriptionForeground, #8b8b8b);
+  --fl-card: color-mix(in srgb, var(--fl-canvas), var(--fl-text) 3.5%);
+  --fl-line: color-mix(in srgb, var(--fl-canvas), var(--fl-text) 9%);
+  --fl-line-strong: color-mix(in srgb, var(--fl-canvas), var(--fl-text) 17%);
+  --fl-signal: #6f86ff;
+  --fl-mono: var(--vscode-editor-font-family, 'JetBrains Mono', Menlo, monospace);
+  --fl-ui: var(--vscode-font-family, -apple-system, system-ui, sans-serif);
+  --fl-lift: 0 1px 0 rgb(0 0 0 / .3), 0 14px 34px -10px rgb(0 0 0 / .6);
+  /* Eight kinds, mid-lightness hues that keep contrast on both light and dark editors; they colour an accent edge and the kind label. */
+  --k-instructions: #4f8cff;
+  --k-rules: #a47bf0;
+  --k-skills: #1fa898;
+  --k-agents: #e8822c;
+  --k-hooks: #e0577a;
+  --k-mcp: #8a9a1f;
+  --k-permissions: #7f8ea3;
+  --k-memory: #b9835a;
+  --v-allow: #2e9e5b;
+  --v-ask: #c98a0a;
+  --v-deny: #d64545;
+}
+html, body, #root { margin: 0; height: 100%; background: var(--fl-canvas); color: var(--fl-text); font: 12px/1.4 var(--fl-ui); }
+button, input, select { font: inherit; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 1.5px solid var(--fl-signal); outline-offset: 1px; }
+
+.hs-app { display: flex; flex-direction: column; height: 100%; }
+.hs-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; padding: 6px 12px; border-bottom: 1px solid var(--fl-line); background: var(--vscode-editorGroupHeader-tabsBackground, var(--fl-canvas)); flex: none; }
+.hs-bar .grow { flex: 1; }
+.hs-seg { display: inline-flex; border: 1px solid var(--fl-line-strong); border-radius: 12px; overflow: hidden; }
+.hs-seg button { height: 24px; padding: 0 11px; border: 0; background: transparent; color: var(--fl-muted); cursor: pointer; }
+.hs-seg button:hover { color: var(--fl-text); }
+.hs-seg button[aria-pressed='true'] { background: var(--fl-line-strong); color: var(--fl-text); }
+.hs-seg button:focus-visible { outline-offset: -2px; }
+.hs-field { display: inline-flex; align-items: center; gap: 6px; color: var(--fl-muted); }
+.hs-field input, .hs-field select { height: 24px; padding: 0 8px; border-radius: 5px; border: 1px solid var(--vscode-input-border, var(--fl-line-strong)); background: var(--vscode-input-background, var(--fl-card)); color: var(--vscode-input-foreground, var(--fl-text)); min-width: 0; }
+.hs-field input.mono { font-family: var(--fl-mono); width: 260px; }
+.hs-field input.tool { width: 150px; }
+.hs-btn { height: 24px; padding: 0 12px; border: 0; border-radius: 5px; background: var(--vscode-button-background, #e5e5e5); color: var(--vscode-button-foreground, #141414); font-weight: 600; cursor: pointer; }
+.hs-btn:disabled { opacity: .45; cursor: default; }
+.hs-icon { width: 26px; height: 24px; border: 1px solid var(--fl-line-strong); border-radius: 5px; background: transparent; color: var(--fl-text); cursor: pointer; }
+.hs-icon:disabled { opacity: .4; cursor: default; }
+.hs-step { color: var(--fl-text); font-family: var(--fl-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 360px; }
+.hs-slider { width: 160px; accent-color: var(--fl-signal); }
+.hs-legend { display: inline-flex; align-items: center; gap: 12px; color: var(--fl-muted); font-size: 11.5px; }
+.hs-legend svg { vertical-align: middle; margin-right: 4px; }
+
+.hs-stage { position: relative; flex: 1; min-height: 0; }
+.hs-state { position: absolute; inset: 0; display: grid; place-items: center; color: var(--fl-muted); pointer-events: none; text-align: center; padding: 24px; }
+.hs-state.error { color: var(--v-deny); pointer-events: auto; }
+.hs-note { position: absolute; left: 12px; bottom: 10px; z-index: 6; padding: 4px 10px; border-radius: 6px; border: 1px solid var(--fl-line); background: var(--fl-card); color: var(--fl-muted); }
+
+/* Stage header, the turn's spine. */
+.hs-head { box-sizing: border-box; width: 100%; height: 100%; display: flex; align-items: center; gap: 6px; padding: 0 10px; border: 1px solid var(--fl-line-strong); border-radius: 8px; background: var(--fl-card); font-weight: 600; transition: opacity .15s; }
+.hs-head.active { border-color: var(--fl-signal); box-shadow: 0 0 0 1px var(--fl-signal); }
+.hs-head.dim { opacity: .5; }
+.hs-head-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-count { margin-left: auto; font: 10.5px var(--fl-mono); color: var(--fl-muted); }
+.hs-mode { margin-left: auto; font: 10.5px var(--fl-mono); padding: 0 6px; border-radius: 8px; border: 1px solid var(--fl-line-strong); color: var(--fl-muted); }
+.hs-none { box-sizing: border-box; width: 100%; height: 100%; display: grid; place-items: center; color: var(--fl-muted); font-size: 11px; opacity: .7; border: 1px dashed var(--fl-line-strong); border-radius: 8px; }
+
+/* Item card. */
+.hs-card { position: relative; box-sizing: border-box; width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: space-between; gap: 2px; padding: 6px 9px 6px 11px; text-align: left; color: var(--fl-text); cursor: pointer; border: 1px solid var(--fl-line-strong); border-left: 3px solid var(--kc); border-radius: 8px; background: var(--fl-card); transition: opacity .15s, box-shadow .15s; }
+.hs-card:hover { border-color: var(--kc); }
+.hs-card.dim { opacity: .35; }
+.hs-card.hit { opacity: 1; border-color: var(--kc); box-shadow: 0 0 0 2px var(--kc), var(--fl-lift); }
+.hs-card.hit.predicted { border-style: dashed; border-left-style: solid; }
+.hs-card.has-issue { border-top-color: var(--v-ask); }
+.hs-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.hs-kind { font-size: 9.5px; text-transform: uppercase; letter-spacing: .05em; color: var(--kc); font-weight: 700; flex: none; }
+.hs-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.hs-detail { font: 11px var(--fl-mono); color: var(--fl-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hs-meta { flex-wrap: nowrap; overflow: hidden; }
+.hs-chip { font-size: 10px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--fl-line-strong); color: var(--fl-muted); white-space: nowrap; }
+.hs-chip.eff-allow { color: var(--v-allow); border-color: var(--v-allow); }
+.hs-chip.eff-ask { color: var(--v-ask); border-color: var(--v-ask); }
+.hs-chip.eff-deny { color: var(--v-deny); border-color: var(--v-deny); }
+.hs-issue { margin-left: auto; flex: none; width: 15px; height: 15px; display: grid; place-items: center; border-radius: 50%; background: var(--v-ask); color: #111; font-size: 10px; font-weight: 800; }
+.hs-verdict { margin-left: auto; padding: 0 7px; border-radius: 8px; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.v-allow { background: var(--v-allow); }
+.v-ask { background: var(--v-ask); color: #111; }
+.v-deny, .v-blocked { background: var(--v-deny); }
+.k-instructions { --kc: var(--k-instructions); }
+.k-rules { --kc: var(--k-rules); }
+.k-skills { --kc: var(--k-skills); }
+.k-agents { --kc: var(--k-agents); }
+.k-hooks { --kc: var(--k-hooks); }
+.k-mcp { --kc: var(--k-mcp); }
+.k-permissions { --kc: var(--k-permissions); }
+.k-memory { --kc: var(--k-memory); }
+
+/* Edges. */
+.react-flow__edge.spine .react-flow__edge-path { stroke: var(--fl-line-strong); stroke-width: 2; }
+.react-flow__edge.path .react-flow__edge-path { stroke: var(--fl-signal); stroke-width: 3; }
+.react-flow__edge.path.predicted .react-flow__edge-path { stroke-dasharray: 7 5; }
+.react-flow__marker, .react-flow__arrowhead polyline { stroke: var(--fl-line-strong); fill: var(--fl-line-strong); }
+.react-flow__background { background: var(--fl-canvas); }
+.react-flow__background circle { fill: var(--fl-line-strong); }
+.react-flow__node { cursor: default; }
+.react-flow__handle { width: 1px; height: 1px; min-width: 0; min-height: 0; border: 0; background: transparent; opacity: 0; }
+.react-flow__controls { box-shadow: none; border: 1px solid var(--fl-line); border-radius: 7px; overflow: hidden; }
+.react-flow__controls button { background: var(--fl-card); border-color: var(--fl-line); fill: var(--fl-muted); width: 24px; height: 24px; }
+.react-flow__minimap { background: var(--fl-card); border: 1px solid var(--fl-line); border-radius: 6px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hs-head, .hs-card { transition: none; }
+}
