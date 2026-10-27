@@ -8,9 +8,10 @@
  *  Code does not say whether the terminal panel itself is open, so an active terminal in a closed
  *  panel counts as seen.
  *
- *  Digest: while the window is not focused and flow.agents.notify.digestMinutes is above 0, notifications are
- *  held back; the first one starts a timer, and when it fires ONE notification counts what happened. When the
- *  window gets focus again the digest is dropped instead: the user is back and the dock shows everything.
+ *  Digest: while the window is not focused and flow.agents.notify.digestMinutes is above 0, the first notification
+ *  shows at once (an agent waiting for an approval must not wait minutes for you to hear of it) and starts a timer;
+ *  what comes after is held back, and when the timer fires ONE notification counts it. When the window gets focus
+ *  again the digest is dropped instead: the user is back and the dock shows everything.
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
@@ -65,9 +66,11 @@ export class AttentionNotifier implements vscode.Disposable {
 			const minutes = config.get<number>('digestMinutes', 5);
 			const kind = attentionKind(s);
 			if (!vscode.window.state.focused && minutes > 0 && kind) {
-				this.held.push({ session: s.id, kind });
-				this.timer ??= setTimeout(() => this.flushDigest(), minutes * 60_000);
-				continue;
+				if (this.timer) {
+					this.held.push({ session: s.id, kind });
+					continue;
+				}
+				this.timer = setTimeout(() => this.flushDigest(), minutes * 60_000);
 			}
 			const show = n.warn ? vscode.window.showWarningMessage : vscode.window.showInformationMessage;
 			// A notification VS Code shows cannot be taken back, so one for a question answered meanwhile stays in the list;

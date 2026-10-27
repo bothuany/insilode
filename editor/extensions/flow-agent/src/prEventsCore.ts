@@ -28,9 +28,9 @@ export function isBot(login: string): boolean {
 	return /(\[bot\]|-bot)$/i.test(login);
 }
 
-function snippet(body: string, n: number): string {
-	const one = body.replace(/\s+/g, ' ').trim();
-	return one.length > n ? `${one.slice(0, n - 1)}…` : one;
+/** A GitHub login as it may appear in the line: logins are [A-Za-z0-9-] (bots add [bot]); anything else is dropped. */
+function login(name: string | undefined): string {
+	return (name ?? '').replace(/[^A-Za-z0-9\-[\]]/g, '').slice(0, 40) || 'someone';
 }
 
 /**
@@ -68,17 +68,17 @@ export class PrTracker {
 			if (!foreign(r)) {
 				continue;
 			}
-			const body = snippet(r.body, 160);
+			// Who did what, never what they wrote: on a public repository anyone can review or comment, and their text typed
+			// into the agent's prompt would read as if it came from you. The agent reads it with `gh pr view` itself, as data.
 			if (r.state === 'CHANGES_REQUESTED') {
-				out.push({ kind: 'changesRequested', key: `cr:${r.id}`, text: `changes requested by ${r.author}${body ? `: ${body}` : ''}` });
+				out.push({ kind: 'changesRequested', key: `cr:${r.id}`, text: `changes requested by ${login(r.author)}` });
 			} else if (r.state === 'APPROVED' || r.state === 'COMMENTED') {
-				out.push({ kind: 'review', key: `review:${r.id}`, text: `${r.state === 'APPROVED' ? 'approved' : 'reviewed'} by ${r.author}${body ? `: ${body}` : ''}` });
+				out.push({ kind: 'review', key: `review:${r.id}`, text: `${r.state === 'APPROVED' ? 'approved' : 'reviewed'} by ${login(r.author)}` });
 			}
 		}
 		for (const c of pr.comments ?? []) {
 			if (foreign(c)) {
-				const body = snippet(c.body, 160);
-				out.push({ kind: 'comment', key: `comment:${c.id}`, text: `comment by ${c.author}${body ? `: ${body}` : ''}` });
+				out.push({ kind: 'comment', key: `comment:${c.id}`, text: `comment by ${login(c.author)}` });
 			}
 		}
 		return out;
@@ -131,7 +131,7 @@ export function composeLine(number: number, events: readonly PrEvent[]): string 
 		}
 	}
 	const head = `[Insilode] PR #${number}: `;
-	const tail = '. Please look into it.';
+	const tail = '. Read the details with `gh pr view --comments` and the failing checks with `gh pr checks`, then look into it.';
 	let body = parts.join('; ');
 	const room = MAX_LINE - head.length - tail.length;
 	if (body.length > room) {
