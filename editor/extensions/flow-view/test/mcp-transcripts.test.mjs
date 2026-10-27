@@ -28,14 +28,16 @@ before(async () => {
 	process.env.CODEX_HOME = join(home, 'codex')
 	const proj = join(home, 'claude', 'projects', t.claudeKey(work))
 	write(join(proj, 'aaaa.jsonl'), jl(
-		user('<command-name>/clear</command-name>', { isMeta: true }),
+		user('<command-name>/clear</command-name>', { isMeta: true, cwd: work }),
 		user('Add a rate limit alert to the budget panel'),
 		assistant('I added the Rate Limit alert next to the 90% colour.'),
 		user([{ type: 'tool_result', content: 'secret-token-xyz in a tool result' }]),
 	), 3)
-	write(join(proj, 'bbbb.jsonl'), jl(user('Fix the sidebar'), assistant('Done, the sidebar is wider.')), 1)
+	write(join(proj, 'bbbb.jsonl'), jl(user('Fix the sidebar', { cwd: work }), assistant('Done, the sidebar is wider.')), 1)
 	write(join(proj, 'aaaa', 'subagents', 'agent-1.jsonl'), jl(user('subagent only rate limit talk', { isSidechain: true })), 0)
-	write(join(home, 'claude', 'projects', t.claudeKey(other), 'cccc.jsonl'), jl(user('rate limit in another workspace')), 0)
+	write(join(home, 'claude', 'projects', t.claudeKey(other), 'cccc.jsonl'), jl(user('rate limit in another workspace', { cwd: other })), 0)
+	// The key is lossy: this file sits in this workspace's folder but says it belongs to another one.
+	write(join(proj, 'dddd.jsonl'), jl(user('mismatch phrase from a lookalike folder', { cwd: other })), 0)
 	const meta = cwd => ({ type: 'session_meta', payload: { id: 'sess-' + cwd.slice(-3), cwd } })
 	const codex = (cwd, text) => jl(meta(cwd), { type: 'event_msg', payload: { type: 'user_message', message: 'Codex task: ' + text } }, { type: 'event_msg', payload: { type: 'agent_message', message: 'Handled ' + text } })
 	write(join(home, 'codex', 'sessions', '2026', '10', '20', 'rollout-2026-10-20T10-00-00-d1.jsonl'), codex(work, 'migrate the legacy parser'), 2)
@@ -86,4 +88,24 @@ test('transcripts: newest first, limit and agent filter', async () => {
 test('transcripts: the text says when nothing matches', async () => {
 	assert.match(t.formatSessions('zzz', await run('zzz')), /No past session .* mentions "zzz"/)
 	assert.match(t.formatSessions('rate limit', await run('rate limit')), /\[claude\] .* session aaaa\n  first prompt: Add a rate limit/)
+})
+
+test('transcripts: a Claude transcript whose cwd is another folder is skipped, and not counted', async () => {
+	assert.equal((await run('mismatch phrase')).hits.length, 0)
+	assert.equal((await run('zzz', { agent: 'claude' })).scanned, 2)
+})
+
+test('transcripts: the file cap applies after the cwd filter and counts only this workspace', async () => {
+	// The newest Codex rollout is another project's; a cap of one must still reach this workspace's.
+	const r = await run('legacy parser', { agent: 'codex', maxFiles: 1 })
+	assert.deepEqual(r.hits.map(h => h.id), ['sess-app'])
+	assert.equal((await run('zzz', { agent: 'codex' })).scanned, 1)
+})
+
+test('transcripts: the byte budget cuts the search short and the text says so', async () => {
+	const r = await run('zzz', { budgetBytes: 10 })
+	assert.equal(r.truncated, true)
+	assert.equal(r.scanned, 1)
+	assert.match(t.formatSessions('zzz', r), /search stopped early/)
+	assert.doesNotMatch(t.formatSessions('zzz', await run('zzz')), /stopped early/)
 })
