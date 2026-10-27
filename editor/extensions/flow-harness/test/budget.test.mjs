@@ -61,3 +61,36 @@ test('a window past its reset goes; one with no reset time goes once its report 
 	assert.deepEqual(b.liveWindows(l, now - 60_000, now).map(w => w.label), ['wk', 'long'])
 	assert.deepEqual(b.liveWindows(l, now - b.UNDATED_TTL_MS, now).map(w => w.label), ['wk'])
 })
+
+test('limit alerts: once per level and window, keyed by the reset time', () => {
+	const now = 1_000_000
+	const rep = (pct, resetsAt = now + 80 * 60_000, label = '5h') => b.toLimits({ harness: 'Claude Code', windows: [{ label, usedPercent: pct, resetsAt }] })
+	const seen = new Map()
+	assert.deepEqual(b.dueAlerts(rep(60), seen, now), [])
+	const first = b.dueAlerts(rep(78), seen, now)
+	assert.equal(first.length, 1)
+	assert.equal(first[0].level, 'warn')
+	assert.equal(first[0].message, 'Claude: 5-hour limit at 78%, resets in 1 h 20 min')
+	assert.deepEqual(b.dueAlerts(rep(80), seen, now), [])
+	const high = b.dueAlerts(rep(91), seen, now)
+	assert.deepEqual(high.map(a => a.level), ['high'])
+	assert.deepEqual(b.dueAlerts(rep(99), seen, now), [])
+	// a new window (new reset time) alerts again, and the old keys are dropped once their reset passed
+	assert.equal(b.dueAlerts(rep(80, now + 6 * 3600_000), seen, now).length, 1)
+	b.dueAlerts(rep(10, now + 9 * 3600_000), seen, now + 2 * 3600_000)
+	assert.ok([...seen.keys()].every(k => !k.endsWith(`|${now + 80 * 60_000}|warn`)))
+	// the weekly window is its own key
+	assert.equal(b.dueAlerts(rep(80, now + 80 * 60_000, 'wk'), seen, now).length, 1)
+})
+
+test('limit alerts: a jump past 90% counts the 75% alert as told; a passed window says nothing', () => {
+	const now = 5_000
+	const seen = new Map()
+	const l = b.toLimits({ harness: 'Codex', windows: [{ label: '5h', usedPercent: 95, resetsAt: now + 60_000 }] })
+	assert.deepEqual(b.dueAlerts(l, seen, now).map(a => a.level), ['high'])
+	assert.deepEqual(b.dueAlerts(l, seen, now), [])
+	assert.deepEqual(b.dueAlerts(b.toLimits({ harness: 'Codex', windows: [{ label: '5h', usedPercent: 95, resetsAt: now - 1 }] }), new Map(), now), [])
+	assert.equal(b.windowLevel(74.9), 'ok')
+	assert.equal(b.windowLevel(75), 'warn')
+	assert.equal(b.windowLevel(90), 'high')
+})
