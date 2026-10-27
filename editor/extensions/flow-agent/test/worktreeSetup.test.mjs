@@ -85,3 +85,61 @@ test('copy does not write through a folder in the worktree that is a link out of
 	assert.equal(existsSync(join(outside, 'a.json')), false)
 	assert.match(log[0], /leads out of the worktree/)
 })
+
+test('the setup file needs a yes per version: any change to copy, setup or teardown asks again', () => {
+	const a = { copy: ['.env'], setup: [['npm', 'ci']], teardown: [['npm', 'run', 'clean']] }
+	assert.equal(s.setupHash(a), s.setupHash(JSON.parse(JSON.stringify(a))))
+	assert.equal(s.needsApproval(s.setupHash(a), a), false)
+	assert.equal(s.needsApproval(undefined, a), true)
+	for (const changed of [{ ...a, copy: ['.env', 'x'] }, { ...a, setup: [['npm', 'i']] }, { ...a, teardown: [] }]) {
+		assert.equal(s.needsApproval(s.setupHash(a), changed), true)
+	}
+	assert.equal(s.commandLines(a.setup.concat(a.teardown)), 'npm ci\nnpm run clean')
+})
+
+test('commands on an existing worktree ask when it differs from where it was cut; unknown counts as differing', () => {
+	assert.equal(s.worktreeDiffers({ ahead: 0, changed: 0 }), false)
+	assert.equal(s.worktreeDiffers({ ahead: 1, changed: 0 }), true)
+	assert.equal(s.worktreeDiffers({ ahead: 0, changed: 2 }), true)
+	assert.equal(s.worktreeDiffers({ ahead: undefined, changed: 0 }), true)
+	assert.equal(s.worktreeDiffers({ ahead: 0, changed: undefined }), true)
+})
+
+test('copy does not follow a folder link in the main checkout out of it, and creates nothing outside the worktree', async t => {
+	const main = join(tmp, 's-main')
+	const wt = join(tmp, 's-wt')
+	const outside = join(tmp, 's-outside')
+	for (const d of [main, wt, outside]) {
+		mkdirSync(d, { recursive: true })
+	}
+	writeFileSync(join(outside, 'id_rsa'), 'KEY')
+	try {
+		symlinkSync(outside, join(main, 'data'), 'junction')
+	} catch (e) {
+		t.skip(`cannot create a link here: ${e.code}`)
+		return
+	}
+	const log = await s.copyIntoWorktree(main, wt, ['data/id_rsa'])
+	assert.equal(existsSync(join(wt, 'data')), false)
+	assert.match(log[0], /leads out of the main checkout/)
+})
+
+test('copy checks the destination before it makes a folder: a link out of the worktree is not followed', async t => {
+	const main = join(tmp, 'd-main')
+	const wt = join(tmp, 'd-wt')
+	const outside = join(tmp, 'd-outside')
+	for (const d of [main, wt, outside]) {
+		mkdirSync(d, { recursive: true })
+	}
+	mkdirSync(join(main, 'cfg', 'deep'), { recursive: true })
+	writeFileSync(join(main, 'cfg', 'deep', 'a.json'), '{}')
+	try {
+		symlinkSync(outside, join(wt, 'cfg'), 'junction')
+	} catch (e) {
+		t.skip(`cannot create a link here: ${e.code}`)
+		return
+	}
+	const log = await s.copyIntoWorktree(main, wt, ['cfg/deep/a.json'])
+	assert.equal(existsSync(join(outside, 'deep')), false)
+	assert.match(log[0], /leads out of the worktree/)
+})

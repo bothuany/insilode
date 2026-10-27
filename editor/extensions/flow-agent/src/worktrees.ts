@@ -284,7 +284,7 @@ export async function createWorktree(cwd: string, slug: string): Promise<Worktre
 		try {
 			await worktreeHooks.created(wt);
 		} catch (e) {
-			await removeWorktree(wt, true); // no half-made worktree is left behind; its branch stays, empty of work
+			await removeWorktree(wt, true, { skipTeardown: true }); // a failed setup is no reason to run teardown commands; no half-made worktree is left behind; its branch stays, empty of work
 			throw e;
 		}
 	}
@@ -354,13 +354,27 @@ export async function merge(wt: Worktree, kind: 'fast-forward' | 'merge'): Promi
 	return { ok: false, reason: `${firstLine(r)}${kind === 'merge' ? ' (the merge was aborted; nothing changed)' : ''}` };
 }
 
+/** Why a plain (not forced) removal is refused up front: git refuses a worktree with changes, so nothing may run before. */
+export function removalRefusal(changed: string[] | undefined): string | undefined {
+	return changed?.length ? `the worktree has ${changed.length} uncommitted change${changed.length === 1 ? '' : 's'}` : undefined;
+}
+
 /**
  * Removes the worktree folder: the teardown commands first, then every link in it is unlinked and checked to be gone,
  * and only then git deletes the folder. `git worktree remove --force` on Git for Windows follows junctions and symlinks
  * and deletes what they point at (the main checkout's node_modules once); see worktreeSafety.ts.
  */
-export async function removeWorktree(wt: Worktree, force: boolean): Promise<{ ok: true } | { ok: false; reason: string }> {
-	await worktreeHooks.beforeRemove?.(wt).catch(() => undefined);
+export async function removeWorktree(wt: Worktree, force: boolean, opts: { skipTeardown?: boolean } = {}): Promise<{ ok: true } | { ok: false; reason: string }> {
+	// Git would refuse a plain removal of a dirty worktree after the teardown has run and the links are gone: ask first.
+	if (!force) {
+		const refusal = removalRefusal(await changedFiles(wt.path));
+		if (refusal) {
+			return { ok: false, reason: refusal };
+		}
+	}
+	if (!opts.skipTeardown) {
+		await worktreeHooks.beforeRemove?.(wt).catch(() => undefined);
+	}
 	try {
 		await unlinkAll(wt.path);
 	} catch (e) {
