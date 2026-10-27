@@ -28,6 +28,8 @@ export interface Need {
 	text: string;
 	/** When it started, in ms: a new need is a new notification. */
 	at: number;
+	/** Set when the request comes from a subagent (or in-process teammate) of the session, not the session itself. */
+	subagent?: { type?: string };
 }
 
 /** What one session carries between events. */
@@ -48,6 +50,9 @@ export interface AttentionEvent {
 	error?: string;
 	errorDetails?: string;
 	lastMessage?: string;
+	/** Claude Code's `agent_id`: set only when the hook fired inside a subagent. `agent_type` alone means `--agent`, not a subagent. */
+	agentId?: string;
+	agentType?: string;
 }
 
 /** This many failed tool calls in a row count as an error loop. */
@@ -116,6 +121,13 @@ export function nextAttention(prev: Attention, e: AttentionEvent, now: number): 
 		prev = { ...prev, need: undefined }; // it spoke, so it is past its startup questions
 	}
 	const need = (kind: NeedKind, source: NeedSource, text: string): Attention => ({ ...prev, need: { kind, source, text: line(text), at: now } });
+	const sub = e.agentId ? { type: e.agentType } : undefined;
+	/** "Explore (subagent)": who is asking, when it is not the session itself. */
+	const who = sub ? `${sub.type || 'Agent'} (subagent)` : undefined;
+	const needBy = (kind: NeedKind, source: NeedSource, text: string): Attention => {
+		const n = need(kind, source, text);
+		return sub && n.need ? { ...n, need: { ...n.need, subagent: sub } } : n;
+	};
 	const asks = (tool: string | undefined) => tool === 'AskUserQuestion';
 	switch (e.event) {
 		case 'SessionStart':
@@ -138,12 +150,12 @@ export function nextAttention(prev: Attention, e: AttentionEvent, now: number): 
 			if (e.tool === 'ExitPlanMode') {
 				return prev.need?.source === 'plan' ? prev : need('approval', 'plan', 'Review the plan');
 			}
-			return need('approval', 'permission', e.described ? `Wants to: ${e.described}` : 'Wants permission');
+			return needBy('approval', 'permission', who ? (e.described ? `${who} wants to: ${e.described}` : `${who} wants permission`) : e.described ? `Wants to: ${e.described}` : 'Wants permission');
 		case 'Notification':
 			if (e.notificationType === 'permission_prompt' || (!e.notificationType && /permission/i.test(e.message ?? ''))) {
 				// PermissionRequest came first and says more (the command itself): keep it. AskUserQuestion is shown
 				// through the permission prompt too, and stays the question it is.
-				return prev.need?.kind === 'approval' || prev.need?.source === 'ask' ? prev : need('approval', 'permission', e.message || 'Wants permission');
+				return prev.need?.kind === 'approval' || prev.need?.source === 'ask' ? prev : needBy('approval', 'permission', who ? `${who}: ${e.message || 'wants permission'}` : e.message || 'Wants permission');
 			}
 			if (e.notificationType === 'elicitation_dialog') {
 				return prev.need?.kind === 'question' ? prev : need('question', 'elicitation', e.message || 'A tool asks you for input');
@@ -242,4 +254,37 @@ export function notification(s: Rankable & { name: string }, o: { quiet: boolean
 	}
 	const text = s.need?.text;
 	return { message: `${s.name} ${SAY[kind]}${text ? `: ${text}` : ''}`, warn: kind === 'error' };
+}
+
+/** What one notification the notifier held back was about. */
+export interface DigestEntry {
+	session: string;
+	kind: AttentionKind;
+}
+
+/**
+ * One line for the notifications collected while the window was in the background: distinct sessions per kind, the
+ * latest entry of a session counting (a session that asked and then finished is one finished). Approvals and questions
+ * both block the agent, so they count together as "need you". Undefined when there is nothing to say.
+ */
+export function digestMessage(entries: DigestEntry[]): string | undefined {
+	const latest = new Map<string, AttentionKind>();
+	for (const e of entries) {
+		latest.set(e.session, e.kind);
+	}
+	const count = { need: 0, error: 0, done: 0 };
+	for (const kind of latest.values()) {
+		count[kind === 'approval' || kind === 'question' ? 'need' : kind]++;
+	}
+	const parts: string[] = [];
+	if (count.need) {
+		parts.push(`${count.need} ${count.need === 1 ? 'agent needs' : 'agents need'} you`);
+	}
+	if (count.error) {
+		parts.push(`${count.error} hit ${count.error === 1 ? 'an error' : 'errors'}`);
+	}
+	if (count.done) {
+		parts.push(`${count.done} finished`);
+	}
+	return parts.length ? parts.join(', ') : undefined;
 }

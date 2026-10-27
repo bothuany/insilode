@@ -7,23 +7,47 @@
  *  "Elsewhere" means the window is not focused, or the agent's terminal is not the active one. VS
  *  Code does not say whether the terminal panel itself is open, so an active terminal in a closed
  *  panel counts as seen.
+ *
+ *  Digest: while the window is not focused and flow.agents.notify.digestMinutes is above 0, notifications are
+ *  held back; the first one starts a timer, and when it fires ONE notification counts what happened. When the
+ *  window gets focus again the digest is dropped instead: the user is back and the dock shows everything.
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
 import type { Agents } from './agents';
-import { attentionKey, notification } from './attention';
+import { attentionKey, attentionKind, digestMessage, notification, type DigestEntry } from './attention';
 
 export class AttentionNotifier implements vscode.Disposable {
 	/** The attention each session was last notified (or seen) for, so a repeated hook is not news. */
 	private readonly last = new Map<string, string | undefined>();
 	private readonly sub: vscode.Disposable;
+	private readonly focusSub: vscode.Disposable;
+	private held: DigestEntry[] = [];
+	private timer: ReturnType<typeof setTimeout> | undefined;
 
 	constructor(private readonly agents: Agents) {
 		this.sub = agents.onDidChange(() => this.check());
+		this.focusSub = vscode.window.onDidChangeWindowState(w => w.focused && this.dropDigest());
 	}
 
 	dispose() {
 		this.sub.dispose();
+		this.focusSub.dispose();
+		this.dropDigest();
+	}
+
+	private dropDigest() {
+		clearTimeout(this.timer);
+		this.timer = undefined;
+		this.held = [];
+	}
+
+	private flushDigest() {
+		const message = digestMessage(this.held);
+		this.dropDigest();
+		if (message && !vscode.window.state.focused) {
+			void vscode.window.showInformationMessage(message, 'Show Agents').then(pick => pick && vscode.commands.executeCommand('workbench.view.extension.flowAgents'));
+		}
 	}
 
 	private check() {
@@ -36,6 +60,13 @@ export class AttentionNotifier implements vscode.Disposable {
 			this.last.set(s.id, key);
 			const n = notification(s, { quiet: config.get<boolean>('quiet', false), enabled: k => config.get<boolean>(k, true), watched: this.agents.isWatched(s.id) });
 			if (!n) {
+				continue;
+			}
+			const minutes = config.get<number>('digestMinutes', 5);
+			const kind = attentionKind(s);
+			if (!vscode.window.state.focused && minutes > 0 && kind) {
+				this.held.push({ session: s.id, kind });
+				this.timer ??= setTimeout(() => this.flushDigest(), minutes * 60_000);
 				continue;
 			}
 			const show = n.warn ? vscode.window.showWarningMessage : vscode.window.showInformationMessage;

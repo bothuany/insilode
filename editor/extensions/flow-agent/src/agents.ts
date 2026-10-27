@@ -1128,6 +1128,7 @@ export class Agents implements vscode.Disposable {
 		const att = nextAttention(this.attention.get(s.id) ?? { failures: 0 }, {
 			event, tool, input: p.tool_input, described: tool ? describe(tool, p.tool_input) : undefined,
 			notificationType: p.notification_type, message: p.message, error: p.error, errorDetails: p.error_details, lastMessage: p.last_assistant_message,
+			agentId: p.agent_id, agentType: p.agent_type,
 		}, Date.now());
 		this.attention.set(s.id, att);
 		const wasNeed = s.need;
