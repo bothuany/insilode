@@ -269,6 +269,9 @@ export class Agents implements vscode.Disposable {
 	private readonly turnEnded = new vscode.EventEmitter<AgentSession>();
 	/** A session's turn ended (Stop, StopFailure, or Claude's idle prompt): the moment queued work can be typed into it (see deliver). */
 	readonly onDidTurnEnd = this.turnEnded.event;
+	/** When each session's turn last ended, and when you last brought its terminal up: see deliver. */
+	private readonly turnEndedAt = new Map<string, number>();
+	private readonly lookedAt = new Map<string, number>();
 	private server: http.Server | undefined;
 	private port = 0;
 	private token = '';
@@ -803,6 +806,11 @@ export class Agents implements vscode.Disposable {
 		if (vscode.window.state.focused && vscode.window.activeTerminal === this.terminals.get(id)) {
 			return false;
 		}
+		// You went to its terminal since the turn ended: a half-typed prompt of yours may wait there, and what is typed now
+		// would be submitted with it. The work waits for the next turn end instead.
+		if ((this.lookedAt.get(id) ?? 0) > (this.turnEndedAt.get(id) ?? 0)) {
+			return false;
+		}
 		return this.typeInto(id, text, true, [], false);
 	}
 
@@ -974,6 +982,9 @@ export class Agents implements vscode.Disposable {
 
 	private seen(t: vscode.Terminal | undefined) {
 		for (const [id, term] of this.terminals) {
+			if (term === t) {
+				this.lookedAt.set(id, Date.now());
+			}
 			const s = this.sessions.get(id);
 			if (term === t && s?.unread && s.state !== 'blocked') {
 				s.unread = false;
@@ -1245,6 +1256,7 @@ export class Agents implements vscode.Disposable {
 		this.save();
 		this.changed.fire();
 		if (event === 'Stop' || event === 'StopFailure' || (event === 'Notification' && p.notification_type === 'idle_prompt')) {
+			this.turnEndedAt.set(s.id, Date.now());
 			this.turnEnded.fire(s);
 		}
 		return context;

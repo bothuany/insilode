@@ -28,6 +28,14 @@ export function isBot(login: string): boolean {
 	return /(\[bot\]|-bot)$/i.test(login);
 }
 
+/** Who may send the agent off with a review or a comment (GitHub's author association). */
+export const TRUSTED = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+
+/** A check's name as it may appear in the line: word characters and a few separators, at most 40. */
+export function checkName(name: string): string {
+	return name.replace(/[^w .:/()+-]/g, '').replace(/s+/g, ' ').trim().slice(0, 40) || 'a check';
+}
+
 /** A GitHub login as it may appear in the line: logins are [A-Za-z0-9-] (bots add [bot]); anything else is dropped. */
 function login(name: string | undefined): string {
 	return (name ?? '').replace(/[^A-Za-z0-9\-[\]]/g, '').slice(0, 40) || 'someone';
@@ -57,13 +65,18 @@ export class PrTracker {
 	private events(pr: PrState): PrEvent[] {
 		const out: PrEvent[] = [];
 		const oid = pr.headRefOid ?? '';
-		for (const name of pr.failing ?? []) {
-			out.push({ kind: 'checkFailed', key: `check:${oid}:${name}`, name, text: `CI failed (${name})` });
+		for (const raw of pr.failing ?? []) {
+			// A check's name is chosen by whoever wrote the workflow or the app reporting it, and goes into the prompt: kept to
+			// the characters names are made of, and short.
+			const name = checkName(raw);
+			out.push({ kind: 'checkFailed', key: `check:${oid}:${raw}`, name, text: `CI failed (${name})` });
 		}
 		if (pr.mergeable === 'CONFLICTING') {
 			out.push({ kind: 'conflict', key: `conflict:${oid}`, text: 'the branch has merge conflicts' });
 		}
-		const foreign = (n: PrNote) => !!n.author && !isBot(n.author) && n.author.toLowerCase() !== (pr.author ?? '').toLowerCase();
+		// Only people with a say in the repository can send the agent off: on a public repository anyone else can comment or
+		// review, and the agent goes on to read what they wrote (`gh pr view --comments`) as its next task.
+		const foreign = (n: PrNote) => !!n.author && !isBot(n.author) && n.author.toLowerCase() !== (pr.author ?? '').toLowerCase() && TRUSTED.has(n.association);
 		for (const r of pr.reviews ?? []) {
 			if (!foreign(r)) {
 				continue;

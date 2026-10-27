@@ -8,10 +8,10 @@
  *  Code does not say whether the terminal panel itself is open, so an active terminal in a closed
  *  panel counts as seen.
  *
- *  Digest: while the window is not focused and flow.agents.notify.digestMinutes is above 0, the first notification
- *  shows at once (an agent waiting for an approval must not wait minutes for you to hear of it) and starts a timer;
- *  what comes after is held back, and when the timer fires ONE notification counts it. When the window gets focus
- *  again the digest is dropped instead: the user is back and the dock shows everything.
+ *  Digest: while the window is not focused and flow.agents.notify.digestMinutes is above 0, finished turns and errors
+ *  are counted into one notification: the first shows at once and starts a timer, what follows is held back until it
+ *  fires. Approvals and questions are never held: an agent waiting for you must not wait minutes for you to hear of it.
+ *  When the window gets focus again the digest is dropped: the user is back and the dock shows everything.
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
@@ -65,7 +65,7 @@ export class AttentionNotifier implements vscode.Disposable {
 			}
 			const minutes = config.get<number>('digestMinutes', 5);
 			const kind = attentionKind(s);
-			if (!vscode.window.state.focused && minutes > 0 && kind) {
+			if (!vscode.window.state.focused && minutes > 0 && (kind === 'done' || kind === 'error')) {
 				if (this.timer) {
 					this.held.push({ session: s.id, kind });
 					continue;

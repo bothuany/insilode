@@ -342,7 +342,7 @@
           "default": 5,
           "minimum": 0,
           "maximum": 60,
-          "description": "While the window is in the background, collect agent notifications for this many minutes and show them as one (\"3 sessions need input, 2 finished\"). 0: show each one as it happens."
+          "description": "While the window is in the background, count finished turns and errors for this many minutes into one notification (\"3 agents finished, 1 error\"); the first one shows at once. Approvals and questions always show at once. 0: show each one as it happens."
         },
         "flow.agents.pr.autoSend": {
           "type": "boolean",

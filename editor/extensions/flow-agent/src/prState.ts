@@ -43,6 +43,8 @@ export interface PrNote {
 	author: string;
 	body: string;
 	state: string;
+	/** GitHub's word for how the author relates to the repository: OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, NONE, … */
+	association: string;
 }
 
 export const PR_FIELDS = 'number,state,isDraft,title,url,statusCheckRollup,reviewDecision,mergeable,headRefOid,comments,reviews,author';
@@ -73,7 +75,7 @@ function notes(v: unknown, review: boolean): PrNote[] {
 		const id = o && (typeof o.id === 'string' || typeof o.id === 'number') ? String(o.id) : '';
 		if (o && id) {
 			const a = o.author && typeof o.author === 'object' ? (o.author as Record<string, unknown>).login : undefined;
-			out.push({ id, author: str(a), body: str(o.body).slice(0, 1000), state: review ? str(o.state).toUpperCase() : '' });
+			out.push({ id, author: str(a), body: str(o.body).slice(0, 1000), state: review ? str(o.state).toUpperCase() : '', association: str(o.authorAssociation).toUpperCase() });
 		}
 	}
 	return out;
