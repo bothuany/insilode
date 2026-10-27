@@ -68,10 +68,12 @@ test('status, merge-tree and worktree list output', () => {
 
 test('the exclude line is added once, never twice', () => {
 	const once = w.withExclude('# git ls-files --others --exclude-from=.git/info/exclude\n*.tmp')
-	assert.match(once, /\*\.tmp\n# Insilode.*\n\/\.insilode\/\n$/)
+	assert.match(once, /\*\.tmp\n# Insilode.*\n\/\.insilode\/worktrees\/\n$/)
 	assert.equal(w.withExclude(once), undefined)
 	assert.equal(w.withExclude('.insilode/\n'), undefined)
-	assert.equal(w.withExclude(''), '# Insilode: agent worktrees (see flow-agent/src/worktrees.ts)\n/.insilode/\n')
+	assert.equal(w.withExclude(''), '# Insilode: agent worktrees (see flow-agent/src/worktrees.ts)\n/.insilode/worktrees/\n')
+	// The line older versions wrote under Insilode's note (all of .insilode) is narrowed, so .insilode/worktree.json can be committed.
+	assert.equal(w.withExclude('*.tmp\n# Insilode: agent worktrees (see flow-agent/src/worktrees.ts)\n/.insilode/\n'), '*.tmp\n# Insilode: agent worktrees (see flow-agent/src/worktrees.ts)\n/.insilode/worktrees/\n')
 })
 
 // ── A real repository: create, count, merge, refuse on a conflict, remove ─────────────────────────
@@ -104,7 +106,7 @@ test('create a worktree, count ahead and behind, fast-forward back, remove', asy
 	// By real path: the temp folder may be a short 8.3 name (Windows CI) or a link (/var on macOS), git prints the long one.
 	assert.equal(realpathSync.native(wt.path), realpathSync.native(resolve(dir, '.insilode', 'worktrees', 'claude-1')))
 	// Ignored through the shared exclude file: the main checkout stays clean.
-	assert.match(readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8'), /^\/\.insilode\/$/m)
+	assert.match(readFileSync(join(dir, '.git', 'info', 'exclude'), 'utf8'), /^\/\.insilode\/worktrees\/$/m)
 	assert.equal(run(dir, 'status', '--porcelain'), '')
 
 	commit(wt.path, 'b.txt', 'b\n', 'agent work')

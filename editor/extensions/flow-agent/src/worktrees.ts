@@ -47,7 +47,7 @@ export interface GitResult {
 
 /** The folder under a repository's root that holds Insilode's worktrees, and the line that git-ignores it. */
 export const WORKTREE_DIR = path.join('.insilode', 'worktrees');
-export const EXCLUDE_LINE = '/.insilode/';
+export const EXCLUDE_LINE = '/.insilode/worktrees/';
 
 /** A branch-safe slug: lower case letters, digits and dashes, at most 40 characters. */
 export function slugify(text: string): string {
@@ -167,14 +167,32 @@ export function parseWorktreeList(out: string): WorktreeEntry[] {
 	return list;
 }
 
-/** The exclude file with Insilode's line added, or undefined when it is there already. */
+/** The comment Insilode writes above its exclude line. */
+const EXCLUDE_NOTE = '# Insilode: agent worktrees (see flow-agent/src/worktrees.ts)';
+/** What Insilode excluded before .insilode/worktree.json existed: all of .insilode, which kept that file out of the repository. */
+const OLD_EXCLUDE_LINE = '/.insilode/';
+
+/**
+ * The exclude file with Insilode's line added, or undefined when it is there already. Only the worktrees are excluded, so
+ * the setup file next to them (.insilode/worktree.json) can be committed and shared. The line older versions wrote under
+ * Insilode's note (all of .insilode) is narrowed to the worktrees; a line you wrote yourself is left as it is.
+ */
 export function withExclude(text: string): string | undefined {
-	const lines = text.split(/\r?\n/).map(l => l.trim());
-	if (lines.includes(EXCLUDE_LINE) || lines.includes('.insilode/') || lines.includes('/.insilode') || lines.includes('.insilode')) {
+	const lines = text.split(/\r?\n/);
+	const trimmed = lines.map(l => l.trim());
+	if (trimmed.includes(EXCLUDE_LINE)) {
+		return undefined;
+	}
+	const old = trimmed.findIndex((l, i) => l === OLD_EXCLUDE_LINE && trimmed[i - 1] === EXCLUDE_NOTE);
+	if (old >= 0) {
+		lines[old] = EXCLUDE_LINE;
+		return lines.join('\n');
+	}
+	if (trimmed.includes('.insilode/') || trimmed.includes('/.insilode') || trimmed.includes('.insilode') || trimmed.includes(OLD_EXCLUDE_LINE)) {
 		return undefined;
 	}
 	const sep = text && !text.endsWith('\n') ? '\n' : '';
-	return `${text}${sep}# Insilode: agent worktrees (see flow-agent/src/worktrees.ts)\n${EXCLUDE_LINE}\n`;
+	return `${text}${sep}${EXCLUDE_NOTE}\n${EXCLUDE_LINE}\n`;
 }
 
 // ── Running git ──────────────────────────────────────────────────────────────────────────────────
