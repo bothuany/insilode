@@ -33,6 +33,7 @@ import { turnImpact } from './mcp/turnImpact';
 import { FlowPanel } from './panel';
 import { PolyIndex, PolyProvider, POLY_LANGUAGES } from './poly/client';
 import { RoslynProvider, type FlowProvider, type FlowTarget } from './providers';
+import { registerHarnessFlow } from './harnessFlowPanel';
 import { registerResolveNames } from './resolveNames';
 import { registerSelectionActions } from './selectionAi';
 import { playTourFile } from './tourFile';
@@ -426,7 +427,7 @@ function wireAgentBridge(flow: Flow) {
 		},
 	}, log);
 	context.subscriptions.push(
-		viewer, bridge, boardPanel, TypeService.get(log), skeleton,
+		viewer, bridge, boardPanel, TypeService.get(log), skeleton, registerHarnessFlow(context, log),
 		{ dispose: () => boards.setHost(undefined) },
 		// flow-agent calls these around an agent's work (see extensions/flow-agent/src/agents.ts); they never throw into the hook.
 		vscode.commands.registerCommand('flow.agent.plan', async (session: string, plan: string, planFile?: string) => {

@@ -127,8 +127,10 @@ interface HookPayload {
 	last_assistant_message?: string;
 	/** PostToolUseFailure: how long the tool ran. */
 	duration_ms?: number;
-	/** SubagentStop: which subagent finished. */
+	/** SubagentStop: which subagent finished; on other events, the subagent (or --agent) the hook fired in. */
 	agent_type?: string;
+	/** Set only when the hook fired inside a subagent or an in-process teammate: which one (Claude Code's common hook input). */
+	agent_id?: string;
 	/** The session's permission mode, on the events that carry it (default, plan, acceptEdits, auto, dontAsk, bypassPermissions). */
 	permission_mode?: string;
 }
@@ -264,6 +266,9 @@ export class Agents implements vscode.Disposable {
 	private readonly heard = new Set<string>();
 	private readonly changed = new vscode.EventEmitter<void>();
 	readonly onDidChange = this.changed.event;
+	private readonly turnEnded = new vscode.EventEmitter<AgentSession>();
+	/** A session's turn ended (Stop, StopFailure, or Claude's idle prompt): the moment queued work can be typed into it (see deliver). */
+	readonly onDidTurnEnd = this.turnEnded.event;
 	private server: http.Server | undefined;
 	private port = 0;
 	private token = '';
@@ -758,7 +763,7 @@ export class Agents implements vscode.Disposable {
 	 * here, at the moment of typing, not only when the target was chosen: a permission prompt may have come up meanwhile,
 	 * and a typed key can answer one. False when the session cannot take it now.
 	 */
-	typeInto(id: string, line: string, submit: boolean, customs: CustomCli[]): boolean {
+	typeInto(id: string, line: string, submit: boolean, customs: CustomCli[], reveal = true): boolean {
 		const t = this.terminals.get(id);
 		const s = this.askSessions().find(x => x.id === id);
 		// One line of plain characters, whoever built it: a file name or a method name may hold a line break or a terminal's escape or
@@ -767,7 +772,9 @@ export class Agents implements vscode.Disposable {
 		if (!t || !s || !canType(s, customs) || !typed) {
 			return false;
 		}
-		t.show();
+		if (reveal) {
+			t.show();
+		}
 		t.sendText(typed, false);
 		if (submit) {
 			// Claude Code takes a long line for a paste, and an Enter that arrives in the same write only adds a line to the draft
@@ -781,6 +788,22 @@ export class Agents implements vscode.Disposable {
 			}, SUBMIT_DELAY_MS);
 		}
 		return true;
+	}
+
+	/**
+	 * Types work Insilode queued for an agent (pull request news) and submits it, without bringing its terminal up. Only into
+	 * a Claude Code or Codex session that is at its prompt (done or idle), and never while you look at that terminal in the
+	 * focused window: you may be typing there. False when it cannot take it now; the caller keeps the work for the next turn end.
+	 */
+	deliver(id: string, text: string): boolean {
+		const s = this.sessions.get(id);
+		if (!s || (s.cli !== 'claude' && s.cli !== 'codex') || (s.state !== 'done' && s.state !== 'idle')) {
+			return false;
+		}
+		if (vscode.window.state.focused && vscode.window.activeTerminal === this.terminals.get(id)) {
+			return false;
+		}
+		return this.typeInto(id, text, true, [], false);
 	}
 
 	/** Resolves true once the session can take typed text (its first hook said it is at its prompt), false after `ms`. */
@@ -1220,6 +1243,9 @@ export class Agents implements vscode.Disposable {
 		}
 		this.save();
 		this.changed.fire();
+		if (event === 'Stop' || event === 'StopFailure' || (event === 'Notification' && p.notification_type === 'idle_prompt')) {
+			this.turnEnded.fire(s);
+		}
 		return context;
 	}
 
@@ -1728,6 +1754,7 @@ export class Agents implements vscode.Disposable {
 		this.watchers.forEach(w => w.close());
 		this.titleTimers.forEach(clearTimeout);
 		this.changed.dispose();
+		this.turnEnded.dispose();
 		this.disposables.forEach(d => d.dispose());
 	}
 }
