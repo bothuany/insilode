@@ -20,6 +20,7 @@
       "Edit(./editor/vscode/**)"
     ]
   },
+  "worktree": { "baseRef": "head" },
   "hooks": {
     "PreToolUse": [
       {
@@ -31,6 +32,18 @@
       {
         "matcher": "Edit|Write|MultiEdit",
         "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/indent-check.mjs\"", "timeout": 10 }]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "^implementer$",
+        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/implementer-gate.mjs\"", "timeout": 30 }]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "^implementer$",
+        "hooks": [{ "type": "command", "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/implementer-gate.mjs\"", "timeout": 300 }]
       }
     ],
     "Stop": [
