@@ -173,3 +173,31 @@ test('no worktree outside a repository, from a folder below its top, or on a det
 	run(dir, 'checkout', '-q', '--detach')
 	await assert.rejects(w.createWorktree(dir, 'x'), /detached/)
 })
+
+test('a plain removal is refused before the teardown hook runs; a rollback skips the hook', async () => {
+	assert.equal(w.removalRefusal(undefined), undefined)
+	assert.equal(w.removalRefusal([]), undefined)
+	assert.match(w.removalRefusal(['a']), /1 uncommitted change$/)
+	assert.match(w.removalRefusal(['a', 'b']), /2 uncommitted changes$/)
+	const dir = repo()
+	const wt = await w.createWorktree(dir, 'hook-1')
+	let calls = 0
+	w.worktreeHooks.beforeRemove = async () => { calls++ }
+	try {
+		writeFileSync(join(wt.path, 'scratch.txt'), 'x')
+		assert.equal((await w.removeWorktree(wt, false)).ok, false)
+		assert.equal(calls, 0)
+		assert.deepEqual(await w.removeWorktree(wt, true, { skipTeardown: true }), { ok: true })
+		assert.equal(calls, 0)
+		const wt2 = await w.createWorktree(dir, 'hook-2')
+		assert.deepEqual(await w.removeWorktree(wt2, false), { ok: true })
+		assert.equal(calls, 1)
+		// A setup that fails rolls the worktree back without teardown.
+		w.worktreeHooks.created = async () => { throw new Error('setup failed') }
+		await assert.rejects(w.createWorktree(dir, 'hook-3'), /setup failed/)
+		assert.equal(calls, 1)
+	} finally {
+		w.worktreeHooks.beforeRemove = undefined
+		w.worktreeHooks.created = undefined
+	}
+})

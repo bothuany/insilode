@@ -9,6 +9,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { spawn } from 'child_process';
+import { createHash } from 'crypto';
 import { constants, existsSync, promises as fs } from 'fs';
 import * as path from 'path';
 
@@ -108,14 +109,30 @@ const inside = (base: string, target: string) => {
 	return !!rel && !rel.startsWith('..') && !path.isAbsolute(rel);
 };
 
+/** The real path of the nearest folder at or above `dir` that exists: where a file written to `dir` would really land. */
+async function nearestRealAncestor(dir: string): Promise<string> {
+	for (let d = dir; ; d = path.dirname(d)) {
+		try {
+			return await fs.realpath(d);
+		} catch (e) {
+			if (path.dirname(d) === d) {
+				throw e;
+			}
+		}
+	}
+}
+
 /**
  * Copies the listed files from the main checkout into the worktree. Only regular files: a link in the main checkout is
- * not followed, a file the worktree has already (a tracked one) is left alone, and nothing is written outside the
- * worktree even when a folder in it is a link. Returns what was done, a line per entry, for the log.
+ * not followed (also not a folder that is a link: the real path of the file must stay inside the main checkout), a file
+ * the worktree has already (a tracked one) is left alone, and nothing is created or written outside the worktree even
+ * when a folder in it is a link. Returns what was done, a line per entry, for the log.
  */
 export async function copyIntoWorktree(root: string, worktree: string, entries: string[]): Promise<string[]> {
 	const log: string[] = [];
 	const realWorktree = await fs.realpath(worktree);
+	const realRoot = await fs.realpath(root);
+	const within = (base: string, target: string) => target === base || inside(base, target);
 	for (const entry of entries) {
 		const problem = copyPathProblem(entry);
 		if (problem) {
@@ -137,6 +154,16 @@ export async function copyIntoWorktree(root: string, worktree: string, entries: 
 			log.push(`copy ${entry}: skipped, not a regular file`);
 			continue;
 		}
+		const realFrom = await fs.realpath(from).catch(() => undefined);
+		if (!realFrom || !inside(realRoot, realFrom)) {
+			log.push(`copy ${entry}: skipped, it leads out of the main checkout`);
+			continue;
+		}
+		// Before anything is created: where the destination folder would really be made.
+		if (!within(realWorktree, await nearestRealAncestor(path.dirname(to)))) {
+			log.push(`copy ${entry}: skipped, its folder leads out of the worktree`);
+			continue;
+		}
 		await fs.mkdir(path.dirname(to), { recursive: true });
 		if (!inside(realWorktree, path.join(await fs.realpath(path.dirname(to)), path.basename(to)))) {
 			log.push(`copy ${entry}: skipped, its folder leads out of the worktree`);
@@ -150,6 +177,28 @@ export async function copyIntoWorktree(root: string, worktree: string, entries: 
 		}
 	}
 	return log;
+}
+
+// ── Consent: what may run, and when to ask first ─────────────────────────────────────────────────
+
+/** A fingerprint of what the setup file can make run or copy; the same lists give the same hash. */
+export function setupHash(config: SetupConfig): string {
+	return createHash('sha256').update(JSON.stringify([config.copy, config.setup, config.teardown])).digest('hex');
+}
+
+/** True when this file version still needs the user's yes: it is new to this repository or it changed since the last yes. */
+export const needsApproval = (approvedHash: string | undefined, config: SetupConfig) => approvedHash !== setupHash(config);
+
+/** The commands as the user would type them, one per line, for a question. */
+export const commandLines = (list: string[][]) => list.map(c => c.join(' ')).join('\n');
+
+/**
+ * Whether commands about to run in an existing worktree must be confirmed first. The first setup runs right after checkout,
+ * when the worktree equals the base commit; later (teardown, a setup run again) it may hold what the agent edited, such as
+ * package.json scripts, so any commit ahead or any change not committed asks. What is unknown counts as changed.
+ */
+export function worktreeDiffers(facts: { ahead: number | undefined; changed: number | undefined }): boolean {
+	return facts.ahead === undefined || facts.changed === undefined || facts.ahead > 0 || facts.changed > 0;
 }
 
 // ── Running commands ─────────────────────────────────────────────────────────────────────────────

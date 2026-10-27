@@ -8,15 +8,93 @@
  *  No terminal is shown and no focus is taken: the output goes to the "Insilode Worktrees" log.
  *--------------------------------------------------------------------------------------------*/
 
+import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { Agents, AgentSession } from './agents';
 import { classify, recheck, type WorktreeFacts } from './worktreeSafety';
-import { readSetupConfig, runSetup, runTeardown } from './worktreeSetup';
-import { changedFiles, git, parseWorktreeList, removeWorktree, repoInfo, sameDir, validBranch, worktreeHooks, WORKTREE_DIR, type Worktree } from './worktrees';
+import { commandLines, needsApproval, readSetupConfig, runSetup, runTeardown, setupHash, SETUP_FILE, worktreeDiffers, type SetupConfig } from './worktreeSetup';
+import { changedFiles, commonDirArgs, git, parseWorktreeList, removeWorktree, repoInfo, sameDir, validBranch, worktreeHooks, WORKTREE_DIR, type Worktree } from './worktrees';
 
 let channel: vscode.LogOutputChannel | undefined;
 const log = (line: string) => (channel ??= vscode.window.createOutputChannel('Insilode Worktrees', { log: true })).info(line);
+
+// ── Consent ──────────────────────────────────────────────────────────────────────────────────────
+
+/** Which version of a repository's setup file the user said yes to: a hash per main checkout. */
+export interface ApprovalStore {
+	get(root: string): Promise<string | undefined>;
+	set(root: string, hash: string): Promise<void>;
+}
+
+/** Where the git folder of a main checkout keeps the answers, when the extension handed over no store of its own. */
+async function approvalFile(root: string): Promise<string | undefined> {
+	const common = await git(root, commonDirArgs());
+	return common.code === 0 ? path.join(path.resolve(root, common.stdout.trim()), 'insilode-worktree-setup-approved.json') : undefined;
+}
+
+async function readApprovals(root: string): Promise<Record<string, string>> {
+	const file = await approvalFile(root);
+	try {
+		return file ? JSON.parse(await fs.readFile(file, 'utf8')) : {};
+	} catch {
+		return {};
+	}
+}
+
+/** The default: a file in the repository's own git folder, so it is never part of a pull and an agent's branch cannot carry it. */
+const gitDirStore: ApprovalStore = {
+	get: async root => {
+		const v = (await readApprovals(root))[path.resolve(root)];
+		return typeof v === 'string' ? v : undefined;
+	},
+	set: async (root, hash) => {
+		const file = await approvalFile(root);
+		if (file) {
+			await fs.writeFile(file, JSON.stringify({ ...(await readApprovals(root)), [path.resolve(root)]: hash }));
+		}
+	},
+};
+
+let approvals: ApprovalStore = gitDirStore;
+
+/** For the extension's activation: keep the approvals in the extension's own storage instead. */
+export function useApprovalStore(store: ApprovalStore): void {
+	approvals = store;
+}
+
+/** An approval store over a Memento such as context.globalState. */
+export const mementoApprovals = (m: vscode.Memento, key = 'flow.agents.worktreeSetupApproved'): ApprovalStore => ({
+	get: async root => m.get<Record<string, string>>(key, {})[path.resolve(root)],
+	set: async (root, hash) => m.update(key, { ...m.get<Record<string, string>>(key, {}), [path.resolve(root)]: hash }),
+});
+
+/**
+ * Whether the setup file's commands may run: not before the user said yes to this version of the file (one that arrived
+ * by git pull is new), and, when the worktree already exists (`existing`) and is not where it was cut, not before they
+ * confirmed that these commands run code from the agent's branch. `commands` are the ones about to run.
+ */
+async function mayRun(wt: Worktree, config: SetupConfig, commands: string[][], existing: boolean): Promise<boolean> {
+	if (needsApproval(await approvals.get(wt.root), config)) {
+		const all = [...config.copy.map(c => `copy ${c}`), commandLines(config.setup), commandLines(config.teardown)].filter(Boolean).join('\n');
+		const pick = await vscode.window.showWarningMessage(`Insilode: run this worktree setup from ${SETUP_FILE}?\n${all}`, 'Always for this version', 'Not now');
+		if (pick !== 'Always for this version') {
+			log('The setup file was not approved; its commands did not run');
+			return false;
+		}
+		await approvals.set(wt.root, setupHash(config)).catch(e => log(`Could not remember the approval: ${(e as Error).message}`));
+	}
+	if (!existing) {
+		return true;
+	}
+	const ahead = await git(wt.root, ['rev-list', '--count', `${wt.base}..refs/heads/${wt.branch}`]);
+	const facts = { ahead: ahead.code === 0 ? Number(ahead.stdout.trim()) : undefined, changed: (await changedFiles(wt.path))?.length };
+	if (!worktreeDiffers(facts)) {
+		return true;
+	}
+	const pick = await vscode.window.showWarningMessage(`Insilode: these commands run code from the agent's branch: ${commandLines(commands)}`, 'Run', 'Skip');
+	return pick === 'Run';
+}
 
 // ── Setup file hooks ─────────────────────────────────────────────────────────────────────────────
 
@@ -26,6 +104,9 @@ const tornDown = new Map<string, number>();
 worktreeHooks.created = async wt => {
 	const found = await setupFor(wt);
 	if (!found) {
+		return;
+	}
+	if (!('errors' in found) && (found.config.copy.length || found.config.setup.length) && !(await mayRun(wt, found.config, found.config.setup, false))) {
 		return;
 	}
 	log(`Setting up ${wt.path}`);
@@ -48,6 +129,10 @@ worktreeHooks.beforeRemove = async wt => {
 	tornDown.set(wt.path, Date.now());
 	const found = await setupFor(wt);
 	if (!found || 'errors' in found || !found.config.teardown.length) {
+		return;
+	}
+	if (!(await mayRun(wt, found.config, found.config.teardown, true))) {
+		log(`Teardown skipped in ${wt.path}`);
 		return;
 	}
 	log(`Teardown in ${wt.path}`);
@@ -86,6 +171,9 @@ export async function runWorktreeSetup(agents: Agents): Promise<void> {
 	}
 	if ('errors' in found) {
 		void vscode.window.showErrorMessage(`Insilode: .insilode/worktree.json: ${found.errors.join('; ')}`);
+		return;
+	}
+	if (!(await mayRun(wt, found.config, found.config.setup, true))) {
 		return;
 	}
 	const r = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: `Insilode: setting up ${wt.branch}` }, () => runSetup(wt.root, wt.path, found.config, log));
