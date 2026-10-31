@@ -76,10 +76,10 @@ test('mcp-protocol: initialize echoes the client protocol version and offers too
 	assert.equal(s.lines.length, 2, 'a notification gets no answer')
 })
 
-test('mcp-protocol: tools/list has the seventeen tools, each annotated read-only with a schema', async () => {
+test('mcp-protocol: tools/list has the eighteen tools, each annotated read-only with a schema', async () => {
 	const s = session({ INSILODE_BRIDGE_DIR: temp('insilode-empty-') })
 	const { result } = await s.send('tools/list')
-	assert.deepEqual(result.tools.map(t => t.name), ['open', 'open_diff', 'get_diagnostics', 'find_symbol', 'go_to_definition', 'find_references', 'find_entry_points', 'show_flow', 'flow_text', 'impact', 'get_context', 'draw_board', 'board_from_code', 'update_board', 'tour', 'check_skeleton', 'tour_control'])
+	assert.deepEqual(result.tools.map(t => t.name), ['open', 'open_diff', 'get_diagnostics', 'find_symbol', 'go_to_definition', 'find_references', 'find_entry_points', 'show_flow', 'flow_text', 'impact', 'get_context', 'draw_board', 'board_from_code', 'update_board', 'tour', 'check_skeleton', 'tour_control', 'search_sessions'])
 	for (const t of result.tools) {
 		assert.equal(t.inputSchema.type, 'object', t.name)
 		assert.equal(t.annotations.readOnlyHint, true, t.name)

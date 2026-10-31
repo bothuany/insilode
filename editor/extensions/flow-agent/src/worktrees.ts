@@ -14,6 +14,7 @@
 import { execFile } from 'child_process';
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { unlinkAll } from './worktreeSafety';
 
 /** What a session started in a worktree remembers about it. */
 export interface Worktree {
@@ -27,6 +28,17 @@ export interface Worktree {
 	root: string;
 }
 
+/**
+ * Steps the vscode side adds around a worktree's life (worktreeCleanup.ts: the repository's setup file, which needs the
+ * workspace trust and dialogs), so this file stays free of vscode and agents.ts keeps calling the same two functions.
+ */
+export const worktreeHooks: {
+	/** After `git worktree add`, before the agent starts. Throwing stops the start and the worktree is removed again. */
+	created?: (wt: Worktree) => Promise<void>;
+	/** Before removal. A failure is the hook's to report; removal goes on. */
+	beforeRemove?: (wt: Worktree) => Promise<void>;
+} = {};
+
 export interface GitResult {
 	code: number;
 	stdout: string;
@@ -35,7 +47,7 @@ export interface GitResult {
 
 /** The folder under a repository's root that holds Insilode's worktrees, and the line that git-ignores it. */
 export const WORKTREE_DIR = path.join('.insilode', 'worktrees');
-export const EXCLUDE_LINE = '/.insilode/';
+export const EXCLUDE_LINE = '/.insilode/worktrees/';
 
 /** A branch-safe slug: lower case letters, digits and dashes, at most 40 characters. */
 export function slugify(text: string): string {
@@ -155,14 +167,32 @@ export function parseWorktreeList(out: string): WorktreeEntry[] {
 	return list;
 }
 
-/** The exclude file with Insilode's line added, or undefined when it is there already. */
+/** The comment Insilode writes above its exclude line. */
+const EXCLUDE_NOTE = '# Insilode: agent worktrees (see flow-agent/src/worktrees.ts)';
+/** What Insilode excluded before .insilode/worktree.json existed: all of .insilode, which kept that file out of the repository. */
+const OLD_EXCLUDE_LINE = '/.insilode/';
+
+/**
+ * The exclude file with Insilode's line added, or undefined when it is there already. Only the worktrees are excluded, so
+ * the setup file next to them (.insilode/worktree.json) can be committed and shared. The line older versions wrote under
+ * Insilode's note (all of .insilode) is narrowed to the worktrees; a line you wrote yourself is left as it is.
+ */
 export function withExclude(text: string): string | undefined {
-	const lines = text.split(/\r?\n/).map(l => l.trim());
-	if (lines.includes(EXCLUDE_LINE) || lines.includes('.insilode/') || lines.includes('/.insilode') || lines.includes('.insilode')) {
+	const lines = text.split(/\r?\n/);
+	const trimmed = lines.map(l => l.trim());
+	if (trimmed.includes(EXCLUDE_LINE)) {
+		return undefined;
+	}
+	const old = trimmed.findIndex((l, i) => l === OLD_EXCLUDE_LINE && trimmed[i - 1] === EXCLUDE_NOTE);
+	if (old >= 0) {
+		lines[old] = EXCLUDE_LINE;
+		return lines.join('\n');
+	}
+	if (trimmed.includes('.insilode/') || trimmed.includes('/.insilode') || trimmed.includes('.insilode') || trimmed.includes(OLD_EXCLUDE_LINE)) {
 		return undefined;
 	}
 	const sep = text && !text.endsWith('\n') ? '\n' : '';
-	return `${text}${sep}# Insilode: agent worktrees (see flow-agent/src/worktrees.ts)\n${EXCLUDE_LINE}\n`;
+	return `${text}${sep}${EXCLUDE_NOTE}\n${EXCLUDE_LINE}\n`;
 }
 
 // ── Running git ──────────────────────────────────────────────────────────────────────────────────
@@ -249,7 +279,16 @@ export async function createWorktree(cwd: string, slug: string): Promise<Worktre
 	if (r.code !== 0) {
 		throw new Error(firstLine(r));
 	}
-	return { path: dir, branch: newBranch, base: info.branch, root: info.root };
+	const wt = { path: dir, branch: newBranch, base: info.branch, root: info.root };
+	if (worktreeHooks.created) {
+		try {
+			await worktreeHooks.created(wt);
+		} catch (e) {
+			await removeWorktree(wt, true, { skipTeardown: true }); // a failed setup is no reason to run teardown commands; no half-made worktree is left behind; its branch stays, empty of work
+			throw e;
+		}
+	}
+	return wt;
 }
 
 export async function aheadBehind(wt: Worktree): Promise<{ ahead: number; behind: number } | undefined> {
@@ -315,7 +354,34 @@ export async function merge(wt: Worktree, kind: 'fast-forward' | 'merge'): Promi
 	return { ok: false, reason: `${firstLine(r)}${kind === 'merge' ? ' (the merge was aborted; nothing changed)' : ''}` };
 }
 
-export async function removeWorktree(wt: Worktree, force: boolean): Promise<{ ok: true } | { ok: false; reason: string }> {
+/** Why a plain (not forced) removal is refused up front: git refuses a worktree with changes, so nothing may run before. */
+export function removalRefusal(changed: string[] | undefined): string | undefined {
+	return changed?.length ? `the worktree has ${changed.length} uncommitted change${changed.length === 1 ? '' : 's'}` : undefined;
+}
+
+/**
+ * Removes the worktree folder: the teardown commands first, then every link in it is unlinked and checked to be gone,
+ * and only then git deletes the folder. `git worktree remove --force` on Git for Windows follows junctions and symlinks
+ * and deletes what they point at (the main checkout's node_modules once); see worktreeSafety.ts.
+ */
+export async function removeWorktree(wt: Worktree, force: boolean, opts: { skipTeardown?: boolean } = {}): Promise<{ ok: true } | { ok: false; reason: string }> {
+	// Git would refuse a plain removal of a dirty worktree after the teardown has run and the links are gone: ask first.
+	if (!force) {
+		const refusal = removalRefusal(await changedFiles(wt.path));
+		if (refusal) {
+			return { ok: false, reason: refusal };
+		}
+	}
+	if (!opts.skipTeardown) {
+		await worktreeHooks.beforeRemove?.(wt).catch(() => undefined);
+	}
+	try {
+		await unlinkAll(wt.path);
+	} catch (e) {
+		if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+			return { ok: false, reason: (e as Error).message };
+		}
+	}
 	const r = await git(wt.root, removeArgs(wt.path, force), 60_000);
 	return r.code === 0 ? { ok: true } : { ok: false, reason: firstLine(r) };
 }

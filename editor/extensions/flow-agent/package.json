@@ -184,6 +184,18 @@
         "icon": "$(git-branch)"
       },
       {
+        "command": "flow.agents.cleanupWorktrees",
+        "title": "Clean Up Agent Worktrees…",
+        "category": "Insilode",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "flow.agents.runWorktreeSetup",
+        "title": "Run Worktree Setup Again",
+        "category": "Insilode",
+        "icon": "$(tools)"
+      },
+      {
         "command": "flow.agents.resume",
         "title": "Resume a Claude Session…",
         "category": "Insilode",
@@ -324,6 +336,49 @@
           "type": "boolean",
           "default": false,
           "description": "Quiet mode: no agent notifications at all. The Agents dock still ranks and marks what needs you."
+        },
+        "flow.agents.notify.digestMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "maximum": 60,
+          "description": "While the window is in the background, count finished turns and errors for this many minutes into one notification (\"3 agents finished, 1 error\"); the first one shows at once. Approvals and questions always show at once. 0: show each one as it happens."
+        },
+        "flow.agents.pr.autoSend": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "When the pull request of an agent's branch has news (see `#flow.agents.pr.events#`), type it into the agent once its turn ends, so it starts working on it. **Each message starts a turn and spends tokens.** At most `#flow.agents.pr.maxAutoSends#` a day per pull request; after that the agent's row offers a button instead. Terminal agents only."
+        },
+        "flow.agents.pr.events": {
+          "type": "object",
+          "default": {
+            "checkFailed": true,
+            "changesRequested": true,
+            "conflict": true,
+            "comment": false,
+            "review": false
+          },
+          "properties": {
+            "checkFailed": { "type": "boolean", "description": "A CI check failed." },
+            "changesRequested": { "type": "boolean", "description": "A reviewer requested changes." },
+            "conflict": { "type": "boolean", "description": "The pull request conflicts with its base branch." },
+            "comment": { "type": "boolean", "description": "Someone other than the author or a bot commented." },
+            "review": { "type": "boolean", "description": "A review was submitted (approved or commented)." }
+          },
+          "additionalProperties": false,
+          "description": "Which pull request events are sent to the agent working on that branch."
+        },
+        "flow.agents.pr.maxAutoSends": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "description": "The most pull request messages sent to an agent automatically per pull request per day, so a fix that keeps failing CI cannot spend tokens all night. 0: never send automatically, only offer a button."
+        },
+        "flow.agents.pr.pollSeconds": {
+          "type": "number",
+          "default": 120,
+          "minimum": 30,
+          "description": "How often an open pull request of an agent's branch is asked for news (CI, reviews, conflicts) through the GitHub CLI."
         },
         "flow.agents.avatar": {
           "type": "string",
@@ -529,7 +584,7 @@
         "flow.agents.worktree": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Start each new Claude Code and Codex agent in a git worktree of its own: a checkout under `.insilode/worktrees/<name>` on a new branch `insilode/<name>`, cut from the branch you are on. Agents working in parallel then never write over each other's files; the agent's row shows the branch, how far it is ahead of and behind its base, and buttons to open it, show its changes in flow, merge it back and remove it. Insilode git-ignores `.insilode/` in the repository's `.git/info/exclude`. Off: agents work in this checkout (\"Other…\" in the Agents dock still offers a worktree)."
+          "markdownDescription": "Start each new Claude Code and Codex agent in a git worktree of its own: a checkout under `.insilode/worktrees/<name>` on a new branch `insilode/<name>`, cut from the branch you are on. Agents working in parallel then never write over each other's files; the agent's row shows the branch, how far it is ahead of and behind its base, and buttons to open it, show its changes in flow, merge it back and remove it. Insilode git-ignores `.insilode/worktrees/` in the repository's `.git/info/exclude`. A committed `.insilode/worktree.json` sets each new worktree up (files to copy such as `.env`, commands to run such as `npm ci`, as argument lists) in a trusted workspace. Off: agents work in this checkout (\"Other…\" in the Agents dock still offers a worktree)."
         },
         "flow.agents.codexHooks": {
           "type": "boolean",

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "build": "vite build -c vite.webview.config.ts && vite build -c vite.board.config.ts",
+    "build": "vite build -c vite.webview.config.ts && vite build -c vite.board.config.ts && vite build -c vite.harness.config.ts",
     "typecheck": "tsc --noEmit",
     "test": "node --test \"test/*.test.mjs\"",
     "dev": "vite -c vite.webview.config.ts"

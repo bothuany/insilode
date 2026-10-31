@@ -156,6 +156,11 @@
         "category": "Insilode"
       },
       {
+        "command": "flow.showHarnessFlow",
+        "title": "Harness Flow",
+        "category": "Insilode"
+      },
+      {
         "command": "flow.skeleton.revert",
         "title": "Revert an Agent's Change to Your Declaration",
         "category": "Insilode"

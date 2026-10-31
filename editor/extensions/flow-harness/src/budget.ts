@@ -61,10 +61,12 @@ export function until(resetsAt: number, now: number): string {
 	return `${Math.floor(hours / 24)} days ${hours % 24} h`;
 }
 
+export const windowName = (w: LimitWindow) => w.label === '5h' ? '5-hour limit' : w.label === 'wk' ? 'Weekly limit' : `${w.label} limit`;
+
 /** One line per window for the tooltip: what is used, what is left, and when it starts over. */
 export function limitLines(l: HarnessLimits, now: number, time: (ms: number) => string): string[] {
 	return l.windows.map(w => {
-		const name = w.label === '5h' ? '5-hour limit' : w.label === 'wk' ? 'Weekly limit' : `${w.label} limit`;
+		const name = windowName(w);
 		const used = Math.round(w.usedPercent);
 		const reset = w.resetsAt ? `, resets ${time(w.resetsAt)} (in ${until(w.resetsAt, now)})` : '';
 		return `${name}: ${used}% used, ${100 - used}% left${reset}`;
@@ -82,8 +84,55 @@ export function liveWindows(l: HarnessLimits, receivedAt: number, now: number): 
 	return l.windows.filter(w => w.resetsAt ? w.resetsAt > now : now - receivedAt < UNDATED_TTL_MS);
 }
 
+export type Level = 'ok' | 'warn' | 'high';
+
+/** The share used at which a limit is worth a look (`warn`) and at which it is close (`high`). */
+export const WARN_AT = 75;
+export const HIGH_AT = 90;
+
+/** One window's level: the status bar colour and the notifications both read it, so the thresholds live here. */
+export function windowLevel(usedPercent: number): Level {
+	return usedPercent >= HIGH_AT ? 'high' : usedPercent >= WARN_AT ? 'warn' : 'ok';
+}
+
 /** The worst window decides the colour: past 90% the limit is close, past 75% worth a look. */
-export function limitLevel(l: HarnessLimits): 'ok' | 'warn' | 'high' {
-	const top = Math.max(...l.windows.map(w => w.usedPercent));
-	return top >= 90 ? 'high' : top >= 75 ? 'warn' : 'ok';
+export function limitLevel(l: HarnessLimits): Level {
+	return windowLevel(Math.max(...l.windows.map(w => w.usedPercent)));
+}
+
+export interface LimitAlert {
+	level: 'warn' | 'high';
+	message: string;
+}
+
+/**
+ * The notifications a report calls for. `seen` maps `harness|window|resetsAt|level` to the reset time (0 when the window has
+ * none) and is updated here: a window alerts once per level, a new window (a new reset time) alerts again, and keys whose reset
+ * has passed are dropped. A jump straight past 90% says only the 90% thing, and counts the 75% one as told.
+ */
+export function dueAlerts(l: HarnessLimits, seen: Map<string, number>, now: number): LimitAlert[] {
+	for (const [key, resetsAt] of seen) {
+		if (resetsAt && resetsAt <= now) {
+			seen.delete(key);
+		}
+	}
+	const out: LimitAlert[] = [];
+	for (const w of l.windows) {
+		const level = windowLevel(w.usedPercent);
+		if (level === 'ok' || (w.resetsAt && w.resetsAt <= now)) {
+			continue;
+		}
+		const base = `${l.harness}|${w.label}|${w.resetsAt ?? 0}`;
+		const warnKey = `${base}|warn`, highKey = `${base}|high`;
+		const told = seen.has(level === 'high' ? highKey : warnKey);
+		seen.set(warnKey, w.resetsAt ?? 0);
+		if (level === 'high') {
+			seen.set(highKey, w.resetsAt ?? 0);
+		}
+		if (!told) {
+			const reset = w.resetsAt ? `, resets in ${until(w.resetsAt, now)}` : '';
+			out.push({ level, message: `${short(l.harness)}: ${windowName(w)} at ${Math.round(w.usedPercent)}%${reset}` });
+		}
+	}
+	return out;
 }

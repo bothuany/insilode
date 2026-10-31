@@ -1,7 +1,6 @@
 {
 	"extends": "../../vscode/extensions/tsconfig.base.json",
 	"compilerOptions": {
-		"rootDir": "./src",
 		"noEmit": true,
 		"module": "preserve",
 		"moduleResolution": "bundler",

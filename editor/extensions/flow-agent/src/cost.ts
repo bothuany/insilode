@@ -8,7 +8,8 @@
  *  - Claude Code writes one transcript line per content block of an assistant message, each with the
  *    whole message's `usage`: lines are counted once per `message.id`. `output_tokens` already holds
  *    the thinking tokens, and `iterations[]` repeats the same numbers, so neither is added again.
- *    Subagents write transcripts of their own: these totals are the main agent's.
+ *    Subagents write transcripts of their own, `<session>/subagents/agent-<id>.jsonl`: a ledger of its own
+ *    counts those (SubagentTotals), apart from the main agent's, and a message is counted once across them.
  *  - Codex's rollout has `token_count` events whose `info.total_token_usage` is the running total;
  *    its `input_tokens` include the cached ones, given again as `cached_input_tokens`.
  *
@@ -20,6 +21,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { promises as fs } from 'fs';
+import * as path from 'path';
 
 export interface Tokens {
 	/** Fresh input, not read from or written to the cache. */
@@ -49,6 +51,8 @@ export interface SessionCost {
 	 * start, so `session` then holds the tokens since the start too, and this the earlier ones.
 	 */
 	earlier?: Tokens;
+	/** What the session's subagents used, counted apart from `session`; absent when there are none. */
+	subagents?: Tokens;
 }
 
 export const ZERO: Tokens = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
@@ -112,6 +116,38 @@ export class ClaudeLedger {
 			if (this.since !== undefined && Date.parse(e.timestamp ?? '') < this.since) {
 				this.earlier = addTokens(this.earlier, add);
 			}
+		}
+	}
+}
+
+/** The transcripts of a Claude session's subagents: `<transcript without .jsonl>/subagents/agent-*.jsonl`. */
+export const subagentDir = (transcript: string) => path.join(transcript.replace(/\.jsonl$/i, ''), 'subagents');
+
+/** Reads every subagent transcript incrementally and counts each assistant message once, across files too. */
+export class SubagentTotals {
+	private readonly ledger = new ClaudeLedger();
+	private readonly readers = new Map<string, TranscriptReader>();
+
+	get tokens(): Tokens {
+		return this.ledger.tokens;
+	}
+
+	/** Picks up new subagent files and what the known ones gained. */
+	async update(transcript: string): Promise<void> {
+		const dir = subagentDir(transcript);
+		let names: string[];
+		try {
+			names = await fs.readdir(dir);
+		} catch {
+			return; // no subagent has run
+		}
+		for (const n of names) {
+			if (/^agent-.+\.jsonl$/.test(n) && !this.readers.has(n)) {
+				this.readers.set(n, new TranscriptReader(path.join(dir, n)));
+			}
+		}
+		for (const r of this.readers.values()) {
+			await r.each(lines => this.ledger.feed(lines));
 		}
 	}
 }
@@ -217,6 +253,7 @@ export class CostTracker {
 	private readonly ledger = new ClaudeLedger();
 	private codex: Tokens | undefined;
 	private reader: TranscriptReader | undefined;
+	private subagents = new SubagentTotals();
 	private usd: number | undefined;
 	private base: Spend | undefined;
 
@@ -229,6 +266,7 @@ export class CostTracker {
 		}
 		if (this.reader?.file !== file) {
 			this.reader = new TranscriptReader(file);
+			this.subagents = new SubagentTotals();
 		}
 		await this.reader.each(lines => {
 			if (this.cli === 'codex') {
@@ -237,6 +275,9 @@ export class CostTracker {
 				this.ledger.feed(lines);
 			}
 		});
+		if (this.cli === 'claude') {
+			await this.subagents.update(file).catch(() => undefined);
+		}
 	}
 
 	/**
@@ -274,13 +315,15 @@ export class CostTracker {
 			return undefined;
 		}
 		const earlier = this.cli === 'claude' && totalTokens(this.ledger.earlier) ? this.ledger.earlier : undefined;
+		const subagents = this.cli === 'claude' && totalTokens(this.subagents.tokens) ? { ...this.subagents.tokens } : undefined;
 		return {
 			// A resumed conversation: the session line counts from this CLI's start, like the dollars beside it.
 			session: earlier ? spendSince(session, { tokens: earlier }) : session,
 			...(earlier ? { earlier } : {}),
+			...(subagents ? { subagents } : {}),
 			...(this.base ? { prompt: spendSince(session, this.base) } : {}),
 			...(session.usd !== undefined ? { usdSource: 'Claude Code\'s own estimate at API prices, since this CLI started' } : {}),
-			scope: this.cli === 'codex' ? 'Codex session' : 'main agent (subagents not included)',
+			scope: this.cli === 'codex' ? 'Codex session' : subagents ? 'main agent (subagents counted apart)' : 'main agent (subagents not included)',
 		};
 	}
 }

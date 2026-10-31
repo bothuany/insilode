@@ -27,6 +27,7 @@ import { flowToText } from './flowtext';
 import { errorResult, type ToolResult } from './protocol';
 import { resolveInWorkspace } from './registry';
 import { searchEntries } from './search';
+import { formatSessions, searchSessions } from './transcripts';
 import { isMigrationPath, parseMigration } from '../poly/migrations';
 import type { Migration } from '../poly/model';
 import type { TypeGraph } from '../types/model';
@@ -162,6 +163,7 @@ export class AgentTools {
 				case 'tour': return await this.tour(a, ctx);
 				case 'tour_control': return await this.tourControl(a, ctx);
 				case 'check_skeleton': return text(await this.checkSkeleton(a, ctx));
+				case 'search_sessions': return await this.sessions(a);
 				default: return errorResult(`Unknown tool: ${tool}`);
 			}
 		} catch (e) {
@@ -700,6 +702,17 @@ export class AgentTools {
 			notes.push(ROSLYN_WAIT[roslyn]);
 		}
 		return { list, note: notes.length ? `Note: ${notes.join('; ')}.` : undefined };
+	}
+
+	private async sessions(a: Record<string, unknown>): Promise<ToolResult> {
+		const query = typeof a.query === 'string' ? a.query.trim() : '';
+		if (!query) {
+			throw new Error('missing required argument: query');
+		}
+		if (a.agent !== undefined && a.agent !== 'claude' && a.agent !== 'codex') {
+			throw new Error('agent must be "claude" or "codex"');
+		}
+		return text(formatSessions(query, await searchSessions({ folders: this.folders, query, limit: num(a.limit, 10, 50), agent: a.agent })));
 	}
 
 	private async find(a: Record<string, unknown>): Promise<ToolResult> {

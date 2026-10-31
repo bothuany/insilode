@@ -160,8 +160,23 @@
         "title": "Manage MCP Servers…",
         "category": "Harness",
         "icon": "$(settings-gear)"
+      },
+      {
+        "command": "flowHarness.flowModel",
+        "title": "Harness Flow Model",
+        "category": "Harness"
       }
     ],
+    "configuration": {
+      "title": "Harness",
+      "properties": {
+        "flowHarness.limitAlerts": {
+          "type": "boolean",
+          "default": true,
+          "description": "Notify once when a plan's usage limit (5-hour or weekly) passes 75% and once more past 90%, per limit window. The status bar shows the share either way."
+        }
+      }
+    },
     "menus": {
       "view/title": [
         {
@@ -247,6 +262,10 @@
         },
         {
           "command": "flowHarness.reportLimits",
+          "when": "false"
+        },
+        {
+          "command": "flowHarness.flowModel",
           "when": "false"
         },
         {
