@@ -70,3 +70,24 @@ test('a changed migration is named in the turn-impact line', () => {
 	onMessage({ data: { type: 'data', list: [{ id: 'a1', cli: 'claude', name: 'Claude', state: 'done', attention: 'none', since: Date.now(), todos: [], unread: false, done: 0, impact: { files: 1, more: 0, flows: [], tables: [{ table: 'orders', entity: 'Order', migration: '0007_orders_key', endpoints: 4 }] } }], now: Date.now(), avatar: 'pixel' } })
 	assert.match(list.innerHTML, /This turn touched table orders \(migration 0007_orders_key, 4 endpoints\)<\/b>/)
 })
+
+test('the ⇄ on a Claude or Codex row between turns names the other CLI; none mid-turn or on another agent', () => {
+	const script = /<script>([\s\S]*)<\/script>/.exec(html)[1]
+	const list = { innerHTML: '', querySelectorAll: () => [] }
+	const document = { getElementById: () => list, querySelectorAll: () => [] }
+	let onMessage
+	const window = { addEventListener: (_type, f) => { onMessage = f } }
+	window.window = window
+	vm.runInNewContext(script, { window, document, acquireVsCodeApi: () => ({ postMessage() { } }), setInterval() { }, Math, Object, isFinite, Date, String, Number, Map })
+	const draw = (cli, state) => {
+		onMessage({ data: { type: 'data', list: [{ id: 'a1', cli, name: 'A', state, since: Date.now(), todos: [], unread: false, done: 0 }], now: Date.now(), avatar: 'pixel' } })
+		return list.innerHTML
+	}
+	assert.match(draw('claude', 'idle'), /data-swap="a1" title="Continue in Codex with this conversation"/)
+	assert.match(draw('codex', 'ended'), /data-swap="a1" title="Continue in Claude with this conversation"/)
+	assert.match(draw('claude', 'done'), /data-swap="a1"/)
+	for (const state of ['working', 'blocked', 'starting']) {
+		assert.doesNotMatch(draw('claude', state), /data-swap/, state)
+	}
+	assert.doesNotMatch(draw('custom', 'idle'), /data-swap/)
+})

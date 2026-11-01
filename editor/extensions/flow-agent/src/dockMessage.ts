@@ -14,7 +14,7 @@ export type DockAction =
 	| { type: 'ready' }
 	/** Only the two built-in agents start from the page: your own commands go through "Start an Agent…". */
 	| { type: 'new'; cli: 'claude' | 'codex' }
-	| { type: 'show' | 'pr' | 'xray' | 'forget' | 'compact' | 'rename' | 'explain'; id: string }
+	| { type: 'show' | 'pr' | 'xray' | 'forget' | 'compact' | 'rename' | 'explain' | 'swap'; id: string }
 	/** An index into the impact list the host sent: the page never names a flow itself. */
 	| { type: 'flow'; id: string; index: number }
 	/** The page names the row and one of four actions; the folder and branches come from the host's own record. */
@@ -24,7 +24,7 @@ export type DockAction =
 	| { type: 'sk'; id: string; on: boolean };
 
 const MAX_ID = 200;
-const ID_TYPES = new Set(['show', 'pr', 'xray', 'forget', 'compact', 'rename', 'explain']);
+const ID_TYPES = new Set(['show', 'pr', 'xray', 'forget', 'compact', 'rename', 'explain', 'swap']);
 
 export function dockAction(raw: unknown): DockAction | undefined {
 	const m = raw as Record<string, unknown> | null;
