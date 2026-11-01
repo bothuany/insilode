@@ -29,8 +29,14 @@ export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
  * conversation's keeps one arrow, for the CLI it is in now: "Login page → Codex → Claude" is "Login page → Claude".
  */
 export function swappedName(name: string, to: string): string {
+	const title = keptTitle(name);
+	return title ? `${title} → ${to}` : '';
+}
+
+/** The name without its arrow, or undefined for a name Insilode gave ("Codex", "Claude 2"), which only said the CLI. */
+export function keptTitle(name: string): string | undefined {
 	const base = name.replace(/ → (Claude|Codex)$/, '');
-	return /^(Claude|Codex)( \d+)?$/.test(base) ? '' : `${base} → ${to}`;
+	return /^(Claude|Codex)( \d+)?$/.test(base) ? undefined : base;
 }
 
 function record(v: unknown): Record<string, unknown> | undefined {

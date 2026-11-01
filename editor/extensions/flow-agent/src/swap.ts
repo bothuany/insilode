@@ -15,7 +15,7 @@ import { projectDir, type Agents, type AgentSession } from './agents';
 import { codexCommand, codexLaunch } from './codexHooks';
 import { agentCwd, agentProcessEnv } from './env';
 import { codexHome, rolloutFiles } from './resume';
-import { claudeTranscript, codexImportRequests, codexImportStep, codexRolloutId, codexTurns, IMPORT_COPY, MAX_ROLLOUT_BYTES, rolloutDays, swappedName } from './swapCore';
+import { claudeTranscript, codexImportRequests, codexImportStep, codexRolloutId, codexTurns, IMPORT_COPY, keptTitle, MAX_ROLLOUT_BYTES, rolloutDays, swappedName } from './swapCore';
 import { findOnPath } from './usage';
 
 const NAME = { claude: 'Claude', codex: 'Codex' } as const;
@@ -77,7 +77,7 @@ export function sweepLeftoverCopies(): void {
  * Insilode gave ("Codex"), which Claude would show as the conversation's title and Insilode would read back as its name.
  */
 function carriedTitle(name: string): string | undefined {
-	return swappedName(name, '') ? name.replace(/ → (Claude|Codex)$/, '') : undefined;
+	return keptTitle(name);
 }
 
 /** Runs Codex's importer on a Claude transcript and returns the id of the Codex thread it made. */
