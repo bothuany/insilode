@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
+import { redact } from './redact';
 
 export type SessionAgent = 'claude' | 'codex';
 
@@ -191,9 +192,9 @@ function codexSaid(e: Record<string, any>): Said | undefined {
 	return undefined;
 }
 
-/** About 200 characters around the first of the words that occurs in the text. */
+/** About 200 characters around the first of the words that occurs in the text. Obvious secrets are blanked before the cut, so the cut never leaves half of one. */
 export function snippetAround(text: string, words: string[]): string {
-	const flat = tidy(text);
+	const flat = redact(tidy(text));
 	const low = flat.toLowerCase();
 	const at = Math.min(...words.map(w => low.indexOf(w)).filter(i => i >= 0));
 	const start = Math.max(0, (Number.isFinite(at) ? at : 0) - 70);
@@ -243,7 +244,7 @@ async function searchFile(c: Candidate, words: string[], budget: { left: number;
 			}
 			const flat = tidy(said.text);
 			if (!prompt && said.who === 'user' && flat && !flat.startsWith('<') && !flat.startsWith('Caveat:')) {
-				prompt = flat.slice(0, PROMPT);
+				prompt = redact(flat).slice(0, PROMPT);
 			}
 			const lowText = flat.toLowerCase();
 			if (words.every(w => lowText.includes(w))) {
@@ -303,10 +304,11 @@ export async function searchSessions(opts: { folders: string[]; query: string; l
 export function formatSessions(query: string, r: SessionSearch): string {
 	const cut = r.truncated ? `\nThe search stopped early: the read budget of ${MAX_TOTAL_BYTES / 1024 / 1024} MB per call was used up, so older sessions were not searched.` : '';
 	if (!r.hits.length) {
-		return `No past session of this workspace mentions "${query}" (${r.scanned} transcript${r.scanned === 1 ? '' : 's'} looked at). Try fewer or different words.${cut}`;
+		return `No past session of this workspace mentions "${redact(query)}" (${r.scanned} transcript${r.scanned === 1 ? '' : 's'} looked at). Try fewer or different words.${cut}`;
 	}
 	return [
-		`${r.hits.length} past session${r.hits.length === 1 ? '' : 's'} for "${query}", newest first:`,
-		...r.hits.map(h => `- [${h.agent}] ${h.date} session ${h.id}\n  first prompt: ${h.prompt || '(none)'}\n  match: ${h.snippet}`),
+		`${r.hits.length} past session${r.hits.length === 1 ? '' : 's'} for "${redact(query)}", newest first:`,
+		// Redacted again here: every line that leaves through the MCP server passes this one place, whoever built the hit.
+		...r.hits.map(h => `- [${h.agent}] ${h.date} session ${h.id}\n  first prompt: ${redact(h.prompt) || '(none)'}\n  match: ${redact(h.snippet)}`),
 	].join('\n') + cut;
 }
