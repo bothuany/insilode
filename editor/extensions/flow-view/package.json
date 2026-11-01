@@ -104,6 +104,12 @@
         "icon": "$(home)"
       },
       {
+        "command": "flow.settings",
+        "title": "Settings",
+        "category": "Insilode",
+        "icon": "$(settings-gear)"
+      },
+      {
         "command": "flow.ide.accept",
         "title": "Accept Claude's Change",
         "category": "Insilode",

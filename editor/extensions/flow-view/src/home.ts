@@ -15,7 +15,7 @@ import { Command } from './commands';
 import { entryName, type Endpoints, type Source } from './backends';
 
 /** The commands the shortcut row of the Home page can run. */
-const HOME_COMMANDS = new Set(['flow.showAtCursor', 'flow.pickEndpoint', 'workbench.action.quickOpen', 'workbench.view.extension.flowHarness', 'flow.agents.chooseAskTarget']);
+const HOME_COMMANDS = new Set(['flow.showAtCursor', 'flow.pickEndpoint', 'workbench.action.quickOpen', 'workbench.view.extension.flowHarness', 'flow.agents.chooseAskTarget', 'flow.settings']);
 
 const RECENT_FILES = 'flow.home.recentFiles';
 /** "Plan first" in words, for the chat panel when flow-agent is not there (flow-agent's planFirst says it the same way). */
@@ -346,6 +346,7 @@ kbd { font: 11px var(--mono); padding: 0 5px; border: 1px solid var(--line); bor
 		<button data-run="flow.pickEndpoint"><kbd data-k="mod+alt+E"></kbd> Trace an endpoint</button>
 		<button data-run="workbench.action.quickOpen"><kbd data-k="mod+P"></kbd> Go to file</button>
 		<button data-run="workbench.view.extension.flowHarness"><kbd>Harness</kbd> Open the map</button>
+		<button data-run="flow.settings"><kbd>Settings</kbd> Change how Insilode works</button>
 	</nav>
 </main>
 <script nonce="${nonce}">
