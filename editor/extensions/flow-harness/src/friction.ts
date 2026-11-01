@@ -232,16 +232,34 @@ export function failureProposals(failures: readonly FailureRecord[], min = 3): P
 
 /** The guard hook script for a proposal: a PreToolUse hook that stops `prefix` commands and tells the agent why (exit 2). */
 export function guardScript(prefix: string, reason: string): string {
-	return `// PreToolUse (Bash): written by Insilode's friction inbox. Stops \`${prefix}\` before it fails the same way again; exit 2 sends the reason back to the agent.
+	// The prefix and reason sit on lines of their own as JSON: scanGuards reads them back from here, so the list needs no state file.
+	return `// PreToolUse (Bash): written by Insilode's friction inbox. Stops \`${prefix.replace(/[\r\n`]+/g, ' ')}\` before it fails the same way again; exit 2 sends the reason back to the agent.
 let input = ''
 process.stdin.on('data', d => input += d)
 process.stdin.on('end', () => {
-	const command = String(JSON.parse(input || '{}').tool_input?.command ?? '')
+	let command = ''
+	try {
+		command = String(JSON.parse(input || '{}').tool_input?.command ?? '')
+	} catch {
+		process.exit(0)
+	}
 	const prefix = ${JSON.stringify(prefix)}
-	// Every command of a pipeline or list, its leading VAR=value assignments taken off.
-	const parts = command.split(/\\|\\||&&|[|;&\\n]/).map(p => p.trim().replace(/^(?:\\w+=\\S*\\s+)+/, ''))
-	if (parts.some(p => p === prefix || p.startsWith(prefix + ' '))) {
-		process.stderr.write(${JSON.stringify(reason)} + '\\n')
+	const reason = ${JSON.stringify(reason)}
+	// The words of one command, its leading VAR=value assignments taken off and its program name without the folder.
+	const words = part => {
+		const w = part.trim().replace(/^(?:\\w+=\\S*\\s+)+/, '').split(/\\s+/).filter(Boolean)
+		if (w[0]) w[0] = w[0].replace(/^.*[\\\\/]/, '')
+		return w
+	}
+	const wanted = words(prefix)
+	// Every command of a pipeline or list. A bare program (\`git\`) stops only that program run bare, never \`git status\`;
+	// a prefix of two or more words (\`git push\`) stops the commands that start with exactly those words.
+	const hit = command.split(/\\|\\||&&|[|;&\\n]/).some(part => {
+		const w = words(part)
+		return wanted.length === 1 ? w.length === 1 && w[0] === wanted[0] : wanted.every((x, i) => w[i] === x)
+	})
+	if (hit) {
+		process.stderr.write('Insilode guard stopped "' + prefix + '": ' + reason + '\\nRemove this guard in the Insilode Harness view (Friction inbox, Guards Insilode added).\\n')
 		process.exit(2)
 	}
 })
@@ -299,3 +317,287 @@ export function redact(text: string): string {
 		.replace(/\b([A-Za-z_][A-Za-z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|PASSWD|PWD|CREDENTIALS?))\s*[=:]\s*("[^"]*"|'[^']*'|\S+)/gi, '$1=<secret>')
 		.replace(/\b(password|passwd|pwd|token|secret|api[_-]?key)\s*[=:]\s*("[^"]*"|'[^']*'|\S+)/gi, '$1=<secret>');
 }
+
+/** Said next to the shared choice: a guard in the committed settings reaches every clone, not only this machine. */
+export const SHARED_GUARD_WARNING = 'Blocks the command for everyone who pulls this file';
+
+export interface GuardTarget {
+	id: 'local' | 'shared';
+	label: string;
+	detail: string;
+	/** Relative to the project root. */
+	file: string;
+	/** Set when the choice affects more people than the user: shown with a warning. */
+	warning?: string;
+}
+
+/** Where a guard hook can be registered. The first one is the default: a guard that stops a command is no one else's decision until the user says so. */
+export const GUARD_TARGETS: readonly GuardTarget[] = [
+	{ id: 'local', label: 'This machine only (.claude/settings.local.json)', detail: 'Not shared and not committed: only you are affected', file: '.claude/settings.local.json' },
+	{ id: 'shared', label: 'Share with the team (.claude/settings.json)', detail: 'Committed with the project', file: '.claude/settings.json', warning: SHARED_GUARD_WARNING },
+];
+
+export const defaultGuardTarget = (): GuardTarget => GUARD_TARGETS[0];
+
+/** Matches the script a guard runs, wherever the settings entry's command puts the hooks folder. */
+const GUARD_NAME = /insilode-guard-[A-Za-z0-9-]+\.mjs/;
+
+/** The guard script a hook command runs, or undefined when the command is some other hook. */
+export function guardNameOf(command: unknown): string | undefined {
+	return typeof command === 'string' ? GUARD_NAME.exec(command)?.[0] : undefined;
+}
+
+export interface GuardInfo {
+	/** The script's file name: what ties the settings entries to the script. */
+	name: string;
+	prefix: string;
+	reason: string;
+	/** The settings files that run it. */
+	files: ('local' | 'shared')[];
+	scriptExists: boolean;
+}
+
+/** The prefix and reason a guard script was written with, or undefined for a script that is not one of ours. */
+export function parseGuardScript(source: string): { prefix: string; reason: string } | undefined {
+	const read = (key: string) => {
+		const m = new RegExp(`^\\s*const ${key} = (".*")\\s*$`, 'm').exec(source);
+		try {
+			return m ? JSON.parse(m[1]) as unknown : undefined;
+		} catch {
+			return undefined;
+		}
+	};
+	const prefix = read('prefix');
+	const reason = read('reason');
+	// Scripts written before the reason had a line of its own only carry the prefix.
+	return typeof prefix === 'string' ? { prefix, reason: typeof reason === 'string' ? reason : '' } : undefined;
+}
+
+/** The guard scripts a settings file's PreToolUse hooks run; a file that is not a JSON object has none. */
+export function guardNamesIn(settingsText: string): string[] {
+	let data: unknown;
+	try {
+		data = JSON.parse(settingsText);
+	} catch {
+		return [];
+	}
+	const pre = (data as { hooks?: { PreToolUse?: unknown } } | null)?.hooks?.PreToolUse;
+	if (!Array.isArray(pre)) {
+		return [];
+	}
+	const names = new Set<string>();
+	for (const entry of pre) {
+		const list = (entry as { hooks?: unknown } | null)?.hooks;
+		for (const h of Array.isArray(list) ? list : []) {
+			const name = guardNameOf((h as { command?: unknown } | null)?.command);
+			if (name) {
+				names.add(name);
+			}
+		}
+	}
+	return [...names];
+}
+
+/** The command a guard script file name stands for, for a guard whose script is gone: `insilode-guard-npm-test.mjs` reads as `npm test`. */
+const prefixFromName = (name: string) => name.replace(/^insilode-guard-/, '').replace(/\.mjs$/, '').replace(/-/g, ' ');
+
+/**
+ * Every guard Insilode added: the settings entries that run an `insilode-guard-*.mjs` script and the scripts in
+ * `.claude/hooks`, joined by file name. A script nobody runs and an entry whose script is gone are listed too.
+ */
+export function scanGuards(settings: readonly { scope: 'local' | 'shared'; text: string }[], scripts: readonly { name: string; text: string }[]): GuardInfo[] {
+	const byName = new Map<string, GuardInfo>();
+	const entry = (name: string) => {
+		let g = byName.get(name);
+		if (!g) {
+			const script = scripts.find(s => s.name === name);
+			const parsed = script && parseGuardScript(script.text);
+			g = { name, prefix: parsed?.prefix ?? prefixFromName(name), reason: parsed?.reason ?? '', files: [], scriptExists: !!script };
+			byName.set(name, g);
+		}
+		return g;
+	};
+	for (const s of scripts) {
+		if (GUARD_NAME.test(s.name)) {
+			entry(s.name);
+		}
+	}
+	for (const s of settings) {
+		for (const name of guardNamesIn(s.text)) {
+			entry(name).files.push(s.scope);
+		}
+	}
+	return [...byName.values()].sort((a, b) => a.prefix.localeCompare(b.prefix));
+}
+
+/**
+ * Takes the hook entries that run guard script `name` out of `settings`, and the lists they leave empty. Returns whether
+ * anything was removed; throws, so the user is told, when `hooks` has another shape. Other hooks stay as they are.
+ */
+export function removeGuardHook(settings: Record<string, unknown>, name: string): boolean {
+	const hooks = settings.hooks;
+	if (hooks === undefined || hooks === null) {
+		return false;
+	}
+	if (typeof hooks !== 'object' || Array.isArray(hooks)) {
+		throw new Error('"hooks" is not an object');
+	}
+	const h = hooks as Record<string, unknown>;
+	const pre = h.PreToolUse;
+	if (pre === undefined) {
+		return false;
+	}
+	if (!Array.isArray(pre)) {
+		throw new Error('"hooks.PreToolUse" is not a list');
+	}
+	let removed = false;
+	const kept: unknown[] = [];
+	for (const e of pre) {
+		const list = (e as { hooks?: unknown } | null)?.hooks;
+		if (!Array.isArray(list)) {
+			kept.push(e);
+			continue;
+		}
+		const rest = list.filter(x => guardNameOf((x as { command?: unknown } | null)?.command) !== name);
+		if (rest.length === list.length) {
+			kept.push(e);
+			continue;
+		}
+		removed = true;
+		// An entry that only ran the guard goes with it; one that runs other hooks too keeps them.
+		if (rest.length) {
+			kept.push({ ...(e as object), hooks: rest });
+		}
+	}
+	if (removed) {
+		if (kept.length) {
+			h.PreToolUse = kept;
+		} else {
+			delete h.PreToolUse;
+			if (!Object.keys(h).length) {
+				delete settings.hooks;
+			}
+		}
+	}
+	return removed;
+}
+
+/** `source` (a settings file) without the entries that run guard `name`, written as the settings changes are; unchanged when it has none. Throws on JSON that is not an object. */
+export function removeGuardFromText(source: string, name: string): string {
+	if (!source.trim()) {
+		return source;
+	}
+	const data = JSON.parse(source) as unknown;
+	if (!data || typeof data !== 'object' || Array.isArray(data)) {
+		throw new Error('not a JSON object');
+	}
+	return removeGuardHook(data as Record<string, unknown>, name) ? JSON.stringify(data, null, 2) + '\n' : source;
+}
+
+/** What the friction inbox says when it holds nothing: where its data comes from, so an empty list is not mistaken for a broken one. */
+export const FRICTION_EMPTY = 'Nothing yet: Insilode only sees sessions started from its Agents dock (hook events). Past Claude transcripts are read when you open this view.';
+export const PERMISSIONS_EMPTY = 'Permission requests appear here for agents started from the Agents dock';
+export const GUARDS_EMPTY = 'No guards yet: they appear when you apply a failure fix';
+
+export interface FrictionData {
+	prompts: PromptRecord[];
+	failures: FailureRecord[];
+	dismissed: string[];
+}
+
+export interface PermissionRequest {
+	at: number;
+	agent: string;
+	/** ACP tool kind: edit, execute, read, fetch, … */
+	kind?: string;
+	title: string;
+	files: string[];
+	rawInput?: Record<string, unknown>;
+	decision: 'allowed' | 'denied' | 'auto' | 'cancelled';
+}
+
+export const FRICTION_KEY = 'flowHarness.friction.v1';
+export const INBOX_KEY = 'flowHarness.inbox.v1';
+/** The key friction data was kept under before it was versioned: read once, never written again. */
+export const OLD_FRICTION_KEY = 'flowHarness.friction';
+export const MAX_PROMPTS = 300;
+export const MAX_FAILURES = 300;
+export const MAX_DISMISSED = 500;
+export const MAX_REQUESTS = 100;
+/** Bytes of JSON one stored list may take: the oldest entries go first, so workspaceState does not grow without bound. */
+const MAX_STORED = 400_000;
+
+const clip = (v: unknown, max: number) => typeof v === 'string' ? redact(v.slice(0, max)) : undefined;
+const time = (v: unknown) => typeof v === 'number' && Number.isFinite(v) ? v : undefined;
+const records = (v: unknown): Record<string, unknown>[] => Array.isArray(v) ? v.filter((x): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x)) : [];
+
+/** Drops entries from the front (the oldest) until the list's JSON fits `limit`. */
+function fit<T>(list: T[], limit: number): T[] {
+	let from = 0;
+	let size = JSON.stringify(list).length;
+	while (size > limit && from < list.length) {
+		size -= JSON.stringify(list[from++]).length + 1;
+	}
+	return list.slice(from);
+}
+
+/** Friction data read from workspaceState: every field checked, secrets blanked again, lists bounded; damaged data gives an empty inbox. */
+export function sanitizeFriction(raw: unknown): FrictionData {
+	const r = raw as { prompts?: unknown; failures?: unknown; dismissed?: unknown } | undefined;
+	const prompts: PromptRecord[] = [];
+	for (const p of records(r?.prompts)) {
+		const t = clip(p.text, 1000);
+		const at = time(p.at);
+		if (t && at !== undefined) {
+			prompts.push({ text: t, at, cli: clip(p.cli, 20) ?? 'claude', session: clip(p.session, 200) });
+		}
+	}
+	const failures: FailureRecord[] = [];
+	for (const f of records(r?.failures)) {
+		const tool = clip(f.tool, 200);
+		const error = clip(f.error, 600);
+		const at = time(f.at);
+		if (tool && error && at !== undefined) {
+			failures.push({ tool, subject: clip(f.subject, 300) ?? '', error, at, cli: clip(f.cli, 20) ?? 'claude', session: clip(f.session, 200) });
+		}
+	}
+	const dismissed = Array.isArray(r?.dismissed) ? r.dismissed.filter((x): x is string => typeof x === 'string' && x.length <= 300) : [];
+	return {
+		prompts: fit(prompts.slice(-MAX_PROMPTS), MAX_STORED),
+		failures: fit(failures.slice(-MAX_FAILURES), MAX_STORED),
+		dismissed: dismissed.slice(-MAX_DISMISSED),
+	};
+}
+
+/** The fields of a permission request's input the inbox uses (to suggest a rule), bounded and redacted: the rest is not kept. */
+const INPUT_FIELDS = ['command', 'file_path', 'path', 'url'];
+
+/** The permission inbox read from workspaceState (newest first), each entry checked, redacted and bounded. */
+export function sanitizeInbox(raw: unknown): PermissionRequest[] {
+	const out: PermissionRequest[] = [];
+	for (const q of records((raw as { requests?: unknown } | undefined)?.requests)) {
+		const title = clip(q.title, 300);
+		const agent = clip(q.agent, 200);
+		const at = time(q.at);
+		const decision = q.decision;
+		if (!title || !agent || at === undefined || (decision !== 'allowed' && decision !== 'denied' && decision !== 'auto' && decision !== 'cancelled')) {
+			continue;
+		}
+		const files = (Array.isArray(q.files) ? q.files : []).flatMap(f => clip(f, 300) ?? []).slice(0, 10);
+		const input = q.rawInput && typeof q.rawInput === 'object' ? q.rawInput as Record<string, unknown> : {};
+		const rawInput: Record<string, unknown> = {};
+		for (const k of INPUT_FIELDS) {
+			const v = clip(input[k], 600);
+			if (v !== undefined) {
+				rawInput[k] = v;
+			}
+		}
+		out.push({ at, agent, title, files, decision, kind: clip(q.kind, 40), ...Object.keys(rawInput).length ? { rawInput } : {} });
+	}
+	// Newest first: the cap keeps the head, the size limit drops from the tail.
+	return fit(out.slice(0, MAX_REQUESTS).reverse(), MAX_STORED).reverse();
+}
+
+/** What is written to workspaceState: versioned, so a later format can tell itself apart. */
+export const inboxState = (requests: readonly PermissionRequest[]) => ({ v: 1, requests: sanitizeInbox({ requests }) });
+export const frictionState = (data: FrictionData) => ({ v: 1, ...sanitizeFriction(data) });

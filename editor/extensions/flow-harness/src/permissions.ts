@@ -5,19 +5,11 @@
 
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { inboxState, INBOX_KEY, MAX_REQUESTS, PERMISSIONS_EMPTY, sanitizeInbox, type PermissionRequest } from './friction';
 import { arrayAt, objectAt, previewAndWrite } from './settings';
 import { claudeDir } from './dirs';
 
-export interface PermissionRequest {
-	at: number;
-	agent: string;
-	/** ACP tool kind: edit, execute, read, fetch, … */
-	kind?: string;
-	title: string;
-	files: string[];
-	rawInput?: Record<string, unknown>;
-	decision: 'allowed' | 'denied' | 'auto' | 'cancelled';
-}
+export type { PermissionRequest };
 
 /**
  * Programs that run whatever they are given next (shells, interpreters, launchers, network clients), and ones whose
@@ -107,11 +99,17 @@ export class PermissionInbox implements vscode.TreeDataProvider<Row> {
 	readonly onDidChangeTreeData = this.changed.event;
 	readonly requests: PermissionRequest[] = [];
 
-	constructor(private readonly root: () => string | undefined, private readonly onRule: () => void) { }
+	/** `state` is the workspace's storage: without one (no folder open) the inbox lives in memory only. */
+	constructor(private readonly root: () => string | undefined, private readonly onRule: () => void, private readonly state?: vscode.Memento) {
+		// Checked field by field: damaged data in storage must not break the view.
+		this.requests.push(...sanitizeInbox(state?.get<unknown>(INBOX_KEY)));
+	}
 
 	record(r: PermissionRequest) {
 		this.requests.unshift(r);
-		this.requests.splice(100);
+		this.requests.splice(MAX_REQUESTS);
+		// Redacted and bounded on the way out: a command typed with a token in it never reaches storage.
+		void this.state?.update(INBOX_KEY, inboxState(this.requests));
 		this.changed.fire();
 	}
 
@@ -124,8 +122,8 @@ export class PermissionInbox implements vscode.TreeDataProvider<Row> {
 
 	getTreeItem(row: Row): vscode.TreeItem {
 		if (row.type === 'empty') {
-			const t = new vscode.TreeItem('Permission requests from agents show up here');
-			t.description = 'one click turns one into a rule';
+			const t = new vscode.TreeItem(PERMISSIONS_EMPTY);
+			t.tooltip = `${PERMISSIONS_EMPTY}. One click turns a request into a rule.`;
 			return t;
 		}
 		const r = row.r;

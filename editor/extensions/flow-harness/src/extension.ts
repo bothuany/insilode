@@ -15,6 +15,7 @@ import { LimitAlerts } from './limitAlerts';
 import { Live } from './live';
 import { McpManager } from './mcpManager';
 import { MemoryActions } from './memoryActions';
+import { PERMISSIONS_EMPTY } from './friction';
 import { PermissionInbox, type PermissionRequest } from './permissions';
 import { totalsBySource, unusedGap } from './gaps';
 import { scan, type Harness, type HarnessItem } from './scan';
@@ -34,12 +35,20 @@ export function activate(context: vscode.ExtensionContext) {
 	const tree = new HarnessTree();
 	const view = vscode.window.createTreeView('flowHarness.map', { treeDataProvider: tree, showCollapseAll: true });
 	const studio = new HookStudio(() => harness?.root);
-	const inbox = new PermissionInbox(() => harness?.root, () => void refresh());
+	// The inbox and the friction data keep to workspaceState (without a folder it is memory for the session), so a reload does not empty them.
+	const inbox = new PermissionInbox(() => harness?.root, () => void refresh(), context.workspaceState);
 	const inboxView = vscode.window.createTreeView('flowHarness.permissions', { treeDataProvider: inbox });
+	// An empty tree says where its rows come from, like a welcome message; the empty row says it too.
+	const inboxMessage = () => { inboxView.message = inbox.requests.length ? undefined : PERMISSIONS_EMPTY; };
+	inboxMessage();
+	inbox.onDidChangeTreeData(inboxMessage);
 	const diagnostics = vscode.languages.createDiagnosticCollection('harness');
 	const live = new Live(context.workspaceState, () => (harness?.items ?? []).flatMap(i => i.hook ? [i.hook as HookLike] : []));
 	const friction = new FrictionView(live, inbox, () => harness);
 	const frictionView = vscode.window.createTreeView('flowHarness.friction', { treeDataProvider: friction });
+	const frictionMessage = () => { frictionView.message = friction.emptyMessage; };
+	frictionMessage();
+	friction.onDidChangeTreeData(frictionMessage);
 	const xray = new XrayView(() => harness, live);
 	const why = new WhyView(() => harness, live);
 	const memories = new MemoryActions(() => harness, () => void refresh());
