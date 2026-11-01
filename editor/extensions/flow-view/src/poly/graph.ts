@@ -7,7 +7,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { DbSchema, EntryPoint, FlowNode, ImpactResult } from '../../../../../protocol/flow';
+import type { DbSchema, EntryPoint, FlowNode, ImpactItem, ImpactResult } from '../../../../../protocol/flow';
 import { isSpringRepo, isWrite, javaSchema, jsSchema, looksLikeSql, opsOf, pythonSchema, sqlTables, tableKey, unq, type PrismaModel, type SchemaFact } from './db';
 import { baseType, callBefore, chainBefore, isConstructorName, Kind, paramLabels, recvText, signatureDetail, wordAt, type Place, type Seg, type Suggestion } from './assist';
 import { joinPath, type CallFact, type FileFacts, type FuncFact, type Lang, type RouteFact, type TableEntity, type TablesFact, type TableUseFact, type TypeFact } from './model';
@@ -60,6 +60,8 @@ const COMMON = new Set(['get', 'set', 'add', 'put', 'map', 'filter', 'find', 'pu
 const HTTP_ANN: Record<string, string> = { GetMapping: 'GET', PostMapping: 'POST', PutMapping: 'PUT', DeleteMapping: 'DELETE', PatchMapping: 'PATCH', GET: 'GET', POST: 'POST', PUT: 'PUT', DELETE: 'DELETE', PATCH: 'PATCH', HEAD: 'HEAD', OPTIONS: 'OPTIONS', Get: 'GET', Post: 'POST', Put: 'PUT', Delete: 'DELETE', Patch: 'PATCH', All: '*', Head: 'HEAD', Options: 'OPTIONS' };
 const PY_VERBS: Record<string, string> = { get: 'GET', post: 'POST', put: 'PUT', delete: 'DELETE', patch: 'PATCH', head: 'HEAD', options: 'OPTIONS', websocket: 'WS' };
 const MAX_NODES = 220;
+/** The impact walk follows this many functions up the callers, then says how many it left unfollowed. */
+const MAX_IMPACT_WALK = 5000;
 /** The table walk looks at this many entry points and keeps this many uses: a repository of thousands of routes answers in parts. */
 const MAX_TABLE_ENTRIES = 3000;
 const MAX_TABLE_USES = 20_000;
@@ -1300,15 +1302,26 @@ export class Project {
 				code: withCode ? this.code(fn) : null,
 				children: [],
 			};
-			if (d >= depth || count > MAX_NODES) {
+			if (d >= depth) {
+				return n;
+			}
+			if (count > MAX_NODES) {
+				// The size limit, not the depth limit: the card says how many calls below it were not drawn, so a cut flow never looks whole.
+				const left = this.callsBelow(this.targets(fn), new Set(), trail);
+				if (left) {
+					n.truncated = left;
+				}
 				return n;
 			}
 			const seen = new Set<string>();
 			const all = this.targets(fn);
+			let skipped = 0;
 			fn.calls.forEach((c, i) => {
 				for (const t of all[i]) {
 					if (count > MAX_NODES) {
-						return;
+						// Counted once per distinct callee, the way the walk draws them.
+						skipped += this.callsBelow([[t]], seen, trail);
+						continue;
 					}
 					if (t.kind === 'db') {
 						const k = `db:${t.label}:${t.schema.ops.join('.')}`;
@@ -1344,9 +1357,31 @@ export class Project {
 					(n.pending ??= []).push({ line: c.line, name: c.name });
 				}
 			});
+			if (skipped) {
+				n.truncated = skipped;
+			}
 			return n;
 		};
 		return node(root, this.entryOf(root) ? 'controller' : 'method', 0, new Set([root.id]));
+	}
+
+	/**
+	 * How many distinct callees `targets` holds that the walk has not drawn yet (not in `seen`, not an ancestor in `trail`),
+	 * remembered in `seen`. The key is the one the walk itself dedupes by.
+	 */
+	private callsBelow(targets: Target[][], seen: Set<string>, trail: Set<string>): number {
+		let left = 0;
+		for (const list of targets) {
+			for (const t of list) {
+				const key = t.kind === 'db' ? `db:${t.label}:${t.schema.ops.join('.')}` : t.kind === 'ambiguous' ? t.label : t.fn.id;
+				if (seen.has(key) || (t.kind === 'fn' && trail.has(t.fn.id))) {
+					continue;
+				}
+				seen.add(key);
+				left++;
+			}
+		}
+		return left;
 	}
 
 	private buildCallers() {
@@ -1398,7 +1433,10 @@ export class Project {
 		return node(root, 0, new Set([root.id]));
 	}
 
-	/** Entry points that reach this function (or, when none do, the top-most callers). */
+	/**
+	 * Entry points that reach this function (or, when none do, the top-most callers), each with the file and line to open.
+	 * `truncated`: functions the walk had found but not yet followed when it stopped at its size limit, so the answer is a lower bound.
+	 */
 	impact(id: string): ImpactResult {
 		const root = this.fnFor(id);
 		if (!root) {
@@ -1406,20 +1444,22 @@ export class Project {
 		}
 		this.build();
 		const map = this.buildCallers();
-		const found = new Set<string>();
-		const tops = new Set<string>();
+		const found = new Map<string, ImpactItem>();
+		const tops = new Map<string, ImpactItem>();
 		const seen = new Set<string>([root.id]);
 		const queue = [root.id];
-		while (queue.length && seen.size < 5000) {
+		while (queue.length && seen.size < MAX_IMPACT_WALK) {
 			const cur = queue.shift()!;
 			const fn = this.funcsById.get(cur)!;
 			const e = this.entryOf(fn);
 			if (e) {
-				found.add(`${e.http} ${e.controller}.${e.action}`);
+				const label = `${e.http} ${e.controller}.${e.action}`;
+				found.has(label) || found.set(label, { label, file: e.file, line: e.line, kind: 'entry' });
 			}
 			const up = map.get(cur) ?? [];
 			if (!up.length && cur !== root.id) {
-				tops.add(fn.owner ? `${fn.owner}.${fn.name}` : fn.name);
+				const label = fn.owner ? `${fn.owner}.${fn.name}` : fn.name;
+				tops.has(label) || tops.set(label, { label, file: fn.file, line: fn.line, kind: 'caller' });
 			}
 			for (const c of up) {
 				if (!seen.has(c.from)) {
@@ -1428,9 +1468,9 @@ export class Project {
 				}
 			}
 		}
-		// File and line are filled in by the structured walk (the review fixes): for now a row is its label only.
-		const rows = (labels: Set<string>) => [...labels].sort().map(label => ({ label, file: null, line: 0 }));
-		return found.size ? { label: 'entry point', items: rows(found) } : { label: 'caller', items: rows(tops) };
+		const rows = (m: Map<string, ImpactItem>) => [...m.values()].sort((a, b) => (a.label < b.label ? -1 : a.label > b.label ? 1 : 0));
+		const result: ImpactResult = found.size ? { label: 'entry point', items: rows(found) } : { label: 'caller', items: rows(tops) };
+		return queue.length ? { ...result, truncated: queue.length } : result;
 	}
 
 	/** The innermost function around a line, for "flow at cursor" and follow mode. */

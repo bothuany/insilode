@@ -21,6 +21,8 @@ export interface FlowProvider {
 	callers(target: FlowTarget): Promise<FlowNode | null>;
 	/** What breaks if this changes: entry points (or, without a framework adapter, root callers). */
 	impact(target: FlowTarget): Promise<ImpactResult>;
+	/** The function around a line of a file, for an impact row that names a place (only the code index can answer). */
+	functionAt?(file: string, line: number): Promise<{ id: string; label: string } | undefined>;
 }
 
 /** C#/.NET: the Roslyn analyzer, which also resolves MediatR and DI hops. */
