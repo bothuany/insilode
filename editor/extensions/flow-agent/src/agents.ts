@@ -300,8 +300,11 @@ export class Agents implements vscode.Disposable {
 	/** Set once start() has run: spawn waits on it so an agent never starts before the hook settings exist. */
 	private ready: Promise<void> | undefined;
 	private settingsOk = false;
-	/** Whether Codex can take Insilode's profile (`-p insilode`): settled on the first Codex start of this window. */
-	private codexProfileReady: Promise<{ hooks: boolean } | undefined> | undefined;
+	/**
+	 * Whether Codex can take Insilode's profile (`-p insilode`): settled on the first Codex start of this window, and again
+	 * when the settings that shape the profile (`key`) change, so they take effect for the next agent.
+	 */
+	private codexProfileReady: { key: string; ready: Promise<{ hooks: boolean } | undefined> } | undefined;
 	/** Files an agent edited since its last prompt, for the turn-end impact. */
 	private readonly touched = new Map<string, Set<string>>();
 	/** Sessions whose plan was drawn from PreToolUse this turn, so PostToolUse does not draw it twice. */
@@ -501,7 +504,11 @@ export class Agents implements vscode.Disposable {
 		if (!hooks && !mcpScript) {
 			return Promise.resolve(undefined);
 		}
-		return this.codexProfileReady ??= this.writeCodexProfile(hooks, mcpScript).then(() => new Promise<{ hooks: boolean } | undefined>(resolve => {
+		const key = JSON.stringify([hooks, mcpScript]);
+		if (this.codexProfileReady?.key === key) {
+			return this.codexProfileReady.ready;
+		}
+		const ready = this.writeCodexProfile(hooks, mcpScript).then(() => new Promise<{ hooks: boolean } | undefined>(resolve => {
 			// No `shell: true`: `codex` is looked up on PATH here. npm installs it on Windows as codex.cmd, which execFile
 			// cannot start without cmd.exe, so the shim's script runs under Node instead (the node.exe beside it, a `node`
 			// on PATH, or this editor in Node mode). A batch wrapper of the user's own runs under cmd.exe with this one
@@ -537,6 +544,8 @@ export class Agents implements vscode.Disposable {
 			this.log.warn(`Agents: Codex runs without status or the insilode tools: no Codex profile (${(e as Error).message})`);
 			return undefined;
 		});
+		this.codexProfileReady = { key, ready };
+		return ready;
 	}
 
 	/** Terminals outlive a window reload; find ours again by their process (they may reattach after we start). */

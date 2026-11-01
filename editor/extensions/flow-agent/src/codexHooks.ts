@@ -69,11 +69,12 @@ export interface CodexMcp {
 }
 
 /**
- * The variables the `insilode` server needs from the agent's terminal: the folder whose window it talks to, and the agent
- * session its tours come from. Codex starts an MCP server with only a few variables of its own plus those named in
- * `env_vars`, so the profile names them instead of holding their values: its text stays the same in every window.
+ * The variables the `insilode` server needs from the agent's terminal: the folder whose window it talks to, the agent
+ * session its tours come from, and where the bridge and the agents' transcripts are when they are moved from their
+ * defaults. Codex starts an MCP server with only a few variables of its own (PATH, USERPROFILE, TEMP…) plus those named
+ * in `env_vars`, so the profile names them instead of holding their values: its text stays the same in every window.
  */
-export const CODEX_MCP_ENV = ['INSILODE_WORKSPACE', 'INSILODE_SESSION'];
+export const CODEX_MCP_ENV = ['INSILODE_WORKSPACE', 'INSILODE_SESSION', 'INSILODE_BRIDGE_DIR', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR'];
 
 /**
  * The profile Insilode writes: the hooks (when `hookCommand` is given) and the `insilode` tools (when `mcp` is).
