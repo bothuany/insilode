@@ -49,7 +49,7 @@ diff --git a/src/vs/workbench/api/common/extHostTypeConverters.ts b/src/vs/workb
 diff --git a/src/vs/workbench/contrib/preferences/browser/preferences.contribution.ts b/src/vs/workbench/contrib/preferences/browser/preferences.contribution.ts
 --- a/src/vs/workbench/contrib/preferences/browser/preferences.contribution.ts
 +++ b/src/vs/workbench/contrib/preferences/browser/preferences.contribution.ts
-@@ -248,7 +248,16 @@
+@@ -248,7 +248,19 @@
  					}],
  				});
  			}
@@ -60,8 +60,11 @@ diff --git a/src/vs/workbench/contrib/preferences/browser/preferences.contributi
 +				if (args === undefined) {
 +					try {
 +						return await accessor.get(ICommandService).executeCommand('flow.settings');
-+					} catch {
-+						// no flow-view: fall through to VS Code's own Settings
++					} catch (error) {
++						// Only a window without flow-view falls through to VS Code's own Settings; a failure inside the page is not hidden.
++						if (!/not found/i.test(String(error))) {
++							throw error;
++						}
 +					}
 +				}
  				// args takes a string for backcompat
