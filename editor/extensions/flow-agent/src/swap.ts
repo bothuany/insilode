@@ -14,7 +14,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { projectDir, type Agents, type AgentSession } from './agents';
 import { codexCommand, codexLaunch } from './codexHooks';
-import { agentProcessEnv } from './env';
+import { agentCwd, agentProcessEnv } from './env';
 import { claudeTranscript, codexImportRequests, codexImportStep, codexRolloutId, codexTurns, MAX_ROLLOUT_BYTES, swappedName } from './swapCore';
 import { findOnPath } from './usage';
 
@@ -94,8 +94,10 @@ function importIntoCodex(transcript: string, cwd: string, title: string | undefi
 		child.stderr.on('data', (d: Buffer) => {
 			err = (err + d.toString()).slice(-4000);
 		});
-		child.stdout.on('data', (d: Buffer) => {
-			out += d.toString();
+		// Decoded as a stream: a character split between two chunks (a title in Turkish) stays whole.
+		child.stdout.setEncoding('utf8');
+		child.stdout.on('data', (d: string) => {
+			out += d;
 			let n: number;
 			while ((n = out.indexOf('\n')) >= 0) {
 				const step = codexImportStep(out.slice(0, n));
@@ -150,7 +152,8 @@ export async function swapAgent(agents: Agents, id: unknown): Promise<void> {
 		void vscode.window.showInformationMessage(`Insilode: ${s.name} is in the middle of a turn. Move it to ${NAME[to]} once the turn has ended, so the whole of it goes along.`);
 		return;
 	}
-	const cwd = s.cwd ?? s.worktree?.path ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	// As spawn names it (agentCwd: the drive letter upper case), so the Claude transcript lands in the project folder Claude reads.
+	const cwd = s.cwd ?? agentCwd(s.worktree?.path ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
 	if (!cwd) {
 		return;
 	}
@@ -206,7 +209,11 @@ export async function swapAgent(agents: Agents, id: unknown): Promise<void> {
 	// the new one has not got that turn, and closing the terminal would cut it off. Nothing has started yet; say so.
 	const now = agents.sessions.get(s.id)?.state;
 	if (now === 'working' || now === 'blocked') {
-		void vscode.window.showWarningMessage(`Insilode: ${s.name} started a new turn while it was being moved, so ${NAME[to]} was not started. Move it again once the turn has ended.`);
+		// The transcript written for Claude goes again; a thread Codex imported stays in its list, so the message names it.
+		if (past.transcript) {
+			await fs.rm(past.transcript, { force: true }).catch(() => undefined);
+		}
+		void vscode.window.showWarningMessage(`Insilode: ${s.name} started a new turn while it was being moved, so ${NAME[to]} was not started${to === 'codex' ? ` (Codex keeps the imported copy, session ${past.id})` : ''}. Move it again once the turn has ended.`);
 		return;
 	}
 	const wasLive = s.state !== 'ended';

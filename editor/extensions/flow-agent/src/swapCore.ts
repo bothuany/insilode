@@ -51,9 +51,9 @@ function add(turns: Turn[], role: Turn['role'], t: string, at: string | undefine
 	}
 	const last = turns[turns.length - 1];
 	if (last?.role === role) {
-		last.text = cut(`${last.text}\n\n${t}`);
+		last.text = `${last.text}\n\n${t}`;
 	} else {
-		turns.push({ role, text: cut(t), at });
+		turns.push({ role, text: t, at });
 	}
 }
 
@@ -88,7 +88,8 @@ export function codexTurns(text: string): Turn[] {
 			add(legacy, 'assistant', outputText(p.content), at);
 		}
 	}
-	return items.length ? items : legacy;
+	// Cut once each turn is whole, so the note counts what was left out of the whole turn.
+	return (items.length ? items : legacy).map(t => ({ ...t, text: cut(t.text) }));
 }
 
 /** The session id of a Codex rollout, from its session_meta line, or from the file name (rollout-<time>-<id>.jsonl). */

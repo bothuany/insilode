@@ -139,3 +139,11 @@ test('a moved agent keeps one arrow in its name', () => {
 	assert.equal(c.swappedName('Claude 2 → Codex', 'Claude'), 'Claude 2 → Claude')
 	assert.equal(c.swappedName('Claude 2 → Claude', 'Codex'), 'Claude 2 → Codex')
 })
+
+test('two long answers in a row are joined first and cut once, with one note for the whole turn', () => {
+	const big = 'y'.repeat(c.MAX_TURN_CHARS)
+	const a = s => line({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: s }] } })
+	const turns = c.codexTurns([line({ type: 'event_msg', payload: { type: 'user_message', message: 'go' } }), a(big), a(big)].join('\n'))
+	assert.equal(turns[1].text.match(/more characters left out/g).length, 1)
+	assert.match(turns[1].text, new RegExp(`${c.MAX_TURN_CHARS + 2} more characters`))
+})
