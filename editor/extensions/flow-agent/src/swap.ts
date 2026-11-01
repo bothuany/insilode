@@ -205,10 +205,12 @@ export async function swapAgent(agents: Agents, id: unknown): Promise<void> {
 	if (s.state !== 'ended') {
 		const go = `Continue in ${NAME[to]}`;
 		const pick = await vscode.window.showInformationMessage(
-			`Continue ${s.name}'s conversation in ${NAME[to]}?`,
-			{ modal: true, detail: `${NAME[to]} starts in the same folder with what was said so far (the messages, not ${NAME[s.cli]}'s tool output). ${s.name}'s terminal closes once ${NAME[to]} is up; its conversation is kept, so you can come back to it.${unseen ? `
+			`Continue in ${NAME[to]}?`,
+			{ modal: true, detail: `${NAME[to]} opens in the same folder with the messages so far, without ${NAME[s.cli]}'s tool output.
 
-Insilode cannot tell whether ${s.name} is in the middle of a turn: Codex sends no status until its hooks are trusted (/hooks in Codex). Continue only if it is waiting for you; a turn in progress would be cut off and left out.` : ''}` },
+${s.name}'s terminal closes once ${NAME[to]} is up. Its conversation is kept, so you can come back to it.${unseen ? `
+
+Codex sends no status until its hooks are trusted (/hooks in Codex), so Insilode cannot tell whether ${s.name} is mid-turn. Continue only if it is waiting for you: a turn in progress would be cut off.` : ''}` },
 			go,
 		);
 		if (pick !== go) {

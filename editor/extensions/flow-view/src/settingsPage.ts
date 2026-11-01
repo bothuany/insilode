@@ -117,6 +117,11 @@ input[type="range"] { width: 170px; accent-color: var(--signal); }
 .empty { margin: 80px auto 0; max-width: 360px; text-align: center; color: var(--muted); }
 .empty b { display: block; margin-bottom: 4px; color: var(--text); font-size: 15px; }
 
+/* In a modal or a narrow tab the controls go under their text instead of squeezing it. */
+@media (max-width: 980px) {
+	.row { grid-template-columns: minmax(0, 1fr); }
+	.ctl { justify-content: flex-start; }
+}
 @media (max-width: 760px) {
 	.app { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
 	.rail { flex-direction: row; align-items: center; padding: 8px 10px; border-right: 0; border-bottom: 1px solid var(--line); overflow-x: auto; overflow-y: hidden; }
