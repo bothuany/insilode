@@ -2,7 +2,7 @@
 // buildSequence; nothing here decides where anything goes.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { BoardNode, BoardSpec } from './spec'
-import { buildSequence, sequenceShapes, type Lit, type Shape, type Tone } from './sequence'
+import { buildSequence, sequenceShapes, type Lit, type SeqLayout, type Shape, type Tone } from './sequence'
 
 export const TONE_VAR: Record<Tone, string> = {
   text: 'var(--fl-text)',
@@ -18,6 +18,24 @@ export const TONE_VAR: Record<Tone, string> = {
 }
 
 interface View { x: number; y: number; k: number }
+
+/**
+ * The diagram as text, for a screen reader: the participants, then each message in the drawn order as "1. A calls B: text" (a reply
+ * "replies to", an asynchronous one "sends to", one to itself "calls itself"), then the groups it is cut into. It covers what the
+ * SVG shows (everything but where things sit), which is why the SVG itself is hidden from assistive technology.
+ */
+export function sequenceMessageList(layout: SeqLayout): string[] {
+  const name = (i: number) => layout.lifelines[i]?.node.label ?? '?'
+  const out = [`Participants: ${layout.lifelines.map(l => l.node.label).join(', ') || 'none'}.`]
+  layout.messages.forEach((m, i) => {
+    const text = (m.edge.guard ? `[${m.edge.guard}] ` : '') + (m.edge.label ?? '')
+    const verb = m.self ? 'calls itself' : m.ret ? `replies to ${name(m.to)}` : m.async ? `sends to ${name(m.to)}` : `calls ${name(m.to)}`
+    out.push(`${i + 1}. ${name(m.from)} ${verb}${text ? ': ' + text : ''}`)
+  })
+  const frames = layout.frames.filter(f => !f.isElse)
+  if (frames.length) out.push(`Groups: ${frames.map(f => `${f.kind} ${f.label}`.trim()).join('; ')}.`)
+  return out
+}
 
 export interface SequenceApi {
   fit(): void
@@ -98,13 +116,17 @@ export function SequenceView({ spec, lit, selected, onSelect, apiRef }: {
   }, [lit, hover, layout])
   const { shapes, dim } = useMemo(() => sequenceShapes(layout, spec, hoverLit), [layout, spec, hoverLit])
   const byId = useMemo(() => new Map(spec.nodes.map(n => [n.id, n])), [spec])
+  const messages = useMemo(() => sequenceMessageList(layout), [layout])
 
   return (
+    <>
+    <ul className="sr-only" role="list" aria-label={`Sequence diagram: ${spec.title || 'untitled'}`}>
+      {messages.map((m, i) => <li key={i}>{m}</li>)}
+    </ul>
     <svg
       ref={box}
       className="sq"
-      role="img"
-      aria-label={spec.title}
+      aria-hidden="true"
       onPointerDown={e => {
         if ((e.target as Element).closest('[data-node]')) return
         drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false }
@@ -133,6 +155,7 @@ export function SequenceView({ spec, lit, selected, onSelect, apiRef }: {
         ))}
       </g>
     </svg>
+    </>
   )
 }
 

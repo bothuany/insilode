@@ -68,14 +68,14 @@ export function CalloutLayer({ layout, direction }: { layout: Layout; direction:
   const bubbles = useMemo(() => placeBubbles(layout, direction), [layout, direction])
   if (!bubbles.length) return null
   return (
-    <svg className="be-layer co-layer" aria-hidden="true">
+    <svg className="be-layer co-layer" role="group" aria-label="Notes on the board">
       <g transform={`translate(${t[0]} ${t[1]}) scale(${t[2]})`}>
         {bubbles.map(b => (
-          <g key={b.key} className="co">
-            <path className="co-tail" d={`M${b.at.x} ${b.at.y} L${b.box.x + 10} ${b.box.y + b.box.h}`} />
-            <circle className="co-dot" cx={b.at.x} cy={b.at.y} r="3" />
-            <rect className="co-box" x={b.box.x} y={b.box.y} width={b.box.w} height={b.box.h} rx="6" />
-            <text className="co-text" x={b.box.x + 8} y={b.box.y + 15}>
+          <g key={b.key} className="co" role="note" aria-label={b.text}>
+            <path aria-hidden="true" className="co-tail" d={`M${b.at.x} ${b.at.y} L${b.box.x + 10} ${b.box.y + b.box.h}`} />
+            <circle aria-hidden="true" className="co-dot" cx={b.at.x} cy={b.at.y} r="3" />
+            <rect aria-hidden="true" className="co-box" x={b.box.x} y={b.box.y} width={b.box.w} height={b.box.h} rx="6" />
+            <text aria-hidden="true" className="co-text" x={b.box.x + 8} y={b.box.y + 15}>
               {b.lines.map((l, i) => <tspan key={i} x={b.box.x + 8} dy={i ? LINE : 0}>{l}</tspan>)}
             </text>
           </g>

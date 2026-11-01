@@ -21,7 +21,29 @@
   --k-memory: #b9835a;
   --v-allow: #2e9e5b;
   --v-ask: #c98a0a;
-  --v-deny: #d64545;
+  --v-deny: #e85d5d;
+  /* The text on a filled verdict badge, and the same colours as text on the canvas: both at least 4.5:1 (ui/test/colors.test.mjs). */
+  --on-allow: #0b1f13;
+  --on-ask: #111;
+  --on-deny: #111;
+}
+/* A light theme: the mid-lightness hues above are 2 to 3.5:1 on white, so every one that is text or a badge is darker here. */
+body.vscode-light, body.vscode-high-contrast-light {
+  --fl-signal: #3b55d9;
+  --k-instructions: #1f5fd1;
+  --k-rules: #7a4bd0;
+  --k-skills: #0f7d72;
+  --k-agents: #a64d08;
+  --k-hooks: #c0305b;
+  --k-mcp: #5f6e0c;
+  --k-permissions: #566274;
+  --k-memory: #8a5a30;
+  --v-allow: #1b7a43;
+  --v-ask: #8a5700;
+  --v-deny: #b3261e;
+  --on-allow: #fff;
+  --on-ask: #fff;
+  --on-deny: #fff;
 }
 html, body, #root { margin: 0; height: 100%; background: var(--fl-canvas); color: var(--fl-text); font: 12px/1.4 var(--fl-ui); }
 button, input, select { font: inherit; }
@@ -78,11 +100,11 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 1.5px
 .hs-chip.eff-allow { color: var(--v-allow); border-color: var(--v-allow); }
 .hs-chip.eff-ask { color: var(--v-ask); border-color: var(--v-ask); }
 .hs-chip.eff-deny { color: var(--v-deny); border-color: var(--v-deny); }
-.hs-issue { margin-left: auto; flex: none; width: 15px; height: 15px; display: grid; place-items: center; border-radius: 50%; background: var(--v-ask); color: #111; font-size: 10px; font-weight: 800; }
-.hs-verdict { margin-left: auto; padding: 0 7px; border-radius: 8px; color: #fff; font-size: 10px; font-weight: 700; text-transform: uppercase; }
-.v-allow { background: var(--v-allow); }
-.v-ask { background: var(--v-ask); color: #111; }
-.v-deny, .v-blocked { background: var(--v-deny); }
+.hs-issue { margin-left: auto; flex: none; width: 15px; height: 15px; display: grid; place-items: center; border-radius: 50%; background: var(--v-ask); color: var(--on-ask); font-size: 10px; font-weight: 800; }
+.hs-verdict { margin-left: auto; padding: 0 7px; border-radius: 8px; color: var(--on-allow); font-size: 10px; font-weight: 700; text-transform: uppercase; }
+.v-allow { background: var(--v-allow); color: var(--on-allow); }
+.v-ask { background: var(--v-ask); color: var(--on-ask); }
+.v-deny, .v-blocked { background: var(--v-deny); color: var(--on-deny); }
 .k-instructions { --kc: var(--k-instructions); }
 .k-rules { --kc: var(--k-rules); }
 .k-skills { --kc: var(--k-skills); }
