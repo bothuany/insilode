@@ -314,7 +314,7 @@ function refresh(s) {
 	r.row.classList.toggle('modified', s.modified);
 	r.row.classList.toggle('off', off);
 	r.badge.hidden = s.scope !== 'workspace';
-	r.reset.hidden = !s.modified;
+	r.reset.hidden = !s.modified || s.kind === 'json';
 	r.c.set(s.value, s, off);
 }
 

@@ -163,7 +163,8 @@ export class FlowSettings implements vscode.Disposable {
 
 	private async reset(key: unknown) {
 		const spec = this.spec(key);
-		if (!spec) {
+		// A json row (your own agent commands) is edited in settings.json only: one click here would delete the list.
+		if (!spec || spec.kind === 'json') {
 			return;
 		}
 		const config = vscode.workspace.getConfiguration();
