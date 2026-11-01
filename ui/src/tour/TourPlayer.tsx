@@ -12,10 +12,11 @@ import { BAR_RESERVE, BUBBLE_MAX_H, CAPTION_H, CAPTION_W, captionPlace, firstLin
 import { FollowUps } from './FollowUpChips'
 import { MarkLayer } from './MarkLayer'
 import { Peek, PEEK_MAX_LINES, PEEK_W } from './Peek'
-import { idle, reduce } from './player'
+import { keyAction } from './legend'
+import { ASK_HINT_MS, askHintDue, idle, noPanels, panelsReduce, reduce, type PanelAction } from './player'
 import { reviewSignature, tourFromChanges } from './review'
 import { sanitizeNote, sanitizeStep, sanitizeTour } from './sanitize'
-import { TourBar, type TourApi } from './TourBar'
+import { BLOCKED_TEXT, TourBar, type TourApi } from './TourBar'
 import { useTourWait } from './WaitStep'
 
 export interface TourEnv {
@@ -167,15 +168,64 @@ export function useTourPlayer(env: TourEnv & { changed: FlowNode[] }) {
     if (!tour || tour.source !== 'agent' || !q) return false
     dispatch({ type: 'ask' })
     env.post({ type: 'tourAsk', id: tour.id, index: state.index, question: q })
+    // The box is let go of, so Space (continue without an answer) goes to the tour and not into the box.
+    const at = document.activeElement
+    if (at instanceof HTMLInputElement && at.closest('.tour, .tour-caption')) at.blur()
     return true
   }
   const askRef = useRef<HTMLInputElement>(null)
-  // A step that waits for the reader holds the tour: going on past it is refused, going back is not.
-  const api: TourApi = { next: () => wait.allows(state.index + 1) && dispatch({ type: 'next' }), back: () => dispatch({ type: 'back' }), goto: index => wait.allows(index) && dispatch({ type: 'goto', index }), toggle: () => dispatch({ type: 'toggle' }), exit }
+  // A step that waits for the reader holds the tour: going on past it is refused, going back is not. The refusal is announced in the
+  // caption and focus goes to the step's own button.
+  const [refused, setRefused] = useState({ key: '', n: 0 })
+  const refuse = () => setRefused(r => ({ key: stepKey, n: r.n + 1 }))
+  const go = (to: number, action: () => void) => (wait.allows(to) ? action() : refuse())
+  const [panels, setPanels] = useReducer(panelsReduce, noPanels)
+  // The pop-ups belong to one tour.
+  useEffect(() => setPanels('outside'), [tour?.id])
+  const api: TourApi = {
+    next: () => go(state.index + 1, () => dispatch({ type: 'next' })),
+    back: () => dispatch({ type: 'back' }),
+    goto: index => go(index, () => dispatch({ type: 'goto', index })),
+    toggle: () => dispatch({ type: 'toggle' }),
+    exit,
+    save: () => tour && env.post({ type: 'tourSave', id: tour.id }),
+  }
   const apiRef = useRef(api)
   apiRef.current = api
+  const notice = wait.blocked && refused.key === stepKey ? BLOCKED_TEXT : undefined
+  // Focus goes to the button the step is waiting for (Continue, the command's button, or Skip on a click step), after the notice is drawn.
+  useEffect(() => {
+    if (!refused.n) return
+    const el = document.querySelector<HTMLElement>('.tour-caption .tour-wait-go:not(:disabled), .tour-caption .tour-wait-skip')
+    el?.focus()
+  }, [refused.n])
+
+  // A question that has waited long for its answer: the caption says Space goes on without one. Cleared by a resume or another step.
+  const [askedAt, setAskedAt] = useState<number | null>(null)
+  const [clock, setClock] = useState(0)
+  useEffect(() => {
+    if (state.asking !== 'waiting') {
+      setAskedAt(null)
+      return
+    }
+    const at = Date.now()
+    setAskedAt(at)
+    setClock(at)
+    // A beat past the limit, so the clock has surely reached it.
+    const timer = setTimeout(() => setClock(Date.now()), ASK_HINT_MS + 100)
+    return () => clearTimeout(timer)
+  }, [state.asking, stepKey])
+  const askHint = state.asking === 'waiting' && askHintDue(askedAt, clock)
+
+  // The key line shows under the tour's first caption and is gone from the second step on, for good.
+  const first = useRef({ id: '', index: 0, left: false })
+  if (tour && first.current.id !== tour.id) first.current = { id: tour.id, index: state.index, left: false }
+  if (tour && state.index !== first.current.index) first.current.left = true
+  const keyHint = !!tour && !first.current.left
 
   // ---- keys --------------------------------------------------------------------------------------------
+  const panelsAct = useRef<(a: PanelAction) => void>(() => {})
+  panelsAct.current = setPanels
   const editingRef = useRef(env.editing)
   editingRef.current = env.editing
   const active = !!tour
@@ -185,15 +235,22 @@ export function useTourPlayer(env: TourEnv & { changed: FlowNode[] }) {
       if (editingRef.current || typing(e.target) || e.ctrlKey || e.altKey || e.metaKey) return
       const a = apiRef.current
       const onButton = e.target instanceof HTMLElement && e.target.tagName === 'BUTTON'
-      if (e.key === ']' || e.key === 'ArrowRight') a.next()
-      else if (e.key === '[' || e.key === 'ArrowLeft') a.back()
-      else if (e.key === 'Escape') a.exit()
-      // Space on a focused button already presses it.
-      else if (e.key === ' ' && !onButton) a.toggle()
-      // The ask box (a review of changes has no author to ask).
-      else if ((e.key === '/' || (e.key === '?' && window.getSelection()?.isCollapsed !== false)) && askRef.current) askRef.current.focus()
-      else if (/^[1-9]$/.test(e.key)) a.goto(Number(e.key) - 1)
-      else return
+      // The bindings are legend.ts's table, which is also what the legend lists.
+      const hit = keyAction(e.key)
+      if (!hit) return
+      switch (hit.action) {
+        case 'next': a.next(); break
+        case 'back': a.back(); break
+        // Escape is the bar's first when a pop-up is open (TourBar.tsx stops it there); here nothing is open, so the tour ends.
+        case 'exit': a.exit(); break
+        // Space on a focused button already presses it.
+        case 'toggle': if (onButton) return; a.toggle(); break
+        // The ask box (a review of changes has no author to ask).
+        case 'ask': if (!askRef.current) return; askRef.current.focus(); break
+        // With lines selected, `?` is point-and-ask's (webview.tsx).
+        case 'legend': if (window.getSelection()?.isCollapsed === false) return; panelsAct.current('toggleLegend'); break
+        case 'goto': a.goto(hit.index!); break
+      }
       e.preventDefault()
     }
     window.addEventListener('keydown', onKey)
@@ -377,7 +434,7 @@ export function useTourPlayer(env: TourEnv & { changed: FlowNode[] }) {
     wait: wait.slot,
     followUps: tour?.source === 'agent' && tour.followUps?.length && state.index === tour.steps.length - 1 && !state.asking ? <FollowUps items={tour.followUps} ask={ask} /> : null,
   }
-  const captionLayer = tour && step && lit ? <CaptionLayer asking={state.asking === 'waiting' ? tour.agent?.label ?? 'the agent' : undefined} step={target.kind === 'peek' && step.state === 'ok' ? { ...step, state: 'offflow' } : step} focus={target.kind === 'none' ? null : motion.focus} ask={tour.source === 'agent' ? { ask, waiting: state.asking === 'waiting' } : undefined} slots={slots} /> : null
+  const captionLayer = tour && step && lit ? <CaptionLayer asking={state.asking === 'waiting' ? tour.agent?.label ?? 'the agent' : undefined} step={target.kind === 'peek' && step.state === 'ok' ? { ...step, state: 'offflow' } : step} focus={target.kind === 'none' ? null : motion.focus} ask={tour.source === 'agent' ? { ask, waiting: state.asking === 'waiting' } : undefined} slots={slots} askHint={askHint} notice={notice} keyHint={keyHint} /> : null
 
   return {
     state,
@@ -389,7 +446,7 @@ export function useTourPlayer(env: TourEnv & { changed: FlowNode[] }) {
     startReview,
     onClickCapture,
     /** Rendered before the canvas, so it stays the first of its kind in the page. */
-    bar: (extras?: ReactNode): ReactNode => tour && <TourBar tour={tour} state={state} api={api} extras={extras} ask={tour.source === 'agent' ? { ask, inputRef: askRef } : undefined} nextBlocked={wait.blocked} />,
+    bar: (extras?: ReactNode): ReactNode => tour && <TourBar tour={tour} state={state} api={api} extras={extras} ask={tour.source === 'agent' ? { ask, inputRef: askRef } : undefined} nextBlocked={wait.blocked} panels={panels} onPanels={setPanels} />,
     /** Rendered inside <ReactFlow>: the cursor and the peek card live in flow coordinates. */
     flowLayer,
     /** Rendered after <ReactFlow>, inside the canvas: the caption lives in screen coordinates, so it stays readable at any zoom. */
@@ -398,7 +455,7 @@ export function useTourPlayer(env: TourEnv & { changed: FlowNode[] }) {
 }
 
 /** The caption beside its card, in canvas pixels, whatever the zoom. */
-function CaptionLayer({ step, focus, asking, ask, slots }: { step: TourStep; focus: Box | null; asking?: string; ask?: StepAsk; slots?: CaptionSlots }) {
+function CaptionLayer({ step, focus, asking, ask, slots, askHint, notice, keyHint }: { step: TourStep; focus: Box | null; asking?: string; ask?: StepAsk; slots?: CaptionSlots; askHint?: boolean; notice?: string; keyHint?: boolean }) {
   const { x, y, zoom } = useViewport()
   const w = useStore(s => s.width)
   const h = useStore(s => s.height)
@@ -409,7 +466,7 @@ function CaptionLayer({ step, focus, asking, ask, slots }: { step: TourStep; foc
   const place = focus ? captionPlace({ x: focus.x * zoom + x, y: focus.y * zoom + y, w: focus.w * zoom, h: focus.h * zoom }, { w, h }, BAR_RESERVE, { w: CAPTION_W, h: Math.min(height, maxH) }) : 'centre'
   return (
     <div className="tour-layer">
-      <Caption key={`${step.title}|${step.caption}`} step={step} place={place} asking={asking} maxH={maxH} ask={ask} slots={slots} onSize={onSize} />
+      <Caption key={`${step.title}|${step.caption}`} step={step} place={place} asking={asking} askHint={askHint} notice={notice} keyHint={keyHint} maxH={maxH} ask={ask} slots={slots} onSize={onSize} />
     </div>
   )
 }
