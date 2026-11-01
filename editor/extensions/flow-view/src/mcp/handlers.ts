@@ -18,7 +18,7 @@ import { checkOverlap } from '../board/overlap';
 import { importMermaid } from '../board/mermaidImport';
 import { parseBoardWithNotes, type BoardHighlight, type BoardSpec } from '../board/spec';
 import { describeCandidate, matchSymbols, symbolQuery, type SymbolCandidate } from '../board/symbols';
-import { annotate, architectureFromGraph, checkScope, erFromTables, sequenceFromFlow, stateFromEnum, strings, type Generated } from '../board/fromCode';
+import { annotate, architectureFromGraph, checkScope, erFromTables, partialIndexNotes, sequenceFromFlow, stateFromEnum, strings, type FromCodeKind, type Generated } from '../board/fromCode';
 import { cleanBoardId, type BoardStore } from '../board/store';
 import type { ChangeSet, ChangeSetTrace } from '../changeSet';
 import { POLY_LANGUAGES, type PolyIndex } from '../poly/client';
@@ -1379,14 +1379,17 @@ export class AgentTools {
 		return { file: hit.location.uri.fsPath, method };
 	}
 
-	private async generate(kind: string, scope: Record<string, unknown>, a: Record<string, unknown>): Promise<Generated> {
+	private async generate(kind: FromCodeKind, scope: Record<string, unknown>, a: Record<string, unknown>): Promise<Generated> {
 		const depth = num(a.depth, 6, 8);
 		const maxNodes = typeof a.maxNodes === 'number' ? num(a.maxNodes, 20, 60) : undefined;
 		if (kind === 'sequence') {
 			const target = typeof scope.symbol === 'string' && !scope.id && !scope.file ? await this.symbolTarget(scope.symbol) : undefined;
 			const r = await this.resolve(target ?? scope);
 			const root = await within(this.d.providerFor(r.target).graph(r.target), 120_000, 'the flow');
-			return sequenceFromFlow(root, `Sequence: ${r.label}`, { depth, rel: f => this.rel(f), maxParticipants: maxNodes });
+			const drawn = sequenceFromFlow(root, `Sequence: ${r.label}`, { depth, rel: f => this.rel(f), maxParticipants: maxNodes });
+			// A flow the C# analyzer or a language server traced does not depend on the code index.
+			drawn.notes.push(...partialIndexNotes({ kind, indexReady: this.d.poly.isReady || r.target.kind !== 'poly', board: drawn.board }));
+			return drawn;
 		}
 		if (!this.d.types) {
 			throw new Error('The type graph is not available in this window.');
@@ -1397,9 +1400,6 @@ export class AgentTools {
 		if (kind === 'er') {
 			const schemas = this.d.poly.isReady ? await within(this.d.poly.schemas(), 30_000, 'the schema reader').catch(() => []) : [];
 			out = erFromTables({ schemas, graph, migrations: await this.migrations().catch(() => []) }, { tables: strings(scope.tables, 'scope.tables') }, { maxTables: maxNodes });
-			if (!this.d.poly.isReady) {
-				out.notes.push('The code index is still building: tables of Java, Python and JS/TS may be missing. Try again in a moment.');
-			}
 		} else if (kind === 'architecture') {
 			out = architectureFromGraph(graph, { module: typeof scope.module === 'string' ? scope.module : undefined }, { maxNodes });
 		} else {
@@ -1414,7 +1414,7 @@ export class AgentTools {
 			}));
 			out = stateFromEnum({ graph, readSource: f => cache.get(f) }, { enum: typeof scope.enum === 'string' ? scope.enum : undefined });
 		}
-		out.notes.push(...warnings);
+		out.notes.push(...partialIndexNotes({ kind, indexReady: this.d.poly.isReady, board: out.board }), ...warnings);
 		return out;
 	}
 

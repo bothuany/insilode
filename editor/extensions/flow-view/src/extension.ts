@@ -13,7 +13,8 @@ import { entryDisplay } from './entryLabel';
 import { Endpoints, entryName, type Entry, type Source } from './backends';
 import { flowToBoard } from './board/fromFlow';
 import { nodesLinkedTo, parsePlan, statusAfterEdit } from './board/plan';
-import { BoardStore } from './board/store';
+import { boardFromCodeMessage, kindChoices, scopeChoices, type ScopeSource } from './board/fromCode';
+import { BoardStore, MAX_BOARDS } from './board/store';
 import { MarkdownBoardViewer } from './board/viewer';
 import { registerTypeViews } from './typeviews';
 import { TypeService } from './types/typeService';
@@ -95,7 +96,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 	const providers: Record<FlowTarget['kind'], FlowProvider> = { roslyn, poly: polyProvider, lsp, changes: changeSet };
 	const panel = new FlowPanel(context, providerFor, changes);
-	const boards = new BoardStore({ persist: context.workspaceState });
+	const boards = new BoardStore({ persist: context.workspaceState, warn: message => log.warn(message) });
 	const home = new FlowHome(context, endpointList);
 	const endpointsView = new EndpointsView(endpointList);
 	context.subscriptions.push(log, analyzer, poly, polyProvider, endpointList, endpointsView, panel, home, changes, changes.onDidChange(() => panel.refreshSoon()));
@@ -387,10 +388,26 @@ function wireClaudeCode({ context, log, panel, changes }: Flow) {
 	void bridge.start(log);
 }
 
+/** The tables, enums and modules the code index knows, for the Board from Code quick pick (what is not indexed yet is simply missing; `indexReady` says so). */
+async function scopeSource({ poly, log }: Pick<Flow, 'poly' | 'log'>): Promise<ScopeSource> {
+	const schemas = poly.isReady ? await poly.schemas().catch(() => []) : [];
+	const graph = await TypeService.get(log).getGraph().catch(() => undefined);
+	const types = graph?.types ?? [];
+	return {
+		tables: [
+			...schemas.map(s => ({ name: s.table, detail: s.entity && s.entity !== s.table ? s.entity : undefined })),
+			...types.filter(t => t.role === 'entity').map(t => ({ name: t.name, detail: 'entity' })),
+		],
+		enums: types.filter(t => t.kind === 'enum').map(t => ({ name: t.name, detail: t.module })),
+		modules: [...new Set(types.map(t => t.module))],
+		indexReady: poly.isReady,
+	};
+}
+
 /**
  * Agents act on Insilode through the `insilode` MCP server (tools: open, find_entry_points, show_flow, flow_text, impact,
  * get_context, draw_board, update_board): this window serves them on a local port and lists itself in ~/.insilode/bridge.
- * Boards (diagrams and plans an agent drew) are held by a store and shown by a stand-in Markdown viewer.
+ * Boards (diagrams and plans an agent drew) are held by a store (saved in the workspace state) and drawn on the board canvas; the Markdown viewer is the fallback and the export.
  */
 function wireAgentBridge(flow: Flow) {
 	const { context, log, boards, endpointList, analyzer, poly, panel } = flow;
@@ -401,6 +418,8 @@ function wireAgentBridge(flow: Flow) {
 	const canvas = boardPanel.asHost();
 	boardPanel.setStore(boards);
 	boards.setOpenCheck(id => boardPanel.isBoardOpen(id));
+	// The limit pushed a board out: say it once (never a silent drop). Plan boards and open boards are kept.
+	boards.setOnEvict(board => void vscode.window.showInformationMessage(`Insilode keeps the ${MAX_BOARDS} newest boards: "${board.spec.title}" was the oldest and was removed. Boards that are open in a tab or come from a plan are never removed.`));
 	boards.setHost({
 		show: async (id, spec, extra) => {
 			try {
@@ -451,7 +470,8 @@ function wireAgentBridge(flow: Flow) {
 	}, log);
 	context.subscriptions.push(
 		viewer, bridge, boardPanel, TypeService.get(log), skeleton, registerHarnessFlow(context, log),
-		{ dispose: () => boards.setHost(undefined) },
+		// The boards are saved shortly after a change; the last change must reach the workspace state before the host exits.
+		{ dispose: () => { boards.setHost(undefined); void boards.flush(); } },
 		// flow-agent calls these around an agent's work (see extensions/flow-agent/src/agents.ts); they never throw into the hook.
 		vscode.commands.registerCommand('flow.agent.plan', async (session: string, plan: string, planFile?: string) => {
 			if (typeof session !== 'string' || typeof plan !== 'string' || !plan.trim()) {
@@ -474,39 +494,46 @@ function wireAgentBridge(flow: Flow) {
 				flow.fail(e);
 			}
 		}),
-		// The canvas action for board_from_code: the user picks the kind and the scope, Insilode draws the board from the index.
+		// The canvas action for board_from_code: the user picks the kind and then the scope from what the index has, and Insilode draws the board.
 		vscode.commands.registerCommand('flow.board.fromCode', async () => {
-			const pick = await vscode.window.showQuickPick([
-				{ label: 'Sequence', description: 'the calls of the flow on the canvas, in order', board: 'sequence' },
-				{ label: 'Tables (ER)', description: 'columns, keys and relations', board: 'er' },
-				{ label: 'Architecture', description: 'modules or packages and their dependencies', board: 'architecture' },
-				{ label: 'States', description: 'an enum and its transitions', board: 'state' },
-			], { title: 'Insilode: Board from Code', placeHolder: 'Which diagram, drawn from the code?' });
-			if (!pick) {
+			const target = flow.panel.shown?.target;
+			const flowTarget = target && target.kind !== 'lsp' ? target : undefined;
+			const kind = await vscode.window.showQuickPick(
+				kindChoices(!!flowTarget).map(k => ({ label: k.label, description: k.description, choice: k })),
+				{ title: 'Insilode: Board from Code', placeHolder: 'Which diagram, drawn from the code?' },
+			);
+			if (!kind) {
 				return;
 			}
 			let scope: Record<string, unknown> = {};
-			if (pick.board === 'sequence') {
-				const target = flow.panel.shown?.target;
-				if (!target || target.kind === 'lsp') {
+			if (kind.choice.kind === 'sequence') {
+				if (!flowTarget) {
 					void vscode.window.showInformationMessage('Insilode: open a flow first (Open Endpoint Flow… or Show Flow at Cursor), then draw its sequence.');
 					return;
 				}
-				scope = { id: target.id };
+				scope = { id: flowTarget.id };
 			} else {
-				const key = { er: 'tables', architecture: 'module', state: 'enum' }[pick.board]!;
-				const typed = await vscode.window.showInputBox({ title: `Insilode: ${pick.label} from Code`, prompt: { er: 'Table or entity names, separated by commas (empty: all tables)', architecture: 'A module or package name (empty: the whole workspace)', state: 'An enum, "OrderStatus" or "Order.status" (empty: look for one)' }[pick.board] });
-				if (typed === undefined) {
+				const source = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Insilode: reading the index…' }, () => scopeSource(flow));
+				const items = scopeChoices(kind.choice.kind, source);
+				const picked = await vscode.window.showQuickPick(
+					items.map(i => ({ label: i.label, description: i.description, scope: i.scope })),
+					{ title: `Insilode: ${kind.label} from Code`, placeHolder: { er: 'Which table? (type to search)', architecture: 'Which module? (type to search)', state: 'Which enum? (type to search)' }[kind.choice.kind] },
+				);
+				if (!picked) {
 					return;
 				}
-				const words = typed.split(',').map(x => x.trim()).filter(Boolean);
-				if (words.length) {
-					scope = { [key]: key === 'tables' ? words : words[0] };
-				}
+				scope = picked.scope;
 			}
-			const answer = await bridge.boardFromCode({ kind: pick.board, scope });
+			const answer = await bridge.boardFromCode({ kind: kind.choice.kind, scope });
 			if (!answer.ok || /^No \w+ board was drawn/.test(answer.message)) {
-				void vscode.window.showWarningMessage(`Insilode: ${answer.message.split('\n')[0]}`);
+				// The whole answer: its second line is usually the reason.
+				void vscode.window.showWarningMessage(`Insilode: ${boardFromCodeMessage(answer.message)}`);
+				return;
+			}
+			// A board built from a partial index or from guesses is drawn, but the user should know it may be incomplete.
+			const partial = answer.message.split('\n').filter(l => /^- .*(still building|guesses)/.test(l)).map(l => l.slice(2));
+			if (partial.length) {
+				void vscode.window.showInformationMessage(`Insilode: ${partial.join(' ')}`);
 			}
 		}),
 		vscode.commands.registerCommand('flow.agent.edited', async (session: string, files: string[], phase: 'before' | 'after') => {

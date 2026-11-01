@@ -149,3 +149,27 @@ export function exportPayload(format: 'svg' | 'png', data: unknown): string | Bu
 	}
 	return /^[A-Za-z0-9+/]+={0,2}$/.test(data) ? Buffer.from(data, 'base64') : undefined;
 }
+
+/** The type a file is named for (`OrderDto.java` is `OrderDto`): what the explorer's "Show Type in DTO Diagram" looks up; undefined when the name is no identifier. */
+export function fileTypeName(file: string): string | undefined {
+	const base = file.replace(/\\/g, '/').split('/').pop() ?? '';
+	const stem = base.replace(/\.[^.]*$/, '').replace(/\.(d|test|spec)$/i, '');
+	return /^[A-Za-z_$][\w$]*$/.test(stem) ? stem : undefined;
+}
+
+/**
+ * Whether an open board's tab is brought to the front. A board that is drawn again (an agent's update_board, a redraw, the type
+ * graph changing) must not pull itself in front of what the user is reading; only a request to show it (the Show Board command,
+ * a zoom click, a type diagram command) does. A tab that does not exist yet is opened by the caller and needs no reveal.
+ */
+export function revealsExistingTab(existing: boolean, reveal: boolean | undefined): boolean {
+	return existing && reveal === true;
+}
+
+/** The settings the canvas may ask to have opened (an empty state's "Edit DTO suffixes"): a fixed set, never an id taken from the message. */
+export const OPENABLE_SETTINGS: ReadonlySet<string> = new Set(['flow.types.dtoSuffixes']);
+
+/** What a `{ type: 'settings' }` message asks for, when the setting is one the host may open. */
+export function openableSetting(raw: unknown): string | undefined {
+	return typeof raw === 'string' && OPENABLE_SETTINGS.has(raw) ? raw : undefined;
+}
