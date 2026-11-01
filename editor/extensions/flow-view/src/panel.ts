@@ -322,6 +322,32 @@ export class FlowPanel implements vscode.Disposable {
 		}
 	}
 
+	/** The steps of the playing tour as the host holds them. */
+	tourSteps() {
+		return this.playing?.tour.steps;
+	}
+
+	/** An agent's edit of the playing tour: the new list replaces the steps and the reader stays where `index` says, paused or waiting as they were. */
+	async editTour(steps: Tour['steps'], index: number) {
+		const playing = this.playing;
+		if (!playing || !this.panel || !steps.length) {
+			return;
+		}
+		const tour = { ...playing.tour, steps };
+		this.playing = { ...playing, steps: steps.length, tour };
+		// The per-step note counts follow the steps: a kept step keeps its notes, a new one starts without.
+		this.noteCount.clear();
+		steps.forEach((s, i) => s.notes?.length && this.noteCount.set(i, s.notes.length));
+		const at = Math.max(0, Math.min(index, steps.length - 1));
+		if (this.tourAt) {
+			this.tourAt = { index: at, paused: this.tourAt.paused };
+		}
+		if (this.asked && this.asked.index >= steps.length) {
+			this.asked = undefined;
+		}
+		await this.panel.webview.postMessage({ type: 'tourSteps', id: playing.id, steps, index: at });
+	}
+
 	/** Closes the playing tour, from the agent's side. */
 	async endTour() {
 		const playing = this.playing;
