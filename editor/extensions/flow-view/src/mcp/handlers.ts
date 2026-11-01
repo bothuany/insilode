@@ -14,6 +14,7 @@ import * as vscode from 'vscode';
 import { innermost, type Analyzer } from '../analyzer';
 import { entryName, type Endpoints, type Entry, type Source } from '../backends';
 import { formatLint, lintBoard } from '../board/lint';
+import { checkOverlap } from '../board/overlap';
 import { importMermaid } from '../board/mermaidImport';
 import { parseBoardWithNotes, type BoardHighlight, type BoardSpec } from '../board/spec';
 import { describeCandidate, matchSymbols, symbolQuery, type SymbolCandidate } from '../board/symbols';
@@ -1156,6 +1157,8 @@ export class AgentTools {
 		const id = await this.d.boards.set(spec, { id: wanted, origin: 'agent' });
 		const skeleton = await this.d.skeleton?.drawn(id, spec, ctx.session);
 		const lint = lintBoard(spec);
+		// What the layout would put on top of each other (callouts, labels): what Insilode nudged apart, and what still overlaps.
+		found.push(...checkOverlap(spec));
 		if (claimed) {
 			found.push(`id "${claimed}" is another agent's skeleton design, so this was drawn as a new board.`);
 		}
@@ -1437,9 +1440,10 @@ export class AgentTools {
 			throw new Error('Pass `nodeId` with `status`/`note`/`change`, an `updates` array of those, and/or `highlight`.');
 		}
 		const touched = await this.d.boards.update(id, { nodes, highlight });
-		return text(`Board "${id}": ${[
+		const crowded = checkOverlap(this.d.boards.get(id)?.spec);
+		return text([`Board "${id}": ${[
 			...touched.map(n => `node "${n.id}" is now ${n.status ?? 'unmarked'}${n.change ? ` (${n.change})` : ''}`),
 			...(highlight ? [highlight.length ? `highlighting ${highlight.length} route(s)` : 'highlight cleared'] : []),
-		].join('; ')}.`);
+		].join('; ')}.`, ...crowded].join('\n'));
 	}
 }

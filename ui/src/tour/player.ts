@@ -34,6 +34,8 @@ export type PlayerAction =
   | { type: 'note'; id: string; index: number; note: TourNote }
   /** The steps of the playing tour changed under it (the review of changes shrinks as cards are kept or undone). */
   | { type: 'steps'; steps: TourStep[] }
+  /** The agent edited the tour while the reader was paused (`tourSteps`): the whole new list; the reader stays on `index` without restarting. */
+  | { type: 'edit'; id: string; steps: TourStep[]; index: number }
 
 const clamp = (i: number, length: number) => Math.max(0, Math.min(Number.isFinite(i) ? Math.trunc(i) : 0, length - 1))
 
@@ -82,6 +84,9 @@ export function reduce(s: PlayerState, a: PlayerAction): PlayerState {
       if (!tour) return s
       if (!a.steps.length) return idle
       return { ...s, tour: { ...tour, steps: a.steps }, index: clamp(s.index, a.steps.length) }
+    // Contract stub: the live-edit part swaps the list and keeps the reader on their step.
+    case 'edit':
+      return s
   }
 }
 

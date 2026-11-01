@@ -1,6 +1,6 @@
 // The caption bubble. Its text and the notes pinned to the step are Markdown (Markdown.tsx), rendered as React elements: no
 // HTML ever reaches the page. The bubble has a largest size and scrolls inside it, and ends in a box to ask about the step.
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { TourStep } from '../types'
 import { Arrow } from './Arrow'
 import { Markdown } from './Markdown'
@@ -13,7 +13,13 @@ export interface StepAsk {
   waiting: boolean
 }
 
-export function Caption({ step, place, asking, maxH, ask, onSize }: { step: TourStep; place: { left: number; top: number; side: string } | 'centre'; asking?: string; maxH?: number; ask?: StepAsk; onSize?: (h: number) => void }) {
+/** What the player adds under the caption: a hands-on step's prompt and button, the follow-up chips after the last step. */
+export interface CaptionSlots {
+  wait?: ReactNode
+  followUps?: ReactNode
+}
+
+export function Caption({ step, place, asking, maxH, ask, slots, onSize }: { step: TourStep; place: { left: number; top: number; side: string } | 'centre'; asking?: string; maxH?: number; ask?: StepAsk; slots?: CaptionSlots; onSize?: (h: number) => void }) {
   const [open, setOpen] = useState(false)
   const [height, setHeight] = useState(150)
   const [question, setQuestion] = useState('')
@@ -85,6 +91,8 @@ export function Caption({ step, place, asking, maxH, ask, onSize }: { step: Tour
             <span className="tour-from">{n.by === 'agent' ? 'from the agent' : 'your note'}</span>
           </div>
         ))}
+        {slots?.wait}
+        {slots?.followUps}
       </div>
       {ask && (
         <form

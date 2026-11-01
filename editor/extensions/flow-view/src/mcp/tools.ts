@@ -165,6 +165,62 @@ export const BOARD_SCHEMA = {
 	required: ['title'],
 } as const;
 
+/** The pen marks of one tour step: drawn on the step's card as its caption is read, in source terms (the host resolves lines and targets). */
+const TOUR_MARKS = {
+	type: 'array', maxItems: 6,
+	description: "Pen marks drawn on this step's card, each appearing with the caption sentence it belongs to (`sentence`, default 1): ring (outline the `lines`) · underline (the words that matter) · strike (outdated or wrong code) · check / cross (right and wrong, beside the first line) · badge (the order number `n` beside the line) · connect (a curved arrow from this card to the code at `to`, with `label`: cause to effect). At most a few per step; a mark that cannot be placed is dropped and the answer says so.",
+	items: {
+		type: 'object',
+		properties: {
+			kind: { type: 'string', enum: ['ring', 'underline', 'strike', 'check', 'cross', 'badge', 'connect'] },
+			lines: { type: 'array', minItems: 1, maxItems: 2, items: { type: 'integer', minimum: 1 }, description: 'ring, underline, strike, check, cross, badge: [from, to] or [line], current-file 1-based, inside the code of the step.' },
+			n: { type: 'integer', minimum: 1, maximum: 99, description: 'badge: the number shown.' },
+			to: {
+				type: 'object',
+				description: 'connect: the code the arrow ends at, named like a step (file + method, with a line hint).',
+				properties: { file: str('Workspace file.'), method: str('Method or function.'), line: int('1-based line inside the method.') },
+				required: ['file'],
+				additionalProperties: false,
+			},
+			label: { type: 'string', maxLength: 40, description: 'connect: the words on the arrow.' },
+			sentence: { type: 'integer', minimum: 1, maximum: 6, description: 'Which sentence of the caption the mark appears with (default 1).' },
+		},
+		required: ['kind'],
+		additionalProperties: false,
+	},
+};
+
+/** A hands-on step: the tour waits for the reader to do something before it goes on. */
+const TOUR_WAIT = {
+	type: 'object',
+	description: "Makes this a hands-on step: the tour does not go on (Next is off) until the reader has done it. click: they click the step's card · command: a button with `prompt` runs `command` for them (only a few safe Insilode commands that open a view are allowed; anything else is refused and the answer says so) · continue: they press Continue after doing the work themselves. `prompt` is the button or hint text.",
+	properties: {
+		kind: { type: 'string', enum: ['click', 'command', 'continue'] },
+		command: str('command: the Insilode command id to run (see the allowed list in the error if it is refused).'),
+		prompt: { type: 'string', maxLength: 80, description: 'The button or hint text, e.g. "Open the test" or "Run it, then continue".' },
+	},
+	required: ['kind'],
+	additionalProperties: false,
+};
+
+/** One step of a tour: the same object in `tour` and in `tour_control` edit. */
+const TOUR_STEP = {
+	type: 'object',
+	properties: {
+		file: str('Workspace file of the code this step points at.'),
+		method: str('Method or function, e.g. "OrderService.Place". Preferred: survives edits.'),
+		line: int('1-based line inside the method (a hint when method is given).'),
+		lines: { type: 'array', maxItems: 3, description: 'Line ranges to highlight, current-file 1-based, e.g. [[42,47]].', items: { type: 'array', items: { type: 'integer', minimum: 1 }, minItems: 1, maxItems: 2 } },
+		table: str('A database card instead of code: the table name.'),
+		title: { type: 'string', maxLength: 80, description: 'Short label for the step list; defaults to the method.' },
+		caption: { type: 'string', maxLength: 600, description: 'What to say here: one or two sentences on WHY, not a restatement of the code. Never "simply" or "just"; do not end on a yes/no question. Short Markdown: `code`, **bold**, a list or a fenced block are shown formatted; HTML is not.' },
+		marks: TOUR_MARKS,
+		wait: TOUR_WAIT,
+	},
+	required: ['caption'],
+	additionalProperties: false,
+};
+
 export const TOOLS: ToolDef[] = [
 	{
 		name: 'open',
@@ -329,7 +385,7 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'tour',
-		description: "The way to EXPLAIN code to the user in Insilode: a narrated walkthrough on the flow canvas, where a cursor moves from card to card, dims the rest, highlights lines and shows your caption. Use it INSTEAD of a long text answer whenever the user asks how something works or to be walked through it (\"walk me through how an order is placed\", \"how does X work\", \"explain this flow\", \"show me\", \"anlat\", \"bana göster\", \"nasıl çalışıyor\"), after finishing work (\"explain what you changed\"), or to answer a question about code by SHOWING it; then keep your own message to one line. Get file:line from flow_text or find_symbol first. 3-12 steps, one idea each, in the order the code runs; captions say WHY and what to watch, not what the code says, in the user's language. Name each step's code by `file` + `method` (preferred: it survives edits) with a `line` hint, and `lines` for the few lines the caption talks about; a step with only a caption is an intro or an outro; `table` points at a database card. The tool returns at once with each step marked ok / moved / missing / offflow: fix a missing step by calling tour again with the same id. The user steps through it; questions they ask come back to you as a new message. Run the `tour_guide` prompt for the full advice.",
+		description: "The way to EXPLAIN code to the user in Insilode: a narrated walkthrough on the flow canvas, where a cursor moves from card to card, dims the rest, highlights lines and shows your caption. Use it INSTEAD of a long text answer whenever the user asks how something works or to be walked through it (\"walk me through how an order is placed\", \"how does X work\", \"explain this flow\", \"show me\", \"anlat\", \"bana göster\", \"nasıl çalışıyor\"), after finishing work (\"explain what you changed\"), or to answer a question about code by SHOWING it; then keep your own message to one line. Get file:line from flow_text or find_symbol first. 3-12 steps, one idea each, in the order the code runs; captions say WHY and what to watch, not what the code says, in the user's language. Name each step's code by `file` + `method` (preferred: it survives edits) with a `line` hint, and `lines` for the few lines the caption talks about; a step with only a caption is an intro or an outro; `table` points at a database card. The tool returns at once with each step marked ok / moved / missing / offflow: fix a missing step by calling tour again with the same id. Draw on the code with `marks` (a few per step: ring one thing, underline the words that matter, strike outdated code, check / cross for right and wrong, badge for order, connect for cause to effect), make a step hands-on with `wait` (the reader clicks, runs a safe command or presses Continue before the tour goes on), and end with up to three `followUps`: questions that go deeper, shown as chips after the last step. The user steps through it; questions they ask come back to you as a new message. Run the `tour_guide` prompt for the full advice.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -350,22 +406,10 @@ export const TOOLS: ToolDef[] = [
 				},
 				steps: {
 					type: 'array', minItems: 1, maxItems: 30,
-					items: {
-						type: 'object',
-						properties: {
-							file: str('Workspace file of the code this step points at.'),
-							method: str('Method or function, e.g. "OrderService.Place". Preferred: survives edits.'),
-							line: int('1-based line inside the method (a hint when method is given).'),
-							lines: { type: 'array', maxItems: 3, description: 'Line ranges to highlight, current-file 1-based, e.g. [[42,47]].', items: { type: 'array', items: { type: 'integer', minimum: 1 }, minItems: 1, maxItems: 2 } },
-							table: str('A database card instead of code: the table name.'),
-							title: { type: 'string', maxLength: 80, description: 'Short label for the step list; defaults to the method.' },
-							caption: { type: 'string', maxLength: 600, description: 'What to say here: one or two sentences on WHY, not a restatement of the code. Short Markdown: `code`, **bold**, a list or a fenced block are shown formatted; HTML is not.' },
-						},
-						required: ['caption'],
-						additionalProperties: false,
-					},
+					items: TOUR_STEP,
 				},
 				start: int('Step to open on (default 1).'),
+				followUps: { type: 'array', maxItems: 3, description: 'Up to three questions that go deeper than the tour (not yes/no questions), shown as chips after the last step; the reader taps one to ask it.', items: { type: 'string', maxLength: 120 } },
 			},
 			required: ['title', 'steps'],
 			additionalProperties: false,
@@ -387,14 +431,17 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'tour_control',
-		description: "Drive the tour you started with `tour`, or answer the user's question during it. go: jump the user to a step (only while they are paused or waiting for your answer: the user paces the tour, so do not fight them) · note: pin your answer to a step's card, shown until the tour ends (plain text) · resume: continue after a question · end: close it. When the user asks a question during the tour it comes to you as a message: answer with note (for the step they asked about, and go to a step that answers it better), then resume; if the answer needs more than a note, start a new tour. Returns where the user is and whether they paused.",
+		description: "Drive the tour you started with `tour`, or answer the user's question during it. go: jump the user to a step (only while they are paused or waiting for your answer: the user paces the tour, so do not fight them) · note: pin your answer to a step's card, shown until the tour ends (plain text) · edit: fix or extend the tour while it plays, with `steps` (the same step objects as `tour`) and either `replace` (the 1-based step they replace) or `insert` (the 1-based position they go in); the reader stays on their step, notes on unchanged steps stay, and the answer lists each new step's state · resume: continue after a question · end: close it. When the user asks a question during the tour it comes to you as a message: answer with note (for the step they asked about, and go to a step that answers it better), fix or extend the tour with edit when the question shows it was unclear, then resume; if the answer needs more than that, start a new tour. `go` and `edit` are accepted only while the reader is paused or waiting for your answer. Returns where the user is and whether they paused.",
 		inputSchema: {
 			type: 'object',
 			properties: {
 				id: str('Tour id.'),
-				action: { type: 'string', enum: ['go', 'note', 'resume', 'end'] },
+				action: { type: 'string', enum: ['go', 'note', 'edit', 'resume', 'end'] },
 				step: int('go: the step to jump to; note: the step the note is for (default: the step the user is on). 1-based.'),
 				text: { type: 'string', maxLength: 2000, description: 'note: your answer, as Markdown (short paragraphs, lists, `code`, fenced code blocks), a few sentences.' },
+				steps: { type: 'array', minItems: 1, maxItems: 10, description: 'edit: the new steps, in the same shape as the steps of `tour`.', items: TOUR_STEP },
+				replace: int('edit: the 1-based step that the given steps replace (one step may become several).'),
+				insert: int('edit: the 1-based position the given steps are inserted at (before the step now there; after the last step to append).'),
 			},
 			required: ['id', 'action'],
 			additionalProperties: false,

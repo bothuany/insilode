@@ -9,7 +9,10 @@
 import * as path from 'path';
 import type { Tour, TourStep } from '../../../../../protocol/flow';
 import { prose } from './ask';
+import { parseFollowUps } from './followUps';
+import { parseMarks } from './marks';
 import { parseHighlights, placeStep, positive, type Method, type StepInput } from './resolve';
+import { parseWait } from './wait';
 
 export const MAX_STEPS = 30;
 export const MAX_CAPTION = 600;
@@ -74,8 +77,8 @@ function tooLong(what: string, text: string, max: number) {
 }
 
 const FLOW_KEYS = ['http', 'id', 'file', 'method', 'line', 'changes', 'base'];
-const STEP_KEYS = ['title', 'caption', 'file', 'method', 'line', 'lines', 'table', 'anchor', 'hash', 'notes'];
-const TOUR_KEYS = ['id', 'title', 'flow', 'steps', 'start'];
+const STEP_KEYS = ['title', 'caption', 'file', 'method', 'line', 'lines', 'table', 'anchor', 'hash', 'notes', 'marks', 'wait'];
+const TOUR_KEYS = ['id', 'title', 'flow', 'steps', 'start', 'followUps'];
 const BASES: readonly string[] = ['uncommitted', 'branch', 'last_commit'];
 
 /** In a tool call a field Insilode does not know is a mistake the agent should hear about; in a file it is dropped. */
@@ -179,6 +182,13 @@ export function stepFiles(raw: unknown, roots: readonly string[]): string[] {
 		if (abs) {
 			files.add(abs);
 		}
+		// A connect mark ends at another file's code: its methods are listed too.
+		for (const m of isObject(s) && Array.isArray(s.marks) ? s.marks.slice(0, 6) : []) {
+			const to = isObject(m) && isObject(m.to) && typeof m.to.file === 'string' ? insideWorkspace(roots, m.to.file) : undefined;
+			if (to) {
+				files.add(to);
+			}
+		}
 	}
 	return [...files];
 }
@@ -190,12 +200,13 @@ export interface ParsedTour {
 	notes: (string | undefined)[];
 }
 
-function parseSteps(rawSteps: unknown, host: TourFileHost, strict: boolean): { steps: TourStep[]; notes: (string | undefined)[] } {
+/** The steps of a tour (or of a tour edit), checked and placed: one step and one note for the agent per raw step. */
+export function parseTourSteps(rawSteps: unknown, host: TourFileHost, strict: boolean, max = MAX_STEPS): { steps: TourStep[]; notes: (string | undefined)[] } {
 	if (!Array.isArray(rawSteps) || !rawSteps.length) {
 		throw new TourFileError('"steps" must list at least one step.');
 	}
-	if (rawSteps.length > MAX_STEPS) {
-		throw new TourFileError(`"steps" has ${rawSteps.length} steps; a tour has at most ${MAX_STEPS}. A longer one is a document: split it into two tours.`);
+	if (rawSteps.length > max) {
+		throw new TourFileError(`"steps" has ${rawSteps.length} steps; a tour has at most ${max}. A longer one is a document: split it into two tours.`);
 	}
 	// A file named by several steps is read once.
 	const cache = new Map<string, string | undefined>();
@@ -209,8 +220,27 @@ function parseSteps(rawSteps: unknown, host: TourFileHost, strict: boolean): { s
 			? { step: { title: input.title ?? '', caption: input.caption, state: 'missing' as const, at: { file: '', startLine: input.line ?? 0, endLine: input.line ?? 0, label: input.method || path.basename(given) } }, note: 'the file is outside the workspace' }
 			: placeStep(input, { file: abs, methods: abs ? host.methodsIn?.(abs) : undefined, text: abs ? readText(abs) : undefined, base: abs ? path.basename(abs) : undefined });
 		placed.step.title ||= `Step ${i + 1}`;
+		// Pen marks and a hands-on wait: what cannot be used is dropped, and the agent hears why in the step's note.
+		const extra: string[] = [];
+		const given_ = isObject(raw) ? raw : {};
+		if (given_.marks !== undefined) {
+			const marks = parseMarks(given_.marks, { where: `steps[${i}]`, strict, step: placed.step, file: abs, text: abs ? readText(abs) : undefined, host });
+			if (marks.marks.length) {
+				placed.step.marks = marks.marks;
+			}
+			extra.push(...marks.notes);
+		}
+		if (given_.wait !== undefined) {
+			const wait = parseWait(given_.wait, { where: `steps[${i}]`, strict });
+			if (wait.wait) {
+				placed.step.wait = wait.wait;
+			}
+			if (wait.note) {
+				extra.push(wait.note);
+			}
+		}
 		steps.push(placed.step);
-		notes.push(placed.note);
+		notes.push([placed.note, ...extra].filter(Boolean).join('; ') || undefined);
 	});
 	return { steps, notes };
 }
@@ -234,7 +264,7 @@ export function parseTourFile(raw: unknown, host: TourFileHost): ParsedTour {
 		throw new TourFileError('"title" is missing.');
 	}
 	tooLong('"title"', title, MAX_TITLE);
-	const { steps, notes } = parseSteps(raw.steps, host, false);
+	const { steps, notes } = parseTourSteps(raw.steps, host, false);
 	const tour: Tour = {
 		id,
 		title,
@@ -244,6 +274,10 @@ export function parseTourFile(raw: unknown, host: TourFileHost): ParsedTour {
 		// In the file the first step is 1.
 		start: positive(raw.start) ? Math.min(raw.start, steps.length) - 1 : 0,
 	};
+	const followUps = parseFollowUps(raw.followUps, false);
+	if (followUps?.length) {
+		tour.followUps = followUps;
+	}
 	const agent = isObject(raw.agent) ? raw.agent : undefined;
 	const label = agent && plain(agent.label).slice(0, 40);
 	if (agent && label && typeof agent.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(agent.color)) {
@@ -267,11 +301,15 @@ export function parseTourArgs(raw: unknown, host: TourFileHost, origin: string):
 		throw new TourFileError('`title` is required.');
 	}
 	tooLong('`title`', title, MAX_TITLE);
-	const { steps, notes } = parseSteps(raw.steps, host, true);
+	const { steps, notes } = parseTourSteps(raw.steps, host, true);
 	if (raw.start !== undefined && !positive(raw.start)) {
 		throw new TourFileError('`start` must be a whole number of 1 or more.');
 	}
 	const tour: Tour = { id, title, origin, source: 'agent', steps, start: positive(raw.start) ? Math.min(raw.start, steps.length) - 1 : 0 };
+	const followUps = parseFollowUps(raw.followUps, true);
+	if (followUps?.length) {
+		tour.followUps = followUps;
+	}
 	return { tour, flow: parseFlow(raw.flow, host, true), notes };
 }
 

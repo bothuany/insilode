@@ -18,7 +18,7 @@ export interface AskBox {
   inputRef: RefObject<HTMLInputElement | null>
 }
 
-export function TourBar({ tour, state, api, extras, ask }: { tour: Tour; state: PlayerState; api: TourApi; extras?: ReactNode; ask?: AskBox }) {
+export function TourBar({ tour, state, api, extras, ask, nextBlocked }: { tour: Tour; state: PlayerState; api: TourApi; extras?: ReactNode; ask?: AskBox; nextBlocked?: boolean }) {
   const [list, setList] = useState(false)
   const [question, setQuestion] = useState('')
   const { index, paused } = state
@@ -46,7 +46,7 @@ export function TourBar({ tour, state, api, extras, ask }: { tour: Tour; state: 
           </ol>
         )}
       </span>
-      <button className="icon-btn" onClick={api.next} disabled={index === last} title="Next step (→)">›</button>
+      <button className="icon-btn" onClick={api.next} disabled={index === last || nextBlocked} title={nextBlocked ? 'Do this step first' : 'Next step (→)'}>›</button>
       <button className="icon-btn" onClick={api.toggle} title={paused ? 'Resume the tour (Space)' : 'Pause: lift the spotlight (Space)'}>{paused ? '▶' : '⏸'}</button>
       <span className="tour-label" title={`${tour.title} · ${tour.origin}`}>
         {step?.title}

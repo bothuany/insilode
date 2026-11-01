@@ -1,6 +1,9 @@
 // The canvas does not take the host's word for the shape of a tour: whatever arrives (a whole tour, one late step, a note) is
 // rebuilt field by field, with types, ranges and lengths checked, before anything renders it. Pure, with only type imports.
 import type { Tour, TourNote, TourStep } from '../types'
+import { sanitizeFollowUps } from './followUps.ts'
+import { sanitizeMarks } from './marks.ts'
+import { sanitizeWait } from './wait.ts'
 
 const text = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '')
 const whole = (v: unknown, min = 0, max = 10_000_000): v is number => typeof v === 'number' && Number.isInteger(v) && v >= min && v <= max
@@ -43,6 +46,10 @@ export function sanitizeStep(raw: unknown): TourStep | null {
     const notes = raw.notes.flatMap(n => sanitizeNote(n) ?? []).slice(-10)
     if (notes.length) step.notes = notes
   }
+  const marks = sanitizeMarks(raw.marks)
+  if (marks?.length) step.marks = marks
+  const wait = sanitizeWait(raw.wait)
+  if (wait) step.wait = wait
   return step
 }
 
@@ -62,5 +69,7 @@ export function sanitizeTour(raw: unknown): Tour | null {
   const agent = raw.agent
   // The colour ends up in a CSS custom property: a colour literal only, nothing that could carry a url() or a second declaration.
   if (obj(agent) && typeof agent.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(agent.color)) tour.agent = { label: text(agent.label, 40), color: agent.color }
+  const followUps = sanitizeFollowUps(raw.followUps)
+  if (followUps?.length) tour.followUps = followUps
   return tour
 }
