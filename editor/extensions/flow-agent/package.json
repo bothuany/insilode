@@ -281,7 +281,7 @@
         "flow.agents.mcp": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Give agents started from Insilode the `insilode` tools (open files, the git diff and flows in the editor, find entry points, symbols, definitions and references, read diagnostics and flows as text, draw diagrams and plans). They are added to the agent with `--mcp-config`, next to your own MCP servers; they cannot write files or run commands. Takes effect for agents started afterwards."
+          "markdownDescription": "Give agents started from Insilode the `insilode` tools (open files, the git diff and flows in the editor, find entry points, symbols, definitions and references, read diagnostics and flows as text, draw diagrams and plans). Claude Code gets them with `--mcp-config` and Codex from Insilode's own Codex profile (`$CODEX_HOME/insilode.config.toml`, `codex -p insilode`), next to your own MCP servers; they cannot write files or run commands. Takes effect for agents started afterwards."
         },
         "flow.agents.shim": {
           "type": "boolean",
@@ -594,7 +594,7 @@
         "flow.agents.codexHooks": {
           "type": "boolean",
           "default": true,
-          "description": "Show Codex's status (working, needs you, done) and its edits on the canvas. Insilode writes read-only hooks to its own Codex profile ($CODEX_HOME/insilode.config.toml) and starts Codex with `-p insilode`; your config.toml is not changed. Codex asks you once to trust these hooks (/hooks)."
+          "description": "Show Codex's status (working, needs you, done) and its edits on the canvas. Insilode writes read-only hooks to its own Codex profile ($CODEX_HOME/insilode.config.toml, which also gives Codex the `insilode` tools: flow.agents.mcp) and starts Codex with `-p insilode`; your config.toml is not changed. Codex asks you once to trust these hooks (/hooks)."
         }
       }
     },
