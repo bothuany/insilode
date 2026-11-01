@@ -39,6 +39,12 @@ th { color: var(--muted); font-weight: 500; }
 s { color: var(--muted); }
 .bar { display: flex; height: 14px; border-radius: 4px; overflow: hidden; background: color-mix(in srgb, var(--line) 60%, transparent); margin: 8px 0; }
 .bar i { display: block; height: 100%; }
+/* A button that reads as a link, for the actions the pages used to draw as <a onclick>: reachable by Tab, with a visible focus ring. */
+button.link { background: none; border: 0; padding: 0; color: var(--vscode-textLink-foreground); text-decoration: none; }
+button.link:hover { background: none; text-decoration: underline; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible { outline: 1px solid var(--vscode-focusBorder, var(--accent)); outline-offset: 1px; }
+/* Text for a screen reader only (an aria-live status line, a label). */
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 `;
 
 /** A complete page: `body` is static markup written here, `script` the page's code; both are this extension's own text. */
