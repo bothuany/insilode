@@ -8,7 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Worker } from 'worker_threads';
-import type { FlowNode, FlowProvider, FlowTarget } from '../providers';
+import type { FlowNode, FlowProvider, FlowTarget, ImpactResult } from '../providers';
 import type { Place, Suggestion } from './assist';
 import { VsLsp } from './lspHost';
 import { LspRefiner, stripPending } from './lspResolve';
@@ -307,7 +307,7 @@ export class PolyIndex implements vscode.Disposable {
 	}
 
 	impact(id: string) {
-		return this.request<{ label: string; items: string[] }>('impact', id);
+		return this.request<ImpactResult>('impact', id);
 	}
 
 	dispose() {

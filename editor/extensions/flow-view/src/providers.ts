@@ -2,11 +2,11 @@
  *  Insilode: where a flow comes from. One provider per kind of target; the canvas only sees FlowNode.
  *--------------------------------------------------------------------------------------------*/
 
-import type { FlowNode } from '../../../../protocol/flow';
+import type { FlowNode, ImpactResult } from '../../../../protocol/flow';
 import type { Analyzer } from './analyzer';
 
 /** What every provider hands the canvas (declared in protocol/flow.ts). */
-export type { FlowNode };
+export type { FlowNode, ImpactResult };
 
 /** Opaque to the webview; each provider defines its own fields. */
 export type FlowTarget =
@@ -20,7 +20,7 @@ export interface FlowProvider {
 	graph(target: FlowTarget): Promise<FlowNode>;
 	callers(target: FlowTarget): Promise<FlowNode | null>;
 	/** What breaks if this changes: entry points (or, without a framework adapter, root callers). */
-	impact(target: FlowTarget): Promise<{ label: string; items: string[] }>;
+	impact(target: FlowTarget): Promise<ImpactResult>;
 }
 
 /** C#/.NET: the Roslyn analyzer, which also resolves MediatR and DI hops. */
@@ -43,6 +43,8 @@ export class RoslynProvider implements FlowProvider {
 	}
 
 	async impact(t: FlowTarget) {
-		return { label: 'endpoint', items: await this.analyzer.get<string[]>(`/api/impact?id=${this.id(t)}`) };
+		const items = await this.analyzer.get<string[]>(`/api/impact?id=${this.id(t)}`);
+		// The analyzer names the endpoints only: no file or line to open yet.
+		return { label: 'endpoint', items: items.map(label => ({ label, file: null, line: 0 })) };
 	}
 }

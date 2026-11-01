@@ -20,6 +20,8 @@ import { TypeService } from './types/typeService';
 import { SkeletonHost } from './skeletonHost';
 import { Command } from './commands';
 import { EndpointsView } from './endpoints';
+import { cursorNotice } from './cursorMessage';
+import { playSampleTour } from './sampleTour';
 import { FlowHome } from './home';
 import { FlowSettings } from './settings';
 import { ClaudeIdeBridge } from './ide';
@@ -93,7 +95,7 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 	const providers: Record<FlowTarget['kind'], FlowProvider> = { roslyn, poly: polyProvider, lsp, changes: changeSet };
 	const panel = new FlowPanel(context, providerFor, changes);
-	const boards = new BoardStore();
+	const boards = new BoardStore({ persist: context.workspaceState });
 	const home = new FlowHome(context, endpointList);
 	const endpointsView = new EndpointsView(endpointList);
 	context.subscriptions.push(log, analyzer, poly, polyProvider, endpointList, endpointsView, panel, home, changes, changes.onDidChange(() => panel.refreshSoon()));
@@ -180,6 +182,8 @@ function registerCommands(flow: Flow) {
 		vscode.commands.registerCommand('flow.pickSolution', () => analyzer.pickSolution().catch(fail)),
 		// A hand-written tour file played on the canvas (guided tours, phase 0): the player an agent's tours will use too.
 		vscode.commands.registerCommand('flow.tour.playFile', (file?: unknown) => playTourFile(flow, file).catch(fail)),
+		// Home's "Take the tour": the bundled sample tour (sampleTour.ts).
+		vscode.commands.registerCommand('flow.tour.playSample', () => playSampleTour(flow).catch(fail)),
 
 		vscode.commands.registerCommand('flow.showAtCursor', async () => {
 			const editor = vscode.window.activeTextEditor;
@@ -188,6 +192,11 @@ function registerCommands(flow: Flow) {
 			}
 			const { document } = editor;
 			const pos = editor.selection.active;
+			const notice = (message: string | undefined) => {
+				if (message) {
+					void vscode.window.showInformationMessage(message);
+				}
+			};
 			const viaLanguageServer = () => {
 				// getText() of no range is the whole document: a cursor off any word must not title the tab with the file.
 				const range = document.getWordRangeAtPosition(pos);
@@ -201,21 +210,24 @@ function registerCommands(flow: Flow) {
 						await flow.showPoly(hit.id, hit.label);
 						return;
 					}
+					notice(cursorNotice({ languageId: document.languageId, reason: 'outside-function', falling: true }));
 				} catch {
 					// the index is not up: fall back to the language server below
+					notice(cursorNotice({ languageId: document.languageId, reason: 'index-not-ready', falling: true }));
 				}
 				await viaLanguageServer();
 				return;
 			}
 			if (document.languageId !== 'csharp' || !await analyzer.hasSolution()) {
 				// Any other language: ask its language server about the function under the cursor.
+				notice(cursorNotice({ languageId: document.languageId, reason: 'no-solution', falling: true }));
 				await viaLanguageServer();
 				return;
 			}
 			try {
 				const hit = innermost(await analyzer.methods(document.uri.fsPath), pos.line + 1);
 				if (!hit) {
-					void vscode.window.showInformationMessage('Insilode: put the cursor inside a method.');
+					notice(cursorNotice({ languageId: document.languageId, reason: 'outside-function', falling: false }));
 					return;
 				}
 				await flow.showRoslyn(hit.id, hit.name);
@@ -282,6 +294,11 @@ function registerAgentCommands({ context, panel, changes }: Flow) {
 		vscode.commands.registerCommand('flow.agentWillEdit', (files: string[]) => changes.willEdit(files)),
 		vscode.commands.registerCommand('flow.agentDidEdit', async (files?: string[]) => {
 			await changes.didEdit(files ?? []);
+			panel.refreshSoon();
+		}),
+		// Called by flow-agent at the end of a turn with the files a shell command changed (agent edit tools did not report them).
+		vscode.commands.registerCommand('flow.agent.commandEdited', async (files?: unknown) => {
+			await changes.commandEdited(Array.isArray(files) ? files.filter((f): f is string => typeof f === 'string') : []);
 			panel.refreshSoon();
 		}),
 		vscode.commands.registerCommand('flow.agentProposes', (p: Parameters<FlowPanel['propose']>[0]) => panel.propose(p)),
@@ -383,6 +400,7 @@ function wireAgentBridge(flow: Flow) {
 	const boardPanel = registerTypeViews({ context, log });
 	const canvas = boardPanel.asHost();
 	boardPanel.setStore(boards);
+	boards.setOpenCheck(id => boardPanel.isBoardOpen(id));
 	boards.setHost({
 		show: async (id, spec, extra) => {
 			try {

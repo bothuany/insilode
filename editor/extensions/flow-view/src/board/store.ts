@@ -48,6 +48,17 @@ export interface BoardChange { type: 'set' | 'node' | 'delete'; id: string }
 
 export const MAX_BOARDS = 30;
 
+/** The key/value store boards survive a reload in: VS Code's `workspaceState` fits it. The store itself stays vscode-free. */
+export interface BoardPersist {
+	get<T>(key: string): T | undefined;
+	update(key: string, value: unknown): PromiseLike<void>;
+}
+
+export interface BoardStoreOptions {
+	/** Where the boards are kept between windows. Without it they live in memory only (tests, other hosts). */
+	persist?: BoardPersist;
+}
+
 /** A minimal event: the store is used outside VS Code too. */
 class Emitter<T> {
 	private readonly listeners = new Set<(e: T) => void>();
@@ -83,6 +94,10 @@ export function boardFileName(id: string): string {
 
 export class BoardStore {
 	private readonly boards = new Map<string, StoredBoard>();
+	/** Read by the persistence code: the review fixes load boards from it on start and save them on every change. */
+	readonly persist: BoardPersist | undefined;
+	/** Whether a board is open in a panel: an open board is never evicted. Set by the host that shows boards. */
+	private isOpen: ((id: string) => boolean) | undefined;
 	private readonly changed = new Emitter<BoardChange>();
 	readonly onDidChange = this.changed.event;
 	private host: BoardHost | undefined;
@@ -90,8 +105,22 @@ export class BoardStore {
 	/** Paints a board before it is shown (skeleton first's plan vs code); the stored board stays as it was drawn. */
 	private decorator: ((id: string, spec: BoardSpec) => BoardSpec) | undefined;
 
+	constructor(options: BoardStoreOptions = {}) {
+		this.persist = options.persist;
+	}
+
 	setHost(host: BoardHost | undefined) {
 		this.host = host;
+	}
+
+	/** Tells the store which boards are open in a panel, so eviction skips them (plan boards are never evicted either). */
+	setOpenCheck(isOpen: ((id: string) => boolean) | undefined) {
+		this.isOpen = isOpen;
+	}
+
+	/** Whether eviction must leave a board alone. */
+	protected pinned(board: StoredBoard): boolean {
+		return board.origin === 'plan' || this.isOpen?.(board.id) === true;
 	}
 
 	setDecorator(decorator: ((id: string, spec: BoardSpec) => BoardSpec) | undefined) {

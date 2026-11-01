@@ -8,6 +8,7 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { CanvasToHostTour, Tour } from '../../../../protocol/flow';
+import { saveTourWithNotice } from './tourSave';
 import type { AgentChanges } from './agentDiff';
 import { askInDock } from './askAgent';
 import { Command } from './commands';
@@ -26,7 +27,7 @@ import { TypeService } from './types/typeService';
 interface Request {
 	type: 'request';
 	id: number;
-	op: 'graph' | 'callers' | 'save' | 'keep' | 'undo' | 'impact' | 'context' | 'timeline' | 'undoFrom' | 'editHooks' | 'complete' | 'signature' | 'hover' | 'definition' | 'endEdit' | 'typeChips' | 'typeDetail';
+	op: 'graph' | 'callers' | 'save' | 'keep' | 'keepCard' | 'keepAll' | 'undo' | 'undoAll' | 'impact' | 'context' | 'timeline' | 'undoFrom' | 'editHooks' | 'complete' | 'signature' | 'hover' | 'definition' | 'endEdit' | 'typeChips' | 'typeDetail';
 	turn?: number;
 	target?: FlowTarget;
 	file?: string;
@@ -396,7 +397,7 @@ export class FlowPanel implements vscode.Disposable {
 		void this.panel?.webview.postMessage({ type: 'cursor', file, line });
 	}
 
-	private async onMessage(m: Request | { type: 'open' | 'reveal'; file: string; line: number } | { type: 'ask'; label: string; context: string } | { type: 'answer'; id: string; accept: boolean } | { type: 'mention'; file: string; start: number; end: number } | { type: 'typeDiagram'; id: string } | Extract<CanvasToHostTour, { type: 'tourState' | 'tourExit' | 'tourAsk' | 'tourRun' | 'pointAsk' | 'gazeReplay' }>) {
+	private async onMessage(m: Request | { type: 'open' | 'reveal'; file: string; line: number } | { type: 'ask'; label: string; context: string } | { type: 'answer'; id: string; accept: boolean } | { type: 'mention'; file: string; start: number; end: number } | { type: 'typeDiagram'; id: string } | Extract<CanvasToHostTour, { type: 'tourState' | 'tourExit' | 'tourAsk' | 'tourRun' | 'tourSave' | 'pointAsk' | 'gazeReplay' }>) {
 		if (m.type === 'open' || m.type === 'reveal') {
 			// open: jump there and type; reveal: show the line but keep the canvas focused.
 			const file = workspaceFile(m.file);
@@ -435,6 +436,13 @@ export class FlowPanel implements vscode.Disposable {
 				this.tourAt = { index: ask.index, paused: true };
 				const where = step.at?.file ? place(this.rel(step.at.file), step.at.startLine, step.at.endLine) : undefined;
 				await this.askAgent(tourAskPrompt(playing.tour, ask.index + 1, playing.steps, { label: step.at?.label || step.title, where }, ask.question), 'tour', step.at?.file ? [step.at.file] : [], playing.session);
+			}
+			return;
+		}
+		if (m.type === 'tourSave') {
+			// Only the tour this host sent, and only because the reader clicked Save.
+			if (this.playing && m.id === this.playing.id) {
+				await saveTourWithNotice(this.playing.tour);
 			}
 			return;
 		}
@@ -532,6 +540,9 @@ export class FlowPanel implements vscode.Disposable {
 				case 'undoFrom': data = await this.whileCardEdited() ?? await this.changes.undoFrom(m.turn!); break;
 				case 'save': data = await this.save(m); break;
 				case 'keep': this.changes.keep(m.file!); data = { ok: true }; break;
+				case 'keepCard': this.changes.keepCard(m.file!, m.startLine!, m.endLine!); data = { ok: true }; break;
+				case 'keepAll': this.changes.keepAll(); data = { ok: true }; break;
+				case 'undoAll': data = await this.whileCardEdited() ?? await this.changes.undoAll(); break;
 				case 'undo': data = await this.whileCardEdited(m.file) ?? await this.changes.undo(m.file!, m.startLine!, m.endLine!); break;
 				case 'complete': data = await this.language.complete(cardQuery({ ...m }), triggerOf(m.trigger)); break;
 				case 'signature': data = await this.language.signature(cardQuery({ ...m }), triggerOf(m.trigger)); break;

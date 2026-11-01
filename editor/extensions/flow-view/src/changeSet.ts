@@ -8,7 +8,7 @@ import { changeSetRoot, markTableChanges, pruneToChanged, rekey, showsLine, tabl
 import { tableEndpoints, type ImpactLimits, type TurnImpact } from './mcp/turnImpact';
 import { goneColumns } from './poly/migrations';
 import { NOT_CHECKED, usedBy } from './mcp/tableIndex';
-import type { FlowNode, FlowProvider, FlowTarget } from './providers';
+import type { FlowNode, FlowProvider, FlowTarget, ImpactResult } from './providers';
 
 /** A whole branch can touch many files: wider than after one agent turn, still bounded (Roslyn answers one request at a time). */
 const SET_LIMITS: ImpactLimits = { files: 60, functionsPerFile: 40, flows: 30, budgetMs: 25_000, tables: 12, tableBudgetMs: 15_000 };
@@ -167,10 +167,10 @@ export class ChangeSetProvider implements FlowProvider {
 		return null;
 	}
 
-	async impact(): Promise<{ label: string; items: string[] }> {
+	async impact(): Promise<ImpactResult> {
 		const impact = (await this.last?.catch(() => undefined))?.impact;
 		// The canvas reads it as "Affects 3 endpoints": the ones a changed method reaches and the ones that use a changed table.
 		const flows = impact ? [...impact.flows, ...tableEndpoints(impact)] : [];
-		return { label: 'endpoint', items: flows.map(f => `${f.label} ${f.name}`) };
+		return { label: 'endpoint', items: flows.map(f => ({ label: `${f.label} ${f.name}`, file: null, line: 0 })) };
 	}
 }

@@ -288,6 +288,13 @@ export class AgentChanges implements vscode.Disposable {
 		this.save();
 	}
 
+	/**
+	 * Files a shell command changed during a turn, that no edit tool named (flow-agent's turn-end sweep): they show as
+	 * "changed by a command", measured against the snapshot taken at the turn's start when one exists, else against HEAD.
+	 * A stub until the edits part fills it.
+	 */
+	async commandEdited(_files: string[]) { }
+
 	/** Called before the agent writes: remember the file as it is now (first write of a change wins). */
 	async willEdit(files: string[]) {
 		await this.loading;
@@ -529,6 +536,25 @@ export class AgentChanges implements vscode.Disposable {
 		this.forget(fileKey(file));
 		this.save();
 		this.changed.fire();
+	}
+
+	/** Keep the agent's changes inside one card. A stub until the edits part gives it its own state: for now it keeps the card's file, as Keep does. */
+	keepCard(file: string, _start: number, _end: number) {
+		this.keep(file);
+	}
+
+	/** Keep every change of the prompt: no file shows as an agent change any more. */
+	keepAll() {
+		for (const file of [...this.baselines.keys()]) {
+			this.forget(file);
+		}
+		this.save();
+		this.changed.fire();
+	}
+
+	/** Undo every change of the prompt. A stub until the edits part fills it. */
+	async undoAll(): Promise<{ ok: boolean; message?: string }> {
+		return { ok: false, message: 'Undo all is not built yet.' };
 	}
 
 	/** Undo the agent's changes inside one card (method), leaving the rest of the file alone. */

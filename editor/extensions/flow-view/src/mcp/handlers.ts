@@ -22,7 +22,7 @@ import { annotate, architectureFromGraph, checkScope, erFromTables, sequenceFrom
 import { cleanBoardId, type BoardStore } from '../board/store';
 import type { ChangeSet, ChangeSetTrace } from '../changeSet';
 import { POLY_LANGUAGES, type PolyIndex } from '../poly/client';
-import type { FlowProvider, FlowTarget } from '../providers';
+import type { FlowProvider, FlowTarget, ImpactResult } from '../providers';
 import { changeMark, diffOpening, GitStatus, statusesByFile } from './changes';
 import { flowToText } from './flowtext';
 import { errorResult, type ToolResult } from './protocol';
@@ -904,7 +904,7 @@ export class AgentTools {
 			const t = flowToText(callers, { depth: num(a.depth, 3, 6), rel: f => this.rel(f) }, 'callers');
 			out.push('', t.nodes > 1 ? 'Callers ("<- L<n>" is the line in the caller):' : 'No callers found in the index.', t.nodes > 1 ? t.text : '');
 		}
-		const items = (affected as { items: string[] }).items;
+		const items = (affected as ImpactResult).items.map(i => i.label);
 		out.push('', items.length ? `${items.length} ${(affected as { label: string }).label}${items.length > 1 ? 's' : ''} reach it:` : 'No entry point reaches it.', ...items.slice(0, 60).map(i => `- ${i}`));
 		return text(out.join('\n'));
 	}

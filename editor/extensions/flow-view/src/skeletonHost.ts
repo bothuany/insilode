@@ -99,7 +99,15 @@ export class SkeletonHost implements SkeletonTools, vscode.Disposable {
 				}
 			}),
 			vscode.commands.registerCommand('flow.skeleton.revert', () => this.revertPicked()),
+			// flow-agent's dock: where an agent is in skeleton first, for the stage indicator on its row.
+			vscode.commands.registerCommand('flow.skeleton.stage', (session: unknown) => this.stageOf(session)),
 		);
+	}
+
+	/** The stage an agent session is in (design, skeleton or handover), or nothing when it is not in skeleton first. `skipped`: the developer chose "just do it" for this change. */
+	stageOf(session: unknown): { stage: SkeletonSession['stage']; skipped: boolean } | undefined {
+		const s = typeof session === 'string' ? this.sessions.get(session) : undefined;
+		return s && { stage: s.stage, skipped: false };
 	}
 
 	/** Whether any agent session is comparing a design with the code now. */

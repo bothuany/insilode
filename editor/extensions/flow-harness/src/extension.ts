@@ -287,9 +287,14 @@ export function activate(context: vscode.ExtensionContext) {
 		// From the Agents dock (one agent's session) or the Harness view (asks which session).
 		vscode.commands.registerCommand('flowHarness.contextXray', (s?: unknown) => xray.show(s)),
 		vscode.commands.registerCommand('flowHarness.why', (uri?: unknown) => why.show(uri)),
-		vscode.commands.registerCommand('flowHarness.simulatePermission', (call: unknown, agent?: unknown) => typeof call === 'string' ? why.simulate(call, agent === 'Codex' ? 'Codex' : 'Claude') : undefined),
+		// Scripts and the MCP side pass the call; from the palette it is asked for here.
+		vscode.commands.registerCommand('flowHarness.simulatePermission', async (call?: unknown, agent?: unknown) => {
+			const asked = typeof call === 'string' ? call : await vscode.window.showInputBox({ title: 'Simulate a permission', prompt: 'A tool call as the agent would make it', placeHolder: 'Bash(git push origin main)', ignoreFocusOut: true });
+			return asked?.trim() ? why.simulate(asked.trim(), agent === 'Codex' ? 'Codex' : 'Claude') : undefined;
+		}),
 		vscode.commands.registerCommand('flowHarness.applyProposal', (arg: unknown) => friction.apply(arg)),
 		vscode.commands.registerCommand('flowHarness.dismissProposal', (arg: unknown) => friction.dismiss(arg)),
+		vscode.commands.registerCommand('flowHarness.removeGuard', (arg: unknown) => friction.removeGuard(arg)),
 		vscode.commands.registerCommand('flowHarness.deleteMemory', (arg: unknown) => memories.delete(arg)),
 		vscode.commands.registerCommand('flowHarness.promoteMemory', (arg: unknown) => memories.promote(arg)),
 		vscode.commands.registerCommand('flowHarness.clearFriction', async () => {

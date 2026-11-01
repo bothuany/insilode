@@ -7,7 +7,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import type { DbSchema, EntryPoint, FlowNode } from '../../../../../protocol/flow';
+import type { DbSchema, EntryPoint, FlowNode, ImpactResult } from '../../../../../protocol/flow';
 import { isSpringRepo, isWrite, javaSchema, jsSchema, looksLikeSql, opsOf, pythonSchema, sqlTables, tableKey, unq, type PrismaModel, type SchemaFact } from './db';
 import { baseType, callBefore, chainBefore, isConstructorName, Kind, paramLabels, recvText, signatureDetail, wordAt, type Place, type Seg, type Suggestion } from './assist';
 import { joinPath, type CallFact, type FileFacts, type FuncFact, type Lang, type RouteFact, type TableEntity, type TablesFact, type TableUseFact, type TypeFact } from './model';
@@ -1399,7 +1399,7 @@ export class Project {
 	}
 
 	/** Entry points that reach this function (or, when none do, the top-most callers). */
-	impact(id: string): { label: string; items: string[] } {
+	impact(id: string): ImpactResult {
 		const root = this.fnFor(id);
 		if (!root) {
 			return { label: 'entry point', items: [] };
@@ -1428,7 +1428,9 @@ export class Project {
 				}
 			}
 		}
-		return found.size ? { label: 'entry point', items: [...found].sort() } : { label: 'caller', items: [...tops].sort() };
+		// File and line are filled in by the structured walk (the review fixes): for now a row is its label only.
+		const rows = (labels: Set<string>) => [...labels].sort().map(label => ({ label, file: null, line: 0 }));
+		return found.size ? { label: 'entry point', items: rows(found) } : { label: 'caller', items: rows(tops) };
 	}
 
 	/** The innermost function around a line, for "flow at cursor" and follow mode. */

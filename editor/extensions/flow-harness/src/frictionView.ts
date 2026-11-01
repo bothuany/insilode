@@ -146,6 +146,11 @@ export class FrictionView implements vscode.TreeDataProvider<Row> {
 		return t;
 	}
 
+	/** Removes a guard hook Insilode added (the friction part lists the guards and fills this): a stub until then. */
+	async removeGuard(_arg: unknown): Promise<void> {
+		void vscode.window.showInformationMessage('Insilode: removing a guard is not built yet.');
+	}
+
 	dismiss(arg: unknown) {
 		const row = (arg as { row?: Row } | undefined)?.row ?? (arg as Row | undefined);
 		if (row?.type === 'proposal') {

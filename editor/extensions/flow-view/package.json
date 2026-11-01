@@ -111,13 +111,13 @@
       },
       {
         "command": "flow.ide.accept",
-        "title": "Accept Claude's Change",
+        "title": "Keep Agent's Change",
         "category": "Insilode",
         "icon": "$(check)"
       },
       {
         "command": "flow.ide.reject",
-        "title": "Reject Claude's Change",
+        "title": "Undo Agent's Change",
         "category": "Insilode",
         "icon": "$(close)"
       },
@@ -162,9 +162,19 @@
         "category": "Insilode"
       },
       {
+        "command": "flow.board.exportMarkdown",
+        "title": "Export Board as Markdown…",
+        "category": "Insilode"
+      },
+      {
+        "command": "flow.tour.playSample",
+        "title": "Take the Insilode Tour",
+        "category": "Insilode"
+      },
+      {
         "command": "flow.showHarnessFlow",
         "title": "Harness Flow",
-        "category": "Insilode"
+        "category": "Harness"
       },
       {
         "command": "flow.skeleton.revert",
@@ -353,6 +363,13 @@
         },
         {
           "command": "flow.types.focusType"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "flow.types.focusType",
+          "when": "!explorerResourceIsFolder && resourceScheme == file",
+          "group": "navigation@90"
         }
       ],
       "view/title": [

@@ -27,6 +27,7 @@ import { PrWatcher, type PrState } from './prState';
 import { shimScript } from './shim';
 import { canExplain, explainPrompt } from './explain';
 import { hookScript } from './hookScript';
+import { ShellEditSweep } from './shellEdits';
 import { SKELETON_GATE, SKELETON_PROMPT_GATE } from './skeleton';
 import { canType, notReady, oneLine, slashRefusal, slashText, type AgentCli, type AgentState, type CustomCli, type SessionInfo, type SlashKind, type SlashResult } from './askTarget';
 import { applyUsage, claudeTranscriptUsage, codexRolloutUsage, endUsage, findOnPath, hasOwnStatusLine, LimitsSender, parseClaudeStatus, statusScript, type ContextUsage, type UsageLimits } from './usage';
@@ -307,6 +308,8 @@ export class Agents implements vscode.Disposable {
 	private codexProfileReady: { key: string; ready: Promise<{ hooks: boolean } | undefined> } | undefined;
 	/** Files an agent edited since its last prompt, for the turn-end impact. */
 	private readonly touched = new Map<string, Set<string>>();
+	/** Files a shell command changed during a turn (shellEdits.ts). */
+	private readonly shellEdits = new ShellEditSweep();
 	/** Sessions whose plan was drawn from PreToolUse this turn, so PostToolUse does not draw it twice. */
 	private readonly planDrawn = new Set<string>();
 	/** Why each session needs you, and its failure streak. */
@@ -1179,6 +1182,7 @@ export class Agents implements vscode.Disposable {
 				this.touched.delete(s.id);
 				this.turns.delete(s.id);
 				this.planDrawn.delete(s.id);
+				void this.shellEdits.begin(s.id, s.worktree?.path ?? p.cwd).catch(() => undefined);
 				gazeTurn(s.id);
 				set('working', 'Thinking');
 				void this.markPrompt(s);
@@ -1250,7 +1254,8 @@ export class Agents implements vscode.Disposable {
 				this.settleAsked(s, 'denied');
 				set('done', undefined);
 				void this.readUsage(s);
-				void this.turnImpact(s);
+				// What a shell command changed counts as touched before the turn's impact is worked out.
+				void this.sweepShellEdits(s, p.cwd).finally(() => this.turnImpact(s));
 				break;
 			case 'StopFailure':
 				// The turn ended on an error: nothing is running, and the row says why (s.need).
@@ -1314,6 +1319,17 @@ export class Agents implements vscode.Disposable {
 		const set = this.touched.get(s.id) ?? new Set<string>();
 		files.forEach(f => set.size < MAX_TOUCHED && set.add(f));
 		this.touched.set(s.id, set);
+	}
+
+	/** The turn is over: files a shell command changed, that no edit tool named, are reported to flow-view and counted as touched. */
+	private async sweepShellEdits(s: AgentSession, cwd: string | undefined) {
+		const files = await this.shellEdits.end(s.id, s.worktree?.path ?? cwd, this.touched.get(s.id) ?? new Set<string>()).catch(() => [] as string[]);
+		if (!files.length) {
+			return;
+		}
+		await Promise.resolve(vscode.commands.executeCommand('flow.agent.commandEdited', files)).catch(() => undefined);
+		this.touch(s, files);
+		this.recordEdits(s, files);
 	}
 
 	/** The turn is over: which flows did the edited files reach? Shown on the agent's row; clicking one opens it. */

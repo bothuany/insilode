@@ -165,6 +165,11 @@ export class BoardPanel implements vscode.Disposable {
 		this.store = store;
 	}
 
+	/** Whether a board of the store is open in a tab (the store never evicts one that is). */
+	isBoardOpen(id: string): boolean {
+		return this.tabs.has(`board:${id}`);
+	}
+
 	asHost(): BoardHost {
 		return {
 			show: (id, spec, extra?: BoardExtra) => this.show(spec, { key: `board:${id}`, preserveFocus: true, since: extra?.since, boards: extra?.boards }),

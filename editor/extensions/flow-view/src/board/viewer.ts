@@ -27,6 +27,8 @@ export class MarkdownBoardViewer implements BoardHost, vscode.Disposable {
 		this.disposables.push(
 			store.onDidChange(e => e.type === 'delete' && void fs.rm(this.fileOf(e.id), { force: true }).catch(() => undefined)),
 			vscode.commands.registerCommand('flow.board.show', (id?: string) => this.pick(id)),
+			// The Markdown stand-in is an export: the canvas is where a board is shown (the board part moves Show Board there).
+			vscode.commands.registerCommand('flow.board.exportMarkdown', (id?: string) => this.pick(id)),
 		);
 	}
 

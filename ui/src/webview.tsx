@@ -19,7 +19,8 @@ import { SelectionBar, type Picked, type SelectionAction } from './tour/Selectio
 import { useTourPlayer } from './tour/TourPlayer'
 import { useGaze } from './gaze/Gaze'
 import { loadCounter } from './loads'
-import type { FlowNode } from './types'
+import { AgentEditActions } from './agentEdit/AgentEditActions'
+import type { FlowNode, ImpactResult } from './types'
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void }
 /** What to draw: opaque to the webview, interpreted by the host's provider for that language. */
@@ -153,7 +154,7 @@ function Flow() {
   const [editHooks, setEditHooks] = useState<string[]>([])
   const turnRef = useRef(turn)
   turnRef.current = turn
-  const [impact, setImpact] = useState<{ label: string; items: string[] } | null>(null)
+  const [impact, setImpact] = useState<ImpactResult | null>(null)
   const [selected, setSelected] = useState<string | null>(null)
   const { fitView, setCenter, getNode, getNodes, getViewport } = useReactFlow()
   const editingRef = useRef(editing)
@@ -220,7 +221,7 @@ function Flow() {
       setError('')
       // Impact walks callers far up; it can take a moment, so it fills in after the canvas.
       if (!keepFolds) setImpact(null)
-      request<{ label: string; items: string[] }>('impact', { target: t }).then(v => live(() => setImpact(v)), () => live(() => setImpact(null)))
+      request<ImpactResult>('impact', { target: t }).then(v => live(() => setImpact(v)), () => live(() => setImpact(null)))
     } catch (e) {
       if (loads.isCurrent(mine)) setError(String((e as Error).message ?? e))
     }
@@ -297,7 +298,7 @@ function Flow() {
       lines.push('## Flow (downstream)')
       walk(down, 0, '')
     }
-    if (impact?.items.length) lines.push('', `## Impact: ${impact.items.length} ${impact.label}${impact.items.length === 1 ? '' : 's'}`, ...impact.items.map(i => `- ${i}`))
+    if (impact?.items.length) lines.push('', `## Impact: ${impact.items.length} ${impact.label}${impact.items.length === 1 ? '' : 's'}`, ...impact.items.map(i => `- ${i.label}`))
     return lines.join('\n')
   }
 
@@ -694,7 +695,7 @@ function Flow() {
             {impactOpen && (
               <div className="impact-pop" role="dialog" onMouseLeave={() => setImpactOpen(false)}>
                 <p>Changing this method can change the behaviour of:</p>
-                <ul>{impact.items.map(i => <li key={i}>{i}</li>)}</ul>
+                <ul>{impact.items.map(i => <li key={i.label}>{i.label}</li>)}</ul>
               </div>
             )}
           </span>
@@ -760,12 +761,7 @@ function Flow() {
           </div>
         )}
         {tour.bar(
-          reviewNode && (
-            <>
-              {!reviewNode.diff?.base && <button className="btn ghost" onClick={() => actions.undo?.(reviewNode.key)}>Undo</button>}
-              <button className="btn solid" onClick={() => actions.keep?.(reviewNode.key)}>Keep</button>
-            </>
-          ),
+          reviewNode && <AgentEditActions node={reviewNode} actions={actions} request={request} reload={() => load(target.target, true)} setStatus={setStatus} />,
         )}
         <ActionsCtx.Provider value={cardActions}>
           <ReactFlow

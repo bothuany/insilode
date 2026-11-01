@@ -137,7 +137,7 @@ export class LspProvider implements FlowProvider {
 			}
 			frontier = next;
 		}
-		return { label: 'root caller', items: [...roots].sort() };
+		return { label: 'root caller', items: [...roots].sort().map(label => ({ label, file: null, line: 0 })) };
 	}
 
 	async callers(t: FlowTarget): Promise<FlowNode | null> {
