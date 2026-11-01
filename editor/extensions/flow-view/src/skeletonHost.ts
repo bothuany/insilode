@@ -15,6 +15,7 @@ import { ChangeBatcher } from './skeleton/changes';
 import { stubFor } from './skeleton/paths';
 import { goneIn, headersOf, locate, revertRange, stillThere, warningText, type Header, type Warning } from './skeleton/guard';
 import { baselineOf, decorate, designSummary, extendBaseline, matchPlan, type DesignSummary } from './skeleton/match';
+import { SessionMemory } from './skeleton/persist';
 import { drawnAnswer, newSession, toolAnswer, type SkeletonSession, type SkeletonStep, type SkeletonTools } from './skeleton/sessions';
 import type { TypeService } from './types/typeService';
 
@@ -46,9 +47,13 @@ export class SkeletonHost implements SkeletonTools, vscode.Disposable {
 	private readonly onDisk: ChangeBatcher<string>;
 	/** Files whose unsaved text the index read: closing them without saving puts the disk version back. */
 	private readonly overlaid = new Set<string>();
+	/** Each session's stage and "just do it" badge, kept in `state` so they survive a reload. */
+	private readonly memory: SessionMemory;
 
-	/** `state`: where each session's stage is kept across a reload (the skeleton part reads and writes it). */
+	/** `state`: where each session's stage is kept across a reload (the workspace state; without it a reload starts over). */
 	constructor(private readonly boards: BoardStore, private readonly types: TypeService, private readonly log: vscode.LogOutputChannel, protected readonly state?: vscode.Memento) {
+		// Built here, not as a field initializer: a field initializer may run before the parameter property `state` is set.
+		this.memory = new SessionMemory(state, MAX_SESSIONS);
 		this.typing = new ChangeBatcher(TYPING_MS, batch => this.typed(batch), e => this.warn(e));
 		this.onDisk = new ChangeBatcher(DISK_MS, batch => this.written([...batch.values()]), e => this.warn(e));
 		boards.setDecorator((id, spec) => {
@@ -95,20 +100,65 @@ export class SkeletonHost implements SkeletonTools, vscode.Disposable {
 			// flow-agent: the agent's switch went off, so its change leaves skeleton first.
 			vscode.commands.registerCommand('flow.skeleton.finish', (session: unknown) => {
 				const s = typeof session === 'string' ? this.sessions.get(session) : undefined;
+				if (typeof session === 'string') {
+					// The change is over, so a "just do it" badge goes with it.
+					this.memory.forget(session);
+				}
 				if (s) {
 					this.drop(s);
+				} else {
+					this.persist();
 				}
 			}),
 			vscode.commands.registerCommand('flow.skeleton.revert', () => this.revertPicked()),
 			// flow-agent's dock: where an agent is in skeleton first, for the stage indicator on its row.
 			vscode.commands.registerCommand('flow.skeleton.stage', (session: unknown) => this.stageOf(session)),
 		);
+		this.restore();
 	}
 
-	/** The stage an agent session is in (design, skeleton or handover), or nothing when it is not in skeleton first. `skipped`: the developer chose "just do it" for this change. */
-	stageOf(session: unknown): { stage: SkeletonSession['stage']; skipped: boolean } | undefined {
-		const s = typeof session === 'string' ? this.sessions.get(session) : undefined;
-		return s && { stage: s.stage, skipped: false };
+	/**
+	 * After a reload: the sessions that were past the design stage come back at their stage, attached to their design board, as long as
+	 * that board is still in the store (the board store keeps the plan boards itself). The comparison with the code is recomputed; the
+	 * baseline is not kept, so a type the developer already wrote reads as existing code rather than as a match.
+	 */
+	private restore() {
+		for (const e of this.memory.restore(id => this.boards.get(id) !== undefined)) {
+			const board = this.boards.get(e.boardId);
+			if (!board || (board.spec.kind !== 'class' && board.spec.kind !== 'er') || this.sessions.has(e.session) || this.sessions.size >= MAX_SESSIONS || e.stage === null) {
+				continue;
+			}
+			const s = newSession(e.session);
+			s.boardId = e.boardId;
+			s.stage = e.stage;
+			s.plan = board.spec;
+			this.sessions.set(s.session, s);
+			if (s.stage === 'handover') {
+				// The declarations the developer handed over are read again from the code as it stands now.
+				void this.handover(s).then(() => this.changed(s)).catch(err => this.warn(err));
+			} else if (s.stage === 'skeleton') {
+				this.changed(s);
+			}
+		}
+	}
+
+	/** Writes the stages and badges to the workspace state. */
+	private persist() {
+		this.memory.save(this.sessions.values());
+	}
+
+	/**
+	 * The stage an agent session is in (design, skeleton or handover), or nothing when it is not in skeleton first. `skipped`: the
+	 * developer chose "just do it" for this change, so the dock can show a badge; the session has no stage then (`stage` is undefined)
+	 * until the agent's next design step or until it ends.
+	 */
+	stageOf(session: unknown): { stage: SkeletonSession['stage'] | undefined; skipped: boolean } | undefined {
+		if (typeof session !== 'string') {
+			return undefined;
+		}
+		const s = this.sessions.get(session);
+		const skipped = this.memory.isSkipped(session);
+		return s ? { stage: s.stage, skipped } : skipped ? { stage: undefined, skipped } : undefined;
 	}
 
 	/** Whether any agent session is comparing a design with the code now. */
@@ -170,8 +220,13 @@ export class SkeletonHost implements SkeletonTools, vscode.Disposable {
 		const rel = (f: string) => vscode.workspace.asRelativePath(f, false);
 		if (!(on ?? skeletonDefault())) {
 			const old = this.sessions.get(id);
+			if (id) {
+				this.memory.forget(id);
+			}
 			if (old) {
 				this.drop(old);
+			} else {
+				this.persist();
 			}
 			return toolAnswer(false, undefined);
 		}
@@ -184,8 +239,16 @@ export class SkeletonHost implements SkeletonTools, vscode.Disposable {
 		}
 		let s = this.sessions.get(id);
 		if (step === 'just' || step === 'finish') {
+			// "Just do it" is remembered for the session, so the dock can show that the developer skipped the skeleton; "finish" ends it.
+			if (step === 'just') {
+				this.memory.skip(id);
+			} else {
+				this.memory.forget(id);
+			}
 			if (s) {
 				this.drop(s);
+			} else {
+				this.persist();
 			}
 			return step === 'just'
 				? 'Skeleton first is skipped for this change: implement the approved plan now, as usual.'
@@ -197,6 +260,9 @@ export class SkeletonHost implements SkeletonTools, vscode.Disposable {
 			}
 			s = newSession(id);
 			this.sessions.set(id, s);
+			// A new design step: the earlier "just do it" no longer describes this change.
+			this.memory.forget(id);
+			this.persist();
 		}
 		if (step === 'handover') {
 			if (s.stage !== 'skeleton') {
@@ -259,6 +325,7 @@ export class SkeletonHost implements SkeletonTools, vscode.Disposable {
 			s.boardId = id;
 			s.plan = plan;
 			s.stage = 'skeleton';
+			this.persist();
 			this.changed(s);
 		}
 		return drawnAnswer(summary, id, redraw || take, f => vscode.workspace.asRelativePath(f, false));
@@ -285,6 +352,7 @@ export class SkeletonHost implements SkeletonTools, vscode.Disposable {
 		s.headers = s.diff ? headersOf(s.diff, graph.types, f => texts.get(f)) : [];
 		s.warnings = [];
 		s.stage = 'handover';
+		this.persist();
 		this.log.info(`skeleton: handed over ${s.headers.length} declarations of "${s.plan?.title}"`);
 	}
 
@@ -478,6 +546,7 @@ export class SkeletonHost implements SkeletonTools, vscode.Disposable {
 	private drop(s: SkeletonSession) {
 		clearTimeout(this.timers.get(s.session));
 		this.sessions.delete(s.session);
+		this.persist();
 		void this.boards.redraw(s.boardId);
 	}
 

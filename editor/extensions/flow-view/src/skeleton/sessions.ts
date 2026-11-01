@@ -1,7 +1,7 @@
 /*---------------------------------------------------------------------------------------------
  *  Insilode skeleton first: where each agent session is in the flow (design → skeleton → handover) and what `check_skeleton` answers at
  *  each stage. The developer drives the flow by talking to the agent, so every answer also says what to tell them next and which step
- *  their reply maps to. Held in the window's memory only: a reload starts over. Pure: no vscode.
+ *  their reply maps to. Kept in the window's memory; persist.ts writes the stage of each session to the workspace state so a reload keeps it. Pure: no vscode.
  *--------------------------------------------------------------------------------------------*/
 
 import type { BoardSpec } from '../board/spec';
