@@ -5,6 +5,31 @@
 
 import { HOOK_CONTEXT } from './skeleton';
 
+/** What runs a hook script: a program and whether it is the editor itself, which only runs a script as Node. */
+export interface HookRunner {
+	exe: string;
+	electron: boolean;
+}
+
+/**
+ * The program that runs every hook (Claude's and Codex's): a plain `node` when there is one, because it starts several
+ * times quicker than the editor in Node mode; the editor's own binary (ELECTRON_RUN_AS_NODE) only when node is not found.
+ * `electron` is false in server mode, where `execPath` is already plain node.
+ */
+export function hookRunner(node: string | undefined, execPath: string, electron: boolean): HookRunner {
+	return node ? { exe: node, electron: false } : { exe: execPath, electron };
+}
+
+/**
+ * The command line Claude Code runs for a hook; it goes through bash (Git Bash on Windows). Double quotes keep a path with
+ * spaces whole, and what bash would still read inside them ($, `, ", \) is escaped. On Windows a path is written with
+ * forward slashes instead: bash reads a backslash as an escape, and node takes either.
+ */
+export function claudeHookCommand(runner: HookRunner, script: string, platform: NodeJS.Platform = process.platform): string {
+	const q = (p: string) => `"${(platform === 'win32' ? p.replace(/\\/g, '/') : p.replace(/\\/g, '\\\\')).replace(/(["$`])/g, '\\$1')}"`;
+	return `${runner.electron ? 'ELECTRON_RUN_AS_NODE=1 ' : ''}${q(runner.exe)} ${q(script)}`;
+}
+
 /**
  * Reads the event from stdin and posts it to the Insilode window that owns this folder now. Never blocks the agent and never decides
  * anything. The one thing it passes back is context for the agent (`hookSpecificOutput.additionalContext`, skeleton first's
