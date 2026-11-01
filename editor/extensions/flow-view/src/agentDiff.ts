@@ -110,6 +110,11 @@ interface Turn {
 	after: Map<string, string>;
 	/** Files this prompt created: undoing it deletes them instead of leaving them empty. */
 	created: Set<string>;
+	/**
+	 * Files whose "before" is a guess from HEAD (a command changed them and no snapshot of the turn's start exists): the file may
+	 * have held uncommitted work, or not existed as a file of this turn, so undoing the prompt must not write that text back.
+	 */
+	guessed: Set<string>;
 	/** Started by a real prompt (chat or a terminal hook): it lasts until the next prompt, however long. */
 	prompted?: boolean;
 	/** The agent's last write or start of this prompt: edits that trail it by minutes belong to a new step. */
@@ -125,7 +130,7 @@ interface Saved {
 	committed?: [string, string][];
 	/** Files a shell command changed: their cards say so. */
 	command?: string[];
-	turns: { id: number; prompt: string; agent: string; at: number; before: [string, string][]; after: [string, string][]; created?: string[]; base?: string }[];
+	turns: { id: number; prompt: string; agent: string; at: number; before: [string, string][]; after: [string, string][]; created?: string[]; guessed?: string[]; base?: string }[];
 }
 
 /** Older prompts are dropped first; a timeline is for the work in progress, not history. */
@@ -188,7 +193,7 @@ export class AgentChanges implements vscode.Disposable {
 			keyed(saved.baselines).forEach((t, f) => this.baselines.set(f, t));
 			keyed(saved.committed ?? []).forEach((base, f) => this.baselines.has(f) && this.committed.set(f, base));
 			(saved.command ?? []).map(fileKey).forEach(f => this.baselines.has(f) && this.commandFiles.add(f));
-			this.turns.push(...saved.turns.map(t => ({ ...t, before: keyed(t.before), after: keyed(t.after), created: new Set((t.created ?? []).map(fileKey)), lastActivity: t.at })), ...early);
+			this.turns.push(...saved.turns.map(t => ({ ...t, before: keyed(t.before), after: keyed(t.after), created: new Set((t.created ?? []).map(fileKey)), guessed: new Set((t.guessed ?? []).map(fileKey)), lastActivity: t.at })), ...early);
 			this.turns.splice(0, Math.max(0, this.turns.length - MAX_TURNS));
 			this.changed.fire();
 		} catch {
@@ -226,7 +231,7 @@ export class AgentChanges implements vscode.Disposable {
 			baselines: keep(this.baselines),
 			committed: [...this.committed],
 			command: [...this.commandFiles],
-			turns: this.turns.map(t => ({ id: t.id, prompt: t.prompt, agent: t.agent, at: t.at, before: keep(t.before), after: keep(t.after), created: [...t.created].filter(f => !SECRET.test(f)), base: t.base })),
+			turns: this.turns.map(t => ({ id: t.id, prompt: t.prompt, agent: t.agent, at: t.at, before: keep(t.before), after: keep(t.after), created: [...t.created].filter(f => !SECRET.test(f)), guessed: [...t.guessed].filter(f => !SECRET.test(f)), base: t.base })),
 		};
 	}
 
@@ -263,7 +268,7 @@ export class AgentChanges implements vscode.Disposable {
 			this.turns.pop(); // the previous prompt changed nothing
 		}
 		const now = Date.now();
-		this.turns.push({ id: this.nextTurn++, prompt, agent, at: now, before: new Map(), after: new Map(), created: new Set(), prompted, lastActivity: now });
+		this.turns.push({ id: this.nextTurn++, prompt, agent, at: now, before: new Map(), after: new Map(), created: new Set(), guessed: new Set(), prompted, lastActivity: now });
 		this.turns.splice(0, Math.max(0, this.turns.length - MAX_TURNS));
 		this.save();
 	}
@@ -389,6 +394,7 @@ export class AgentChanges implements vscode.Disposable {
 			this.commandFiles.add(f);
 			if (choice.from !== 'turn-start') {
 				this.committed.set(f, HEAD_LABEL);
+				turn.guessed.add(f);
 			}
 			recorded = true;
 		}
@@ -520,6 +526,11 @@ export class AgentChanges implements vscode.Disposable {
 		const committed = this.turns.slice(i).find(t => t.base);
 		if (committed) {
 			return { ok: false, message: `"${committed.prompt}" includes committed work; Insilode does not undo commits. Use git (revert or reset) for that.` };
+		}
+		// Same guard as a card's Undo: a "before" taken from HEAD is not known to be what the file held when the prompt began.
+		const guessed = [...new Set(this.turns.slice(i).flatMap(t => [...t.guessed]))];
+		if (guessed.length) {
+			return { ok: false, message: `This prompt includes changes a command made, measured against the last commit (${guessed.slice(0, 3).map(f => vscode.workspace.asRelativePath(f)).join(', ')}${guessed.length > 3 ? ', ...' : ''}); Insilode does not undo those, since it cannot tell your earlier edits from the command's. Use git for them.` };
 		}
 		const restore = new Map<string, string>();
 		for (const t of this.turns.slice(i)) {

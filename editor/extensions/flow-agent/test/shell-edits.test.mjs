@@ -152,6 +152,25 @@ test('ShellEditSweep: a session that never began, or began in a subfolder, gets 
 	assert.deepEqual(await s.end('s2', join(dir, 'src'), new Set()), [], 'a turn is swept once')
 })
 
+test('ShellEditSweep: more dirty files than the cap, at either look, means no sweep rather than a shifted list', async t => {
+	const dir = repo()
+	t.after(() => rmSync(dir, { recursive: true, force: true }))
+	const many = n => { for (let i = 0; i < n; i++) writeFileSync(join(dir, `junk${i}.txt`), `${n}\n`) }
+	const s = new sweep.ShellEditSweep(3)
+	many(5)
+	await s.begin('s1', dir)
+	writeFileSync(join(dir, 'src', 'a.ts'), 'changed\n')
+	assert.deepEqual(await s.end('s1', dir, new Set()), [], 'too many at the start')
+	for (let i = 0; i < 5; i++) unlinkSync(join(dir, `junk${i}.txt`))
+	await s.begin('s2', dir)
+	many(5)
+	assert.deepEqual(await s.end('s2', dir, new Set()), [], 'too many at the end')
+	for (let i = 0; i < 5; i++) unlinkSync(join(dir, `junk${i}.txt`))
+	await s.begin('s3', dir)
+	writeFileSync(join(dir, 'src', 'b.ts'), 'edited\n')
+	assert.deepEqual(await s.end('s3', dir, new Set()), [join(dir, 'src', 'b.ts')], 'within the cap it sweeps as usual')
+})
+
 test('ShellEditSweep: a folder that is not a repository, or does not exist, gives [] and never throws', async t => {
 	const dir = realpathSync.native(mkdtempSync(join(tmpdir(), 'flow-sweep-plain-')))
 	t.after(() => rmSync(dir, { recursive: true, force: true }))

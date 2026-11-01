@@ -14,7 +14,7 @@ test('an agent edit: Keep, Undo, Keep all and Undo all, each naming what it acts
   assert.equal(s.keepAll.ariaLabel, 'Keep every change of this prompt')
   assert.equal(s.undoAll.ariaLabel, 'Undo every change of this prompt')
   assert.deepEqual([s.keep.disabled, s.undo.disabled, s.keepAll.disabled, s.undoAll.disabled], [false, false, false, false])
-  assert.deepEqual(s.badges, [])
+  assert.deepEqual(s.badges, ['Already on disk'], 'the change is written before the reader looks: Keep accepts it after the fact')
 })
 
 test('a card measured against a commit: Undo is off with the reason, Keep still works, the prompt-wide buttons stay on', () => {
@@ -36,9 +36,9 @@ test('Keep takes the whole file only when the card is the only changed card of i
 })
 
 test('the badges say how the change got here', () => {
-  assert.deepEqual(agentEditState(card({ source: 'command' })).badges, ['changed by a command'])
+  assert.deepEqual(agentEditState(card({ source: 'command' })).badges, ['Already on disk', 'changed by a command'])
   assert.deepEqual(agentEditState(card({ source: 'git' })).badges, ['Already on disk'])
-  assert.deepEqual(agentEditState(card({ source: 'command', base: 'the last commit' })).badges, ['changed by a command'])
+  assert.deepEqual(agentEditState(card({ source: 'command', base: 'the last commit' })).badges, ['Already on disk', 'changed by a command'])
   assert.equal(agentEditState(card({ source: 'command', base: 'the last commit' })).undo.disabled, true, 'a command change measured against HEAD cannot be undone')
   assert.deepEqual(agentEditState({ key: 'p2', label: 'f', startLine: 1, endLine: 2 }).badges, [], 'a card with no diff has none')
 })

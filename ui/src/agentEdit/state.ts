@@ -45,7 +45,8 @@ export function agentEditState(node: EditCard, othersInFile?: number): AgentEdit
   const source = node.diff?.source
   const button = (label: string, ariaLabel: string, hint: string, reason?: string): ButtonState => ({ label, ariaLabel, hint: reason ?? hint, disabled: !!reason, reason })
   const badges: string[] = []
-  if (source === 'git') badges.push('Already on disk')
+  // Every reviewed change is already written when the reader gets to it, so Keep is "accept after the fact" and Undo puts it back.
+  if (node.diff) badges.push('Already on disk')
   if (source === 'command') badges.push('changed by a command')
   return {
     keep: {

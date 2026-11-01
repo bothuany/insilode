@@ -33,8 +33,12 @@ interface Snapshot {
 	files: Map<string, FileSig>;
 }
 
-/** The dirty files of the repository `cwd` is in, each with what is needed to tell later whether it changed. */
-async function takeSnapshot(cwd: string): Promise<Snapshot | undefined> {
+/**
+ * The dirty files of the repository `cwd` is in, each with what is needed to tell later whether it changed. Undefined when
+ * there is no repository or more than `max` files are dirty: a list cut at the cap would shift between two looks, and the
+ * files pushed past the cut would be reported as new.
+ */
+async function takeSnapshot(cwd: string, max: number): Promise<Snapshot | undefined> {
 	const top = (await git(cwd, ['rev-parse', '--show-toplevel']))?.trim();
 	// --untracked-files=all lists each new file, not just the folder it is in.
 	const status = top ? await git(top, ['status', '--porcelain', '-z', '--untracked-files=all']) : undefined;
@@ -44,7 +48,11 @@ async function takeSnapshot(cwd: string): Promise<Snapshot | undefined> {
 	const root = path.resolve(top);
 	const files = new Map<string, FileSig>();
 	let budget = HASH_BUDGET_BYTES;
-	for (const rel of dirtyPaths(parsePorcelain(status)).slice(0, MAX_DIRTY)) {
+	const dirty = dirtyPaths(parsePorcelain(status));
+	if (dirty.length > max) {
+		return undefined;
+	}
+	for (const rel of dirty) {
 		if (isInsilodePath(rel)) {
 			continue;
 		}
@@ -74,6 +82,9 @@ async function takeSnapshot(cwd: string): Promise<Snapshot | undefined> {
 export class ShellEditSweep {
 	private readonly started = new Map<string, Snapshot>();
 
+	/** `maxDirty`: more dirty files than this at either look means no sweep for the turn (tests lower it). */
+	constructor(private readonly maxDirty = MAX_DIRTY) { }
+
 	/** Records the status at the start of the turn. Never throws; without a repository nothing is recorded. */
 	async begin(session: string, cwd: string | undefined): Promise<void> {
 		this.started.delete(session);
@@ -81,7 +92,7 @@ export class ShellEditSweep {
 			return;
 		}
 		try {
-			const snap = await takeSnapshot(cwd);
+			const snap = await takeSnapshot(cwd, this.maxDirty);
 			if (snap) {
 				this.started.set(session, snap);
 			}
@@ -98,7 +109,7 @@ export class ShellEditSweep {
 			return [];
 		}
 		try {
-			const after = await takeSnapshot(cwd);
+			const after = await takeSnapshot(cwd, this.maxDirty);
 			// Another repository (the agent moved into a worktree): the two statuses are not comparable.
 			if (!after || after.root !== before.root) {
 				return [];

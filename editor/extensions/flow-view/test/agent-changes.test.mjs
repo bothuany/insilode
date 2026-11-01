@@ -62,6 +62,24 @@ test('commandEdited: a tracked file a command changed is measured against HEAD, 
 	assert.match(undo.message, /includes committed work/)
 	assert.equal((await changes.undoAll()).ok, false, 'Undo all skips it and says so')
 	assert.match((await changes.undoAll()).message, /^Skipped 1 measured against a commit \(/)
+	// The timeline's "undo this prompt" is guarded the same way: HEAD's text is not known to be what the file held before the turn.
+	const [turn] = await changes.timeline()
+	const prompt = await changes.undoFrom(turn.id)
+	assert.equal(prompt.ok, false)
+	assert.match(prompt.message, /changes a command made/)
+})
+
+test('commandEdited: a file untracked before the turn and changed by a command is not deleted by undoing the prompt', async t => {
+	const dir = repo({ 'a.ts': 'x\n' })
+	t.after(() => rmSync(dir, { recursive: true, force: true }))
+	writeFileSync(join(dir, 'notes.md'), 'my own untracked notes\n')
+	const changes = new mod.AgentChanges()
+	changes.startTurn('format', 'Claude')
+	writeFileSync(join(dir, 'notes.md'), 'my own untracked notes, reformatted by a command\n')
+	await changes.commandEdited([join(dir, 'notes.md')])
+	const [turn] = await changes.timeline()
+	assert.equal((await changes.undoFrom(turn.id)).ok, false, 'created would have deleted it')
+	assert.equal((await changes.undo(join(dir, 'notes.md'), 1, 1)).ok, false)
 })
 
 test('commandEdited: a new untracked file counts as created, with an empty baseline', async t => {
