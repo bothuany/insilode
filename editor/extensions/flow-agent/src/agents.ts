@@ -662,7 +662,8 @@ export class Agents implements vscode.Disposable {
 		const id = resume?.id ?? randomUUID();
 		const base = cli === 'claude' ? 'Claude' : cli === 'codex' ? 'Codex' : custom?.name ?? 'Agent';
 		const same = [...this.sessions.values()].filter(s => s.state !== 'ended' && (s.cli === 'custom' ? s.command === custom?.command : s.cli === cli)).length;
-		const name = resume?.name ?? base + (same ? ` ${same + 1}` : '');
+		// An empty name (a moved agent whose name only said its old CLI, swap.ts) is named as a new one.
+		const name = resume?.name || base + (same ? ` ${same + 1}` : '');
 		const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 		let worktree = resume?.worktree && existsSync(resume.worktree.path) ? resume.worktree : undefined;
 		if (resume?.worktree && !worktree) {

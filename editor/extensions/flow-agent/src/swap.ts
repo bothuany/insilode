@@ -15,7 +15,7 @@ import { projectDir, type Agents, type AgentSession } from './agents';
 import { codexCommand, codexLaunch } from './codexHooks';
 import { agentCwd, agentProcessEnv } from './env';
 import { codexHome, rolloutFiles } from './resume';
-import { claudeTranscript, codexImportRequests, codexImportStep, codexRolloutId, codexTurns, IMPORT_COPY, MAX_ROLLOUT_BYTES, rolloutDays, swappedName } from './swapCore';
+import { claudeTranscript, codexImportRequests, codexImportStep, codexRolloutId, codexTurns, IMPORT_COPY, keptTitle, MAX_ROLLOUT_BYTES, rolloutDays, swappedName } from './swapCore';
 import { findOnPath } from './usage';
 
 const NAME = { claude: 'Claude', codex: 'Codex' } as const;
@@ -70,6 +70,14 @@ export function sweepLeftoverCopies(): void {
 	const projects = path.dirname(main);
 	const prefix = path.basename(main);
 	void fs.readdir(projects).catch(() => [] as string[]).then(names => Promise.all(names.filter(n => n === prefix || n.startsWith(`${prefix}-`)).map(n => sweepImportCopies(path.join(projects, n)))));
+}
+
+/**
+ * The title the moved conversation keeps: the user's or the conversation's name, without the arrow. None for a name
+ * Insilode gave ("Codex"), which Claude would show as the conversation's title and Insilode would read back as its name.
+ */
+function carriedTitle(name: string): string | undefined {
+	return keptTitle(name);
 }
 
 /** Runs Codex's importer on a Claude transcript and returns the id of the Codex thread it made. */
@@ -153,7 +161,7 @@ async function claudeFromCodex(s: AgentSession, cwd: string): Promise<{ id: stri
 	}
 	const id = randomUUID();
 	const text = claudeTranscript(codexTurns(await fs.readFile(rollout, 'utf8')), {
-		cwd, sessionId: id, gitBranch: s.worktree?.branch, title: s.name, newId: randomUUID, now: new Date().toISOString(),
+		cwd, sessionId: id, gitBranch: s.worktree?.branch, title: carriedTitle(s.name), newId: randomUUID, now: new Date().toISOString(),
 	});
 	if (!text) {
 		throw new Error('the Codex session has no exchange to carry over yet: send it a message first');
@@ -226,7 +234,7 @@ Insilode cannot tell whether ${s.name} is in the middle of a turn: Codex sends n
 				const now = new Date();
 				await fs.utimes(copy, now, now);
 				try {
-					const thread = await importIntoCodex(copy, cwd, s.name);
+					const thread = await importIntoCodex(copy, cwd, carriedTitle(s.name));
 					return { ...base, id: thread, agentId: thread };
 				} finally {
 					await fs.rm(copy, { force: true }).catch(() => undefined);
