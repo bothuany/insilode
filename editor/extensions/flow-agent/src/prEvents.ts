@@ -25,7 +25,8 @@ export class PrEvents implements vscode.Disposable {
 	private timer: ReturnType<typeof setTimeout> | undefined;
 	private disposed = false;
 
-	constructor(readonly agents: Agents) {
+	/** `state`: the window-independent memory (globalState) the first-send question's answer (Always, Never) is kept in. */
+	constructor(readonly agents: Agents, protected readonly state?: vscode.Memento) {
 		this.subs.push(
 			agents.onDidTurnEnd(s => void this.turnEnded(s)),
 			agents.onDidChange(() => this.forget()),

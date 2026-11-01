@@ -63,7 +63,7 @@ export function activate(context: vscode.ExtensionContext) {
 		worktrees,
 		dock,
 		new AttentionNotifier(agents),
-		new PrEvents(agents),
+		new PrEvents(agents, context.globalState),
 		new DesktopStatus(agents, log),
 		vscode.window.registerWebviewViewProvider('flow.agents', dock, { webviewOptions: { retainContextWhenHidden: true } }),
 		vscode.commands.registerCommand('flow.agents.newClaude', () => agents.spawn('claude')),
