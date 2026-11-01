@@ -18,6 +18,7 @@ import { crashNeed, nextAttention, startupNeed, type Attention, type Need } from
 import { needsYouCount } from './desktopModel';
 import { findConflicts, key, type Conflict, type SessionEdits } from './conflicts';
 import { CODEX_HOOK_SCRIPT, CODEX_PROFILE, codexCommand, codexHookCommand, codexLaunch, codexProfile, codexProfileFile } from './codexHooks';
+import { UUID } from './swapCore';
 import { agentCwd, agentProcessEnv, inheritedAgentEnv } from './env';
 import { CostTracker, statusUsd, type SessionCost } from './cost';
 import { disposeGaze, gazeHook, gazeTurn } from './gazeHost';
@@ -653,6 +654,11 @@ export class Agents implements vscode.Disposable {
 			return undefined;
 		}
 		await this.start(); // the hook settings and the session list must exist before the first agent
+		// A Claude id goes into the command line too (--resume / --session-id): a resumed one must be a uuid, as Claude's own are.
+		if (cli === 'claude' && resume && !UUID.test(resume.id)) {
+			void vscode.window.showErrorMessage(`Insilode: ${resume.name} has no Claude session id to resume.`);
+			return undefined;
+		}
 		const id = resume?.id ?? randomUUID();
 		const base = cli === 'claude' ? 'Claude' : cli === 'codex' ? 'Codex' : custom?.name ?? 'Agent';
 		const same = [...this.sessions.values()].filter(s => s.state !== 'ended' && (s.cli === 'custom' ? s.command === custom?.command : s.cli === cli)).length;
@@ -692,7 +698,8 @@ export class Agents implements vscode.Disposable {
 		const command = cli === 'claude'
 			? `claude ${resume ? '--resume' : '--session-id'} ${id}${this.server && this.settingsOk ? ` --settings ${quote(this.claudeSettings())}` : ''}${mcp ? ` --mcp-config ${quote(mcp)}` : ''}`
 			// Codex chose its session id; until a hook told us, `codex resume` without one opens its own picker.
-			: cli === 'codex' ? (resume ? `codex resume${profile}${resume.agentId ? ` ${resume.agentId}` : ''}` : `codex${profile}`)
+			// The id is typed into the shell: one that is not a uuid (from a hook, or Codex's importer) is never typed; Codex's picker opens instead.
+			: cli === 'codex' ? (resume ? `codex resume${profile}${resume.agentId && UUID.test(resume.agentId) ? ` ${resume.agentId}` : ''}` : `codex${profile}`)
 			: resume?.command ?? custom?.command ?? '';
 		terminal.show();
 		terminal.sendText(command);

@@ -21,7 +21,12 @@ export const MAX_ROLLOUT_BYTES = 64 << 20;
 /** A turn's text over this many characters is cut, so one pasted log cannot fill the new session's context. */
 export const MAX_TURN_CHARS = 32_000;
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** "Claude 2 → Codex → Claude" stays "Claude 2 → Claude": a name gets one arrow, for the CLI it is in now. */
+export function swappedName(name: string, to: string): string {
+	return `${name.replace(/ → (Claude|Codex)$/, '')} → ${to}`;
+}
 
 function record(v: unknown): Record<string, unknown> | undefined {
 	return v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : undefined;
@@ -193,8 +198,9 @@ export function codexImportStep(line: string): ImportStep {
 			continue;
 		}
 		const ok = Array.isArray(rr.successes) ? record(rr.successes[0]) : undefined;
+		// The id is typed into a terminal (`codex resume <id>`): only a uuid, which no shell reads anything into, is taken.
 		if (typeof ok?.target === 'string' && ok.target) {
-			return { thread: ok.target };
+			return UUID.test(ok.target) ? { thread: ok.target } : { error: 'Codex named the new session with an id that is not a uuid' };
 		}
 		const bad = Array.isArray(rr.failures) ? record(rr.failures[0]) : undefined;
 		if (bad) {

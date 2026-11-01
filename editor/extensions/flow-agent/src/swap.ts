@@ -15,7 +15,7 @@ import * as vscode from 'vscode';
 import { projectDir, type Agents, type AgentSession } from './agents';
 import { codexCommand, codexLaunch } from './codexHooks';
 import { agentProcessEnv } from './env';
-import { claudeTranscript, codexImportRequests, codexImportStep, codexRolloutId, codexTurns, MAX_ROLLOUT_BYTES } from './swapCore';
+import { claudeTranscript, codexImportRequests, codexImportStep, codexRolloutId, codexTurns, MAX_ROLLOUT_BYTES, swappedName } from './swapCore';
 import { findOnPath } from './usage';
 
 const NAME = { claude: 'Claude', codex: 'Codex' } as const;
@@ -76,12 +76,20 @@ function importIntoCodex(transcript: string, cwd: string, title: string | undefi
 			if (!settled) {
 				settled = true;
 				clearTimeout(timer);
-				child.kill();
+				// Through cmd.exe (a batch wrapper) the child is cmd.exe: kill(), which ends only it, would leave codex
+				// running, so the whole tree goes.
+				if (run.verbatim && process.platform === 'win32' && child.pid) {
+					spawn('taskkill', ['/T', '/F', '/PID', String(child.pid)], { windowsHide: true, stdio: 'ignore' }).on('error', () => child.kill());
+				} else {
+					child.kill();
+				}
 				fn();
 			}
 		};
 		const timer = setTimeout(() => finish(() => reject(new Error('Codex did not finish the import within a minute'))), IMPORT_TIMEOUT_MS);
 		child.on('error', e => finish(() => reject(e)));
+		// A codex that exits before it reads its input makes the write fail (EPIPE): an error of the import, not of the editor.
+		child.stdin.on('error', e => finish(() => reject(e)));
 		child.on('close', code => finish(() => reject(new Error(`codex app-server exited (${code})${err.trim() ? `: ${err.trim().split('\n').pop()}` : ''}`))));
 		child.stderr.on('data', (d: Buffer) => {
 			err = (err + d.toString()).slice(-4000);
@@ -146,6 +154,16 @@ export async function swapAgent(agents: Agents, id: unknown): Promise<void> {
 	if (!cwd) {
 		return;
 	}
+	// What would stop the new agent from starting is checked before anything is imported or written, so a refusal
+	// leaves no Codex thread or Claude transcript behind.
+	if (!vscode.workspace.isTrusted) {
+		void vscode.window.showWarningMessage('Agents run commands in your workspace: trust this folder to start one.');
+		return;
+	}
+	if (s.worktree && !existsSync(s.worktree.path)) {
+		void vscode.window.showErrorMessage(`Insilode: the worktree of ${s.name} (${s.worktree.path}) is gone; the conversation cannot continue there.`);
+		return;
+	}
 	if (s.state !== 'ended') {
 		const go = `Continue in ${NAME[to]}`;
 		const pick = await vscode.window.showInformationMessage(
@@ -160,7 +178,7 @@ export async function swapAgent(agents: Agents, id: unknown): Promise<void> {
 	let past: AgentSession;
 	try {
 		past = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Insilode: moving ${s.name} to ${NAME[to]}` }, async (): Promise<AgentSession> => {
-			const base: Omit<AgentSession, 'id'> = { cli: to, name: `${s.name} → ${NAME[to]}`, state: 'ended' as const, since: Date.now(), prompt: s.prompt, todos: [], unread: false, worktree: s.worktree };
+			const base: Omit<AgentSession, 'id'> = { cli: to, name: swappedName(s.name, NAME[to]), state: 'ended' as const, since: Date.now(), prompt: s.prompt, todos: [], unread: false, worktree: s.worktree };
 			if (to === 'codex') {
 				if (!s.transcript || !existsSync(s.transcript)) {
 					throw new Error(`${s.name}'s transcript was not found: it has nothing to carry over yet`);
@@ -175,8 +193,16 @@ export async function swapAgent(agents: Agents, id: unknown): Promise<void> {
 		void vscode.window.showErrorMessage(`Insilode: could not move ${s.name} to ${NAME[to]}: ${(e as Error).message}`);
 		return;
 	}
+	// The old agent may have started a turn while the dialog was open or the import ran (a queued prompt, PR news): then
+	// the new one has not got that turn, and closing the terminal would cut it off. Nothing has started yet; say so.
+	const now = agents.sessions.get(s.id)?.state;
+	if (now === 'working' || now === 'blocked') {
+		void vscode.window.showWarningMessage(`Insilode: ${s.name} started a new turn while it was being moved, so ${NAME[to]} was not started. Move it again once the turn has ended.`);
+		return;
+	}
+	const wasLive = s.state !== 'ended';
 	const started = await agents.spawn(to, past);
-	if (started && s.state !== 'ended') {
+	if (started && wasLive) {
 		agents.closeTerminal(s.id);
 	}
 }

