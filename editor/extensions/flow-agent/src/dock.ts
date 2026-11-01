@@ -53,6 +53,7 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 				// The prompt is built here from the host's own record of the turn: the page only names the row.
 				case 'explain': return this.agents.explain(m.id, savedAgents());
 				case 'rename': return void this.rename(m.id);
+				case 'swap': return void vscode.commands.executeCommand('flow.agents.swap', m.id);
 				case 'wt': return void this.worktrees?.act(m.id, m.action);
 				case 'pick': return void vscode.commands.executeCommand('flow.agents.new');
 				case 'chat': return void vscode.commands.executeCommand('workbench.action.openSettings', 'flow.agents.showChat');

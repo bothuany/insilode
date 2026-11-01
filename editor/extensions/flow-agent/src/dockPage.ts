@@ -88,10 +88,12 @@ ${AVATAR_CSS}
 .x { position: absolute; top: 6px; right: 6px; display: none; width: 18px; height: 18px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); cursor: pointer; font-size: 14px; line-height: 18px; }
 .agent.ended:hover .x { display: block; }
 .agent:hover .state { visibility: hidden; }
-.x:hover, .ren:hover { background: var(--hover); color: var(--text); }
-.ren { position: absolute; top: 6px; right: 6px; display: none; width: 18px; height: 18px; border-radius: 5px; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 18px; text-align: center; }
-.agent:hover .ren, .agent:focus-visible .ren { display: block; }
+.x:hover, .ren:hover, .swp:hover { background: var(--hover); color: var(--text); }
+.ren, .swp { position: absolute; top: 6px; right: 6px; display: none; width: 18px; height: 18px; border-radius: 5px; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 18px; text-align: center; }
+.swp { right: 26px; }
+.agent:hover .ren, .agent:focus-visible .ren, .agent:hover .swp, .agent:focus-visible .swp { display: block; }
 .agent.ended:hover .ren { right: 26px; }
+.agent.ended:hover .swp { right: 46px; }
 .empty { margin: 4px 2px; color: var(--muted); line-height: 1.55; }
 .empty b { color: var(--text); font-weight: 600; }
 .legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 12px; color: var(--muted); font-size: 11.5px; }
@@ -225,6 +227,8 @@ function render() {
 			+ meta
 			+ (sized ? '<div class="ctx' + level + '" data-xray="1" title="Context ' + pct + '% full: what fills it?"><i style="width:' + pct + '%"></i></div>' : '')
 			+ '<span class="ren" data-rename="' + esc(s.id) + '" title="Rename" role="button">✎</span>'
+			// Claude to Codex and back, with the conversation: only between turns, so the transcript holds the whole of the last one.
+			+ ((s.cli === 'claude' || s.cli === 'codex') && s.state !== 'working' && s.state !== 'blocked' && s.state !== 'starting' ? '<span class="swp" data-swap="' + esc(s.id) + '" title="Continue in ' + (s.cli === 'claude' ? 'Codex' : 'Claude') + ' with this conversation" role="button">⇄</span>' : '')
 			+ (s.state === 'ended' ? '<span class="x"data-forget="' + esc(s.id) + '" title="Remove from list" role="button">×</span>' : '')
 			+ '</button>';
 	}).join('');
@@ -240,6 +244,11 @@ function render() {
 		const pr = e.target.closest('[data-pr]');
 		const xr = e.target.closest('[data-xray]');
 		const ex = e.target.closest('[data-explain]');
+		const sw = e.target.closest('[data-swap]');
+		if (sw) {
+			vscode.postMessage({ type: 'swap', id: sw.dataset.swap });
+			return;
+		}
 		if (e.target.closest('.sk')) {
 			// The Skeleton button is not a click on the row.
 			const sk = e.target.closest('[data-sk]');

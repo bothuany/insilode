@@ -144,6 +144,32 @@ export function batchCommandLine(file: string, args: readonly string[]): string[
 	return ['/d', '/s', '/c', `""${file}" ${args.join(' ')}"`];
 }
 
+/** A `codex` run with fixed arguments: the program, its arguments, and how Node must pass them. */
+export interface CodexCommand {
+	file: string;
+	argv: string[];
+	verbatim: boolean;
+	/** Set when the script runs under this editor's own executable in Node mode. */
+	electronAsNode: boolean;
+}
+
+/**
+ * How to run `codex <args>` from a launch: the program itself, Node with npm's script, or cmd.exe with one fixed command
+ * line for a batch wrapper (undefined when that line could be interpreted). `node` is the Node to use when the shim has
+ * none beside it; `execPath` is this process, the last resort.
+ */
+export function codexCommand(launch: CodexLaunch, args: readonly string[], node: string | undefined, execPath: string, isElectron: boolean, comSpec = 'cmd.exe'): CodexCommand | undefined {
+	if ('file' in launch) {
+		return { file: launch.file, argv: [...args], verbatim: false, electronAsNode: false };
+	}
+	if ('batch' in launch) {
+		const line = batchCommandLine(launch.batch, args);
+		return line ? { file: comSpec, argv: line, verbatim: true, electronAsNode: false } : undefined;
+	}
+	const file = launch.node ?? node ?? execPath;
+	return { file, argv: [launch.script, ...args], verbatim: false, electronAsNode: file === execPath && isElectron };
+}
+
 /**
  * The shared hook script: posts the event to the Insilode window named by the terminal's FLOW_HOOK_DIR,
  * and prints nothing (Codex then takes no decision from it; Stop treats empty output as success).

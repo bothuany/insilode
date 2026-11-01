@@ -20,7 +20,7 @@ before(async () => {
 after(() => rmSync(tmp, { recursive: true, force: true }))
 
 test('row messages carry an id and become one action each', () => {
-	for (const type of ['show', 'pr', 'xray', 'forget', 'compact', 'rename']) {
+	for (const type of ['show', 'pr', 'xray', 'forget', 'compact', 'rename', 'explain', 'swap']) {
 		assert.deepEqual(d.dockAction({ type, id: 'a1' }), { type, id: 'a1' }, type)
 		assert.equal(d.dockAction({ type }), undefined, `${type} without an id`)
 		assert.equal(d.dockAction({ type, id: 7 }), undefined, `${type} with a number for an id`)

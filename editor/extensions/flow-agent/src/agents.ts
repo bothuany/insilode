@@ -17,7 +17,8 @@ import * as vscode from 'vscode';
 import { crashNeed, nextAttention, startupNeed, type Attention, type Need } from './attention';
 import { needsYouCount } from './desktopModel';
 import { findConflicts, key, type Conflict, type SessionEdits } from './conflicts';
-import { batchCommandLine, CODEX_HOOK_SCRIPT, CODEX_PROFILE, codexHookCommand, codexLaunch, codexProfile, codexProfileFile } from './codexHooks';
+import { CODEX_HOOK_SCRIPT, CODEX_PROFILE, codexCommand, codexHookCommand, codexLaunch, codexProfile, codexProfileFile } from './codexHooks';
+import { UUID } from './swapCore';
 import { agentCwd, agentProcessEnv, inheritedAgentEnv } from './env';
 import { CostTracker, statusUsd, type SessionCost } from './cost';
 import { disposeGaze, gazeHook, gazeTurn } from './gazeHost';
@@ -488,7 +489,7 @@ export class Agents implements vscode.Disposable {
 			// No `shell: true`: `codex` is looked up on PATH here. npm installs it on Windows as codex.cmd, which execFile
 			// cannot start without cmd.exe, so the shim's script runs under Node instead (the node.exe beside it, a `node`
 			// on PATH, or this editor in Node mode). A batch wrapper of the user's own runs under cmd.exe with this one
-			// fixed command line (batchCommandLine), as the terminal would run it.
+			// fixed command line (codexCommand), as the terminal would run it.
 			const launch = codexLaunch(process.platform, process.env.PATH ?? '', process.env.PATHEXT, {
 				exists: existsSync,
 				read: file => {
@@ -504,31 +505,13 @@ export class Agents implements vscode.Disposable {
 				resolve(false);
 				return;
 			}
-			const args = ['-p', CODEX_PROFILE, 'mcp', 'list'];
-			let file: string;
-			let argv = args;
-			let extra: Record<string, string> = {};
-			let verbatim = false;
-			if ('file' in launch) {
-				file = launch.file;
-			} else if ('batch' in launch) {
-				const line = batchCommandLine(launch.batch, args);
-				if (!line) {
-					this.log.warn(`Agents: Codex runs without status: ${launch.batch} cannot be started safely`);
-					resolve(false);
-					return;
-				}
-				file = process.env.ComSpec || 'cmd.exe';
-				argv = line;
-				verbatim = true;
-			} else {
-				file = launch.node ?? findOnPath('node') ?? process.execPath;
-				argv = [launch.script, ...args];
-				if (file === process.execPath && process.versions.electron) {
-					extra = { ELECTRON_RUN_AS_NODE: '1' };
-				}
+			const run = codexCommand(launch, ['-p', CODEX_PROFILE, 'mcp', 'list'], 'script' in launch && !launch.node ? findOnPath('node') : undefined, process.execPath, !!process.versions.electron, process.env.ComSpec || 'cmd.exe');
+			if (!run) {
+				this.log.warn(`Agents: Codex runs without status: ${'batch' in launch ? launch.batch : 'codex'} cannot be started safely`);
+				resolve(false);
+				return;
 			}
-			execFile(file, argv, { timeout: 8000, windowsHide: true, windowsVerbatimArguments: verbatim, env: agentProcessEnv(extra) }, (err, _out, stderr) => {
+			execFile(run.file, run.argv, { timeout: 8000, windowsHide: true, windowsVerbatimArguments: run.verbatim, env: agentProcessEnv(run.electronAsNode ? { ELECTRON_RUN_AS_NODE: '1' } : {}) }, (err, _out, stderr) => {
 				if (err) {
 					this.log.warn(`Agents: Codex runs without status: \`codex -p ${CODEX_PROFILE}\` failed (${String(stderr || err.message).trim().split('\n')[0]})`);
 				}
@@ -671,6 +654,11 @@ export class Agents implements vscode.Disposable {
 			return undefined;
 		}
 		await this.start(); // the hook settings and the session list must exist before the first agent
+		// A Claude id goes into the command line too (--resume / --session-id): a resumed one must be a uuid, as Claude's own are.
+		if (cli === 'claude' && resume && !UUID.test(resume.id)) {
+			void vscode.window.showErrorMessage(`Insilode: ${resume.name} has no Claude session id to resume.`);
+			return undefined;
+		}
 		const id = resume?.id ?? randomUUID();
 		const base = cli === 'claude' ? 'Claude' : cli === 'codex' ? 'Codex' : custom?.name ?? 'Agent';
 		const same = [...this.sessions.values()].filter(s => s.state !== 'ended' && (s.cli === 'custom' ? s.command === custom?.command : s.cli === cli)).length;
@@ -710,7 +698,8 @@ export class Agents implements vscode.Disposable {
 		const command = cli === 'claude'
 			? `claude ${resume ? '--resume' : '--session-id'} ${id}${this.server && this.settingsOk ? ` --settings ${quote(this.claudeSettings())}` : ''}${mcp ? ` --mcp-config ${quote(mcp)}` : ''}`
 			// Codex chose its session id; until a hook told us, `codex resume` without one opens its own picker.
-			: cli === 'codex' ? (resume ? `codex resume${profile}${resume.agentId ? ` ${resume.agentId}` : ''}` : `codex${profile}`)
+			// The id is typed into the shell: one that is not a uuid (from a hook, or Codex's importer) is never typed; Codex's picker opens instead.
+			: cli === 'codex' ? (resume ? `codex resume${profile}${resume.agentId && UUID.test(resume.agentId) ? ` ${resume.agentId}` : ''}` : `codex${profile}`)
 			: resume?.command ?? custom?.command ?? '';
 		terminal.show();
 		terminal.sendText(command);
