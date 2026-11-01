@@ -411,15 +411,22 @@ export function parseBoardWithNotes(input: unknown): ParsedBoard {
 		}
 	}
 	const steps: BoardStep[] = [];
+	let described = false;
+	let listed = false;
 	for (const [i, s] of (Array.isArray(raw.steps) ? raw.steps.slice(0, MAX_STEPS) : []).entries()) {
 		const x = s as Record<string, unknown>;
 		const stepTitle = str(x?.title, 80);
-		const caption = str(x?.caption, 600);
+		// Agents other than Claude (Codex) have written a step's caption as `description` and its nodes as a `focus` list.
+		// Both are read, so the step still says and lights what was meant, and the note tells the agent the right names.
+		const caption = str(x?.caption, 600) ?? str(x?.description, 600);
 		if (!stepTitle && !caption) {
 			notes.add('step', `step #${i + 1} was dropped: it needs a title or a caption.`);
 			continue;
 		}
-		const stepNodes = (Array.isArray(x.nodes) ? x.nodes : []).filter((id): id is string => typeof id === 'string');
+		described ||= x.caption === undefined && !!caption;
+		listed ||= Array.isArray(x.focus);
+		const focusList = Array.isArray(x.focus) ? x.focus.filter((id): id is string => typeof id === 'string') : [];
+		const stepNodes = [...new Set([...(Array.isArray(x.nodes) ? x.nodes : []).filter((id): id is string => typeof id === 'string'), ...focusList])];
 		const stepEdges = (Array.isArray(x.edges) ? x.edges : []).map(pair).filter((p): p is [string, string] => !!p);
 		const badNode = stepNodes.find(id => !ids.has(id));
 		const badEdge = stepEdges.find(([a, b]) => !edgeKeys.has(`${a}>${b}`));
@@ -430,13 +437,26 @@ export function parseBoardWithNotes(input: unknown): ParsedBoard {
 		if (badEdge) {
 			notes.add('step', `step #${i + 1}: there is no edge \`${badEdge[0]}\` → \`${badEdge[1]}\`; it was left out.`);
 		}
-		steps.push({
+		const lit = stepNodes.filter(id => ids.has(id)).slice(0, 40);
+		const litEdges = stepEdges.filter(([a, b]) => edgeKeys.has(`${a}>${b}`)).slice(0, 40);
+		const step: BoardStep = {
 			title: stepTitle ?? `Step ${i + 1}`,
 			caption: caption ?? '',
-			nodes: stepNodes.filter(id => ids.has(id)).slice(0, 40),
-			edges: stepEdges.filter(([a, b]) => edgeKeys.has(`${a}>${b}`)).slice(0, 40),
+			nodes: lit,
+			edges: litEdges,
 			focus: known(x.focus) ? x.focus : undefined,
-		});
+		};
+		if (!lit.length && !litEdges.length && !step.focus) {
+			notes.add('step', `step #${i + 1} lights up nothing: give it \`nodes\` (ids) or \`edges\` ([from, to]) so the user sees what it is about.`);
+		}
+		steps.push(step);
+	}
+	// Once per board, not per step: a board that used the other names in every step would otherwise crowd out the rest.
+	if (described) {
+		notes.add('step names', 'steps: `description` was read as the caption; call it `caption`.');
+	}
+	if (listed) {
+		notes.add('step names', 'steps: a `focus` list was read as `nodes`, the ids to light up; `focus` is one group or node id to open.');
 	}
 	const highlight: BoardHighlight[] = [];
 	for (const h of (Array.isArray(raw.highlight) ? raw.highlight.slice(0, MAX_HIGHLIGHTS) : []) as Record<string, unknown>[]) {
