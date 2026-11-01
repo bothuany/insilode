@@ -135,9 +135,14 @@ test('a thread id that is not a uuid is refused: it would be typed into a termin
 })
 
 test('a moved agent keeps one arrow in its name', () => {
-	assert.equal(c.swappedName('Claude 2', 'Codex'), 'Claude 2 → Codex')
-	assert.equal(c.swappedName('Claude 2 → Codex', 'Claude'), 'Claude 2 → Claude')
-	assert.equal(c.swappedName('Claude 2 → Claude', 'Codex'), 'Claude 2 → Codex')
+	// A name Insilode gave only said the old CLI: the moved agent is named as a new one ('').
+	assert.equal(c.swappedName('Codex', 'Claude'), '')
+	assert.equal(c.swappedName('Claude 2', 'Codex'), '')
+	assert.equal(c.swappedName('Codex → Claude', 'Codex'), '')
+	// A name of the user's keeps one arrow.
+	assert.equal(c.swappedName('Login page', 'Codex'), 'Login page → Codex')
+	assert.equal(c.swappedName('Login page → Codex', 'Claude'), 'Login page → Claude')
+	assert.equal(c.swappedName('Claude review', 'Codex'), 'Claude review → Codex')
 })
 
 test('two long answers in a row are joined first and cut once, with one note for the whole turn', () => {

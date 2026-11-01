@@ -23,9 +23,14 @@ export const MAX_TURN_CHARS = 32_000;
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** "Claude 2 → Codex → Claude" stays "Claude 2 → Claude": a name gets one arrow, for the CLI it is in now. */
+/**
+ * The moved agent's name. A name Insilode gave ("Codex", "Claude 2") said which CLI it was, so it is dropped: '' lets
+ * spawn name it as any new agent of the other CLI ("Claude"), rather than "Codex → Claude". A name of the user's or the
+ * conversation's keeps one arrow, for the CLI it is in now: "Login page → Codex → Claude" is "Login page → Claude".
+ */
 export function swappedName(name: string, to: string): string {
-	return `${name.replace(/ → (Claude|Codex)$/, '')} → ${to}`;
+	const base = name.replace(/ → (Claude|Codex)$/, '');
+	return /^(Claude|Codex)( \d+)?$/.test(base) ? '' : `${base} → ${to}`;
 }
 
 function record(v: unknown): Record<string, unknown> | undefined {

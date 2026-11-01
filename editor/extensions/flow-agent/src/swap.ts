@@ -72,6 +72,14 @@ export function sweepLeftoverCopies(): void {
 	void fs.readdir(projects).catch(() => [] as string[]).then(names => Promise.all(names.filter(n => n === prefix || n.startsWith(`${prefix}-`)).map(n => sweepImportCopies(path.join(projects, n)))));
 }
 
+/**
+ * The title the moved conversation keeps: the user's or the conversation's name, without the arrow. None for a name
+ * Insilode gave ("Codex"), which Claude would show as the conversation's title and Insilode would read back as its name.
+ */
+function carriedTitle(name: string): string | undefined {
+	return swappedName(name, '') ? name.replace(/ → (Claude|Codex)$/, '') : undefined;
+}
+
 /** Runs Codex's importer on a Claude transcript and returns the id of the Codex thread it made. */
 function importIntoCodex(transcript: string, cwd: string, title: string | undefined): Promise<string> {
 	const launch = codexLaunch(process.platform, process.env.PATH ?? '', process.env.PATHEXT, {
@@ -153,7 +161,7 @@ async function claudeFromCodex(s: AgentSession, cwd: string): Promise<{ id: stri
 	}
 	const id = randomUUID();
 	const text = claudeTranscript(codexTurns(await fs.readFile(rollout, 'utf8')), {
-		cwd, sessionId: id, gitBranch: s.worktree?.branch, title: s.name, newId: randomUUID, now: new Date().toISOString(),
+		cwd, sessionId: id, gitBranch: s.worktree?.branch, title: carriedTitle(s.name), newId: randomUUID, now: new Date().toISOString(),
 	});
 	if (!text) {
 		throw new Error('the Codex session has no exchange to carry over yet: send it a message first');
@@ -226,7 +234,7 @@ Insilode cannot tell whether ${s.name} is in the middle of a turn: Codex sends n
 				const now = new Date();
 				await fs.utimes(copy, now, now);
 				try {
-					const thread = await importIntoCodex(copy, cwd, s.name);
+					const thread = await importIntoCodex(copy, cwd, carriedTitle(s.name));
 					return { ...base, id: thread, agentId: thread };
 				} finally {
 					await fs.rm(copy, { force: true }).catch(() => undefined);
