@@ -56,7 +56,7 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 				case 'swap': return void vscode.commands.executeCommand('flow.agents.swap', m.id);
 				case 'wt': return void this.worktrees?.act(m.id, m.action);
 				case 'pick': return void vscode.commands.executeCommand('flow.agents.new');
-				case 'chat': return void vscode.commands.executeCommand('workbench.action.openSettings', 'flow.agents.showChat');
+				case 'chat': return void vscode.commands.executeCommand('flow.settings', 'flow.agents.showChat');
 				case 'sk': return void this.agents.setSkeletonOn(m.id, m.on);
 			}
 		});

@@ -16,10 +16,13 @@ import { settingsHtml } from './settingsPage';
 
 /** What `open` may run: a fixed table, so the page names a place, never a command. */
 const OPEN = new Map([
-	['all', 'workbench.action.openSettings'],
+	// Not workbench.action.openSettings: without arguments that opens this page again (editor/patches/flow-settings.patch).
+	['all', 'workbench.action.openSettings2'],
 	['json', 'workbench.action.openSettingsJson'],
 ]);
 const SETTING_UI = 'workbench.action.openSettings';
+/** The editor's MODAL_GROUP: the page opens as an overlay on the workbench, like VS Code's own Settings. A host without editor/patches/flow-settings.patch reads it as the active group, an ordinary tab. */
+const MODAL_COLUMN = -4 as vscode.ViewColumn;
 
 interface Manifest {
 	contributes?: {
@@ -86,7 +89,7 @@ export class FlowSettings implements vscode.Disposable {
 			await this.post();
 			return;
 		}
-		const panel = this.panel = vscode.window.createWebviewPanel('flow.settings', 'Settings', vscode.ViewColumn.Active, { enableScripts: true, localResourceRoots: [], retainContextWhenHidden: true });
+		const panel = this.panel = vscode.window.createWebviewPanel('flow.settings', 'Settings', MODAL_COLUMN, { enableScripts: true, localResourceRoots: [], retainContextWhenHidden: true });
 		panel.iconPath = vscode.Uri.joinPath(this.context.extensionUri, 'media', 'flow.svg');
 		panel.onDidDispose(() => this.panel = undefined);
 		panel.webview.onDidReceiveMessage(m => this.onMessage(m).catch(e => vscode.window.showErrorMessage(`Insilode settings: ${(e as Error).message ?? e}`)));
