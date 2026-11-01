@@ -9,25 +9,30 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { appendLineReviewed } from './edits';
-import { addGuardHook, correctionProposals, failureProposals, guardCommand, guardFileName, guardScript, type Evidence, type Proposal } from './friction';
+import { addGuardHook, correctionProposals, failureProposals, FRICTION_EMPTY, GUARD_TARGETS, GUARDS_EMPTY, guardCommand, guardFileName, guardScript, removeGuardFromText, scanGuards, type Evidence, type GuardInfo, type Proposal } from './friction';
 import type { Live } from './live';
 import { ruleFor, type PermissionInbox, type PermissionRequest } from './permissions';
 import type { Harness } from './scan';
-import { jsonChange, previewAndWriteFiles } from './settings';
+import { jsonChange, previewAndWriteFiles, type FileChange } from './settings';
 
-type Group = 'corrections' | 'failures' | 'grants';
+type Group = 'corrections' | 'failures' | 'grants' | 'guards';
 type Row =
 	| { type: 'group'; group: Group }
 	| { type: 'proposal'; p: Proposal }
 	| { type: 'grant'; rule: string; requests: PermissionRequest[] }
+	| { type: 'guard'; g: GuardInfo }
 	| { type: 'evidence'; e: Evidence }
 	| { type: 'empty'; group: Group };
 
-const GROUPS: Record<Group, { label: string; icon: string; empty: string }> = {
-	corrections: { label: 'Corrections you repeat', icon: 'comment-discussion', empty: 'Nothing said twice yet' },
-	failures: { label: 'Tool calls that keep failing', icon: 'error', empty: 'No repeated failures' },
-	grants: { label: 'Permissions you keep granting', icon: 'shield', empty: 'No permission granted twice' },
+/** `empty` is the row's text, `source` says where the rows would come from: an empty list must not look like a broken one. */
+const GROUPS: Record<Group, { label: string; icon: string; empty: string; source: string }> = {
+	corrections: { label: 'Corrections you repeat', icon: 'comment-discussion', empty: 'Nothing said twice yet', source: 'from prompts sent in the Agents dock' },
+	failures: { label: 'Tool calls that keep failing', icon: 'error', empty: 'No repeated failures', source: 'from tool failures in the Agents dock' },
+	grants: { label: 'Permissions you keep granting', icon: 'shield', empty: 'No permission granted twice', source: 'from requests in the Agents dock' },
+	guards: { label: 'Guards Insilode added', icon: 'zap', empty: GUARDS_EMPTY, source: '' },
 };
+
+const GUARD_FILE = { local: '.claude/settings.local.json', shared: '.claude/settings.json' } as const;
 
 const when = (t: number) => new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
@@ -36,6 +41,8 @@ export class FrictionView implements vscode.TreeDataProvider<Row> {
 	readonly onDidChangeTreeData = this.changed.event;
 	private cache: { corrections: Proposal[]; failures: Proposal[] } | undefined;
 	private instructions = '';
+	/** The guards Insilode wrote, as the last scan of the settings files and `.claude/hooks` found them. */
+	private guards: GuardInfo[] = [];
 
 	constructor(private readonly live: Live, private readonly inbox: PermissionInbox, private readonly harness: () => Harness | undefined) {
 		live.onDidChange(() => this.refresh());
@@ -46,7 +53,29 @@ export class FrictionView implements vscode.TreeDataProvider<Row> {
 	async setHarness(h: Harness | undefined) {
 		const files = (h?.items ?? []).filter(i => i.kind === 'instructions' && i.scope !== 'directory').map(i => i.file);
 		this.instructions = (await Promise.all(files.map(f => fs.readFile(f, 'utf8').catch(() => '')))).join('\n');
+		await this.loadGuards(h?.root);
 		this.refresh();
+	}
+
+	/** Reads both settings files and the guard scripts: the guard list is what is on disk, with no state file of its own. */
+	private async loadGuards(root = this.harness()?.root) {
+		if (!root) {
+			this.guards = [];
+			return;
+		}
+		const read = (file: string) => fs.readFile(file, 'utf8').catch(() => undefined);
+		const settings = (await Promise.all((['local', 'shared'] as const).map(async scope => ({ scope, text: await read(path.join(root, GUARD_FILE[scope])) }))))
+			.flatMap(s => s.text === undefined ? [] : [{ scope: s.scope, text: s.text }]);
+		const dir = path.join(root, '.claude', 'hooks');
+		const names = (await fs.readdir(dir).catch(() => [] as string[])).filter(n => /^insilode-guard-.+\.mjs$/.test(n));
+		const scripts = (await Promise.all(names.map(async name => ({ name, text: await read(path.join(dir, name)) })))).flatMap(s => s.text === undefined ? [] : [{ name: s.name, text: s.text }]);
+		this.guards = scanGuards(settings, scripts);
+	}
+
+	/** What the empty tree says (the view's message): set only while nothing at all has been seen, so it names the data source once. */
+	get emptyMessage(): string | undefined {
+		const d = this.live.frictionData;
+		return d.prompts.length || d.failures.length || this.inbox.requests.length || this.guards.length ? undefined : FRICTION_EMPTY;
 	}
 
 	private refresh() {
@@ -85,12 +114,14 @@ export class FrictionView implements vscode.TreeDataProvider<Row> {
 
 	getChildren(row?: Row): Row[] {
 		if (!row) {
-			return (['corrections', 'failures', 'grants'] as Group[]).map(group => ({ type: 'group', group }));
+			return (['corrections', 'failures', 'grants', 'guards'] as Group[]).map(group => ({ type: 'group', group }));
 		}
 		if (row.type === 'group') {
 			const list: Row[] = row.group === 'grants'
 				? this.grants().map(g => ({ type: 'grant' as const, ...g }))
-				: this.proposals()[row.group].map(p => ({ type: 'proposal' as const, p }));
+				: row.group === 'guards'
+					? this.guards.map(g => ({ type: 'guard' as const, g }))
+					: this.proposals()[row.group].map(p => ({ type: 'proposal' as const, p }));
 			return list.length ? list : [{ type: 'empty', group: row.group }];
 		}
 		if (row.type === 'proposal') {
@@ -105,15 +136,29 @@ export class FrictionView implements vscode.TreeDataProvider<Row> {
 	getTreeItem(row: Row): vscode.TreeItem {
 		if (row.type === 'group') {
 			const g = GROUPS[row.group];
-			const n = row.group === 'grants' ? this.grants().length : this.proposals()[row.group].length;
+			const n = row.group === 'grants' ? this.grants().length : row.group === 'guards' ? this.guards.length : this.proposals()[row.group].length;
 			const t = new vscode.TreeItem(g.label, n ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed);
 			t.iconPath = new vscode.ThemeIcon(g.icon);
 			t.description = n ? String(n) : '';
 			return t;
 		}
 		if (row.type === 'empty') {
-			const t = new vscode.TreeItem(GROUPS[row.group].empty);
-			t.description = row.group === 'corrections' ? 'from the prompts you send agents' : '';
+			const g = GROUPS[row.group];
+			const t = new vscode.TreeItem(g.empty);
+			t.description = g.source;
+			t.tooltip = row.group === 'guards' ? GUARDS_EMPTY : FRICTION_EMPTY;
+			return t;
+		}
+		if (row.type === 'guard') {
+			const g = row.g;
+			const t = new vscode.TreeItem(g.prefix);
+			const where = g.files.length ? g.files.join(' + ') : 'script only, no settings entry';
+			t.description = [where, g.reason, g.scriptExists ? '' : 'script missing'].filter(Boolean).join(' · ');
+			const tip = new vscode.MarkdownString(`**Guard for \`${g.prefix}\`**\n\n${g.reason ? `${g.reason}\n\n` : ''}Registered in: ${g.files.map(f => `\`${GUARD_FILE[f]}\``).join(', ') || 'no settings file'}\n\nScript: \`.claude/hooks/${g.name}\`${g.scriptExists ? '' : ' (already gone: Remove deletes the settings entry only)'}`);
+			t.tooltip = tip;
+			t.iconPath = new vscode.ThemeIcon('zap', new vscode.ThemeColor('flowHarness.hooks'));
+			t.contextValue = 'friction.guard';
+			(t as vscode.TreeItem & { row?: Row }).row = row;
 			return t;
 		}
 		if (row.type === 'evidence') {
@@ -144,6 +189,44 @@ export class FrictionView implements vscode.TreeDataProvider<Row> {
 		t.contextValue = 'friction.proposal';
 		(t as vscode.TreeItem & { row?: Row }).row = row;
 		return t;
+	}
+
+	/**
+	 * Removes a guard Insilode added: its entry in each settings file that runs it and its script, as one reviewed edit. The
+	 * dialog of that preview is the confirmation. A script that is already gone leaves only the entry to remove.
+	 */
+	async removeGuard(arg: unknown): Promise<void> {
+		const row = (arg as { row?: Row } | undefined)?.row ?? (arg as Row | undefined);
+		const root = this.harness()?.root;
+		if (row?.type !== 'guard' || !root) {
+			return;
+		}
+		const g = row.g;
+		const changes: FileChange[] = g.files.map(scope => ({
+			file: path.join(root, GUARD_FILE[scope]),
+			change: text => {
+				try {
+					return removeGuardFromText(text, g.name);
+				} catch (e) {
+					void vscode.window.showErrorMessage(`${GUARD_FILE[scope]} has an unexpected shape (${(e as Error).message}). Fix it first, then try again.`);
+					return undefined;
+				}
+			},
+		}));
+		if (g.scriptExists) {
+			changes.push({ file: path.join(root, '.claude', 'hooks', g.name), change: text => text, remove: true });
+		}
+		if (!changes.length) {
+			await this.loadGuards();
+			this.refresh();
+			return;
+		}
+		const ok = await previewAndWriteFiles(`Remove the guard for "${g.prefix}"`, changes, 'Remove Guard');
+		if (ok && !g.scriptExists) {
+			void vscode.window.showInformationMessage(`The script ${g.name} was already gone: only the settings entry was removed.`);
+		}
+		await this.loadGuards();
+		this.refresh();
 	}
 
 	dismiss(arg: unknown) {
@@ -199,10 +282,13 @@ export class FrictionView implements vscode.TreeDataProvider<Row> {
 	}
 
 	private async applyHook(root: string, p: Proposal, reason: string): Promise<boolean> {
-		const where = await vscode.window.showQuickPick([
-			{ label: 'This repo, shared', detail: '.claude/settings.json (committed)', file: '.claude/settings.json' },
-			{ label: 'This repo, just me', detail: '.claude/settings.local.json', file: '.claude/settings.local.json' },
-		], { title: `Where should the guard for "${p.prefix}" live?` });
+		// This machine first: a guard that blocks a command is the team's business only when the user says so, and that choice carries a warning.
+		const where = await vscode.window.showQuickPick(GUARD_TARGETS.map(t => ({
+			label: t.warning ? `$(warning) ${t.label}` : t.label,
+			description: t.warning,
+			detail: t.detail,
+			file: t.file,
+		})), { title: `Where should the guard for "${p.prefix}" live?` });
 		const prefix = p.prefix;
 		if (!where || !prefix) {
 			return false;
@@ -216,9 +302,15 @@ export class FrictionView implements vscode.TreeDataProvider<Row> {
 				return false;
 			}
 		}
-		return previewAndWriteFiles(`Guard ${prefix} with a PreToolUse hook`, [
+		// A settings file that does not exist yet is created in this same edit (jsonChange starts from {}), so one diff shows everything.
+		const written = await previewAndWriteFiles(`Guard ${prefix} with a PreToolUse hook`, [
 			{ file: script, change: () => guardScript(prefix, reason) },
 			jsonChange(path.join(root, where.file), (s: Record<string, unknown>) => addGuardHook(s, guardCommand(name))),
 		], 'Add Guard');
+		if (written) {
+			await this.loadGuards(root);
+			this.refresh();
+		}
+		return written;
 	}
 }

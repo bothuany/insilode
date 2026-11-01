@@ -17,19 +17,44 @@ export const entryName = (e: EntryPoint) => `${e.controller.replace(/Controller$
 /** Analyzer problems that only mean "there is nothing to load yet". */
 const BENIGN = /^No (\.sln|solution)/;
 
+/** How far the first index has got: what Home tells "not indexed yet" from "no endpoints found" with. */
+export interface IndexStatus {
+	/** A folder is open, so there is something to index. */
+	hasFolder: boolean;
+	/** The polyglot index has finished its first pass. */
+	ready: boolean;
+	/** Files gone through, of how many, while the first pass runs. */
+	progress?: { done: number; total: number };
+}
+
 export class Endpoints implements vscode.Disposable {
 	private readonly changed = new vscode.EventEmitter<void>();
 	readonly onDidChange = this.changed.event;
+	private readonly statusChanged = new vscode.EventEmitter<void>();
+	/** Fires when the index makes progress or becomes ready, which is more often than the list changes. */
+	readonly onDidChangeStatus = this.statusChanged.event;
 	private readonly disposables: vscode.Disposable[];
 
 	constructor(private readonly analyzer: Analyzer, private readonly poly: PolyIndex, private readonly log: vscode.LogOutputChannel) {
 		this.disposables = [
 			this.changed,
+			this.statusChanged,
+			poly.onDidProgress(() => this.statusChanged.fire()),
+			poly.onDidBecomeReady(() => this.statusChanged.fire()),
 			// The analyzer's list is cached when it is fetched: fetch it once when the solution is loaded.
 			analyzer.onDidBecomeReady(() => void this.analyzer.entryPoints().catch(e => this.log.warn(`endpoints: ${e}`)).then(() => this.changed.fire())),
 			// The polyglot index has refreshed its own cache before it says so.
 			poly.onDidBecomeReady(() => this.changed.fire()),
 		];
+	}
+
+	/** Whether the first index is still running, without asking any backend. */
+	status(): IndexStatus {
+		return {
+			hasFolder: (vscode.workspace.workspaceFolders?.length ?? 0) > 0,
+			ready: this.poly.isReady,
+			progress: this.poly.isReady ? undefined : this.poly.progress,
+		};
 	}
 
 	/** What is known now, without asking any backend: cheap enough for every change event. */

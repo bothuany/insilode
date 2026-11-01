@@ -11,7 +11,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { effectiveSettings, instructionsFor, type Effective, type SettingsLayer } from './effective';
 import { page } from './page';
-import { codexConfig, parseCall, simulate, simulateCodex, type Verdict } from './permmatch';
+import { codexConfig, parseCall, PERMISSION_MODES, resolveMode, simulate, simulateCodex, type ResolvedMode, type Verdict } from './permmatch';
 import type { Harness, HarnessItem } from './scan';
 import type { Live } from './live';
 import { claudeDir, codexDir } from './dirs';
@@ -54,6 +54,8 @@ export class WhyView implements vscode.Disposable {
 	private current: string | undefined;
 	/** What the page may open, by index: it never names a path itself. */
 	private openable: string[] = [];
+	/** The mode chosen on the page for the simulator: per page, never saved, gone when the page closes. */
+	private modeOverride: string | undefined;
 	private readonly disposables: vscode.Disposable[] = [];
 
 	constructor(private readonly harness: () => Harness | undefined, private readonly live?: Live) {
@@ -71,7 +73,10 @@ export class WhyView implements vscode.Disposable {
 		if (!this.panel) {
 			this.panel = vscode.window.createWebviewPanel('flowHarness.why', 'Why?', { viewColumn: vscode.ViewColumn.Beside, preserveFocus: true }, { enableScripts: true, retainContextWhenHidden: false, localResourceRoots: [] });
 			this.panel.webview.html = this.html();
-			this.panel.onDidDispose(() => this.panel = undefined, null, this.disposables);
+			this.panel.onDidDispose(() => {
+				this.panel = undefined;
+				this.modeOverride = undefined;
+			}, null, this.disposables);
 			this.panel.webview.onDidReceiveMessage(m => void this.message(m), null, this.disposables);
 		} else {
 			this.panel.reveal(undefined, true);
@@ -80,8 +85,12 @@ export class WhyView implements vscode.Disposable {
 		await this.render(file);
 	}
 
-	private async message(m: { type?: unknown; text?: unknown; agent?: unknown; index?: unknown }) {
+	private async message(m: { type?: unknown; text?: unknown; agent?: unknown; index?: unknown; mode?: unknown }) {
 		if (m.type === 'ready') {
+			await this.render(this.current);
+		} else if (m.type === 'mode') {
+			// Only a known mode is kept; anything else (or an empty value) goes back to the detected one.
+			this.modeOverride = typeof m.mode === 'string' && (PERMISSION_MODES as readonly string[]).includes(m.mode) ? m.mode : undefined;
 			await this.render(this.current);
 		} else if (m.type === 'pick') {
 			const picked = await vscode.window.showOpenDialog({ canSelectMany: false, defaultUri: this.harness() && vscode.Uri.file(this.harness()!.root), title: 'Why? for which file' });
@@ -100,7 +109,7 @@ export class WhyView implements vscode.Disposable {
 	}
 
 	/** The simulator, also behind `flowHarness.simulatePermission` for scripts and the MCP side. */
-	async simulate(text: string, agent: 'Claude' | 'Codex' = 'Claude'): Promise<Verdict | { error: string }> {
+	async simulate(text: string, agent: 'Claude' | 'Codex' = 'Claude'): Promise<(Verdict & { modeInfo?: ResolvedMode }) | { error: string }> {
 		const h = this.harness();
 		const call = parseCall(text);
 		if (!h || !call) {
@@ -114,22 +123,16 @@ export class WhyView implements vscode.Disposable {
 		const eff = effectiveSettings(await loadLayers(h.root));
 		const mode = this.mode(eff);
 		const v = simulate(call, eff.rules, { ...ctx, mode: mode.mode, additionalDirs: eff.additionalDirs.map(d => path.resolve(h.root, d)) });
-		return { ...v, notes: [`Permission mode: ${mode.mode} (${mode.from})`, ...v.notes] };
+		return { ...v, modeInfo: mode };
 	}
 
 	/**
-	 * The permission mode to simulate in: the one the newest Claude Code session's hooks reported (a session can start in
-	 * another mode or switch with Shift+Tab), else defaultMode as the settings apply it, else Claude Code's built-in default.
+	 * The permission mode to simulate in (see resolveMode): the one chosen on this page, else the one the newest Claude Code
+	 * session's hooks reported, else defaultMode as the settings apply it, else Claude Code's built-in default.
 	 */
-	private mode(eff: Effective): { mode: string; from: string } {
+	private mode(eff: Effective): ResolvedMode {
 		const s = [...this.live?.sessions.values() ?? []].filter(x => x.cli === 'claude' && x.mode).sort((a, b) => b.at - a.at)[0];
-		if (s?.mode) {
-			return { mode: s.mode, from: `what ${s.agent} reported last` };
-		}
-		if (eff.mode) {
-			return { mode: eff.mode, from: 'defaultMode in the settings' };
-		}
-		return { mode: 'auto', from: `Claude Code's built-in default since v2.1.283${eff.modeNote ? `; ${eff.modeNote}` : ''}` };
+		return resolveMode(s?.mode, eff.mode, this.modeOverride, eff.modeNote);
 	}
 
 	private async render(file: string | undefined) {
@@ -170,9 +173,11 @@ export class WhyView implements vscode.Disposable {
 <h2>Instructions and rules, in the order they stack</h2><div id="instr"></div>
 <p class="muted">Instruction files never override each other: the agent reads all of them, the more specific later, and a later line wins where two disagree.</p>
 <h2>Permission simulator</h2>
-<div class="card"><div class="row"><select id="agent"><option>Claude</option><option>Codex</option></select>
-<input id="call" class="grow mono" placeholder="Bash(git push --force) · Edit(src/x.ts) · WebFetch(https://github.com) · mcp__github__create_issue" spellcheck="false">
-<button class="primary" id="go">Check</button></div><div id="verdict"></div></div>
+<div class="card"><div class="row modeline"><p class="grow" id="modeline"><b>Permission mode</b></p>
+<label class="muted" for="mode">Try another mode</label><select id="mode"></select></div>
+<div class="row"><select id="agent" aria-label="Which agent"><option>Claude</option><option>Codex</option></select>
+<input id="call" class="grow mono" aria-label="Tool call to check" placeholder="Bash(git push --force) · Edit(src/x.ts) · WebFetch(https://github.com) · mcp__github__create_issue" spellcheck="false">
+<button class="primary" id="go">Check</button></div><div id="verdict"></div><div id="status" class="sr-only" role="status" aria-live="polite"></div></div>
 <h2>Settings: which value wins</h2><p class="muted">Managed settings win, then local, then project, then user. Permission lists merge across files, and a deny from any of them wins.</p>
 <div id="layers"></div><div id="scalars"></div>`, /* js */ `
 const $ = id => document.getElementById(id);
@@ -189,16 +194,19 @@ function render(d) {
 		instr.append(el('h3', {}, a.agent));
 		a.items.forEach((i, n) => instr.append(el('div', { class: 'card row' },
 			el('span', { class: 'muted mono' }, String(n + 1)),
-			el('div', { class: 'grow' }, el('a', { onclick: () => vscode.postMessage({ type: 'open', index: i.open }) }, i.label), ' ', scopeTag(i.scope), ' ',
+			el('div', { class: 'grow' }, el('button', { class: 'link', type: 'button', onclick: () => vscode.postMessage({ type: 'open', index: i.open }) }, i.label), ' ', scopeTag(i.scope), ' ',
 				el('span', { class: 'tag' + (i.when === 'not-loaded' ? ' deny' : '') }, i.when === 'always' ? 'every session' : i.when === 'on-demand' ? 'when working here' : 'not loaded'),
 				el('div', { class: 'muted' }, i.why)),
 			i.tokens ? el('span', { class: 'tag est', title: 'Estimated from the file size (about 4 characters per token)' }, '~' + fmt(i.tokens) + ' tok') : null)));
 	}
 	const layers = $('layers'); layers.replaceChildren(el('table', {}, el('tr', {}, el('th', {}, 'Scope'), el('th', {}, 'File'), el('th', {}, '')),
-		d.layers.map(l => el('tr', {}, el('td', {}, l.scope), el('td', { class: 'mono' }, l.open >= 0 ? el('a', { onclick: () => vscode.postMessage({ type: 'open', index: l.open }) }, l.file) : l.file),
+		d.layers.map(l => el('tr', {}, el('td', {}, l.scope), el('td', { class: 'mono' }, l.open >= 0 ? el('button', { class: 'link', type: 'button', onclick: () => vscode.postMessage({ type: 'open', index: l.open }) }, l.file) : l.file),
 			el('td', { class: l.error ? 'deny' : 'muted' }, l.error ? 'Broken JSON, ignored: ' + l.error : l.exists ? '' : (l.scope === 'managed' ? 'none (checked)' : 'not present'))))));
 	const sc = $('scalars'); sc.replaceChildren();
-	sc.append(el('p', {}, 'Permission mode: ', el('b', {}, d.mode.mode), el('span', { class: 'muted' }, ' (' + d.mode.from + ')'), ' · rules: ', el('span', { class: 'allow' }, d.rules.allow + ' allow'), ', ', el('span', { class: 'ask' }, d.rules.ask + ' ask'), ', ', el('span', { class: 'deny' }, d.rules.deny + ' deny')));
+	// The mode the simulator assumes, above the call box where it changes the answer; the select shows an override only while one is set.
+	$('modeline').replaceChildren(el('b', {}, d.mode.text));
+	$('mode').value = d.mode.source === 'override' ? d.mode.mode : '';
+	sc.append(el('p', {}, 'Permission mode: ', el('b', {}, d.mode.mode), el('span', { class: 'muted' }, ' (' + d.mode.text + ')'), ' · rules: ', el('span', { class: 'allow' }, d.rules.allow + ' allow'), ', ', el('span', { class: 'ask' }, d.rules.ask + ' ask'), ', ', el('span', { class: 'deny' }, d.rules.deny + ' deny')));
 	if (d.scalars.length) sc.append(el('table', {}, el('tr', {}, el('th', {}, 'Setting'), el('th', {}, 'Value'), el('th', {}, 'From'), el('th', {}, 'Overrides')),
 		d.scalars.map(s => el('tr', {}, el('td', { class: 'mono' }, s.key), el('td', { class: 'mono' }, s.value), el('td', {}, s.scope),
 			el('td', {}, s.overridden.map(o => el('div', {}, el('s', { class: 'mono' }, o.value), ' ', el('span', { class: 'muted' }, o.scope))))))));
@@ -206,8 +214,12 @@ function render(d) {
 }
 function verdict(v) {
 	const box = $('verdict'); box.replaceChildren();
-	if (v.error) { box.append(el('p', { class: 'muted' }, v.error)); return; }
-	box.append(el('p', {}, el('b', { class: v.decision }, v.decision.toUpperCase()), '  ', v.reason));
+	const say = t => { $('status').textContent = t; };
+	if (v.error) { box.append(el('p', { class: 'muted' }, v.error)); say(v.error); return; }
+	// A verdict from a guessed mode says so; one from a mode a session reported does not need to.
+	const withMode = v.modeInfo ? ' with mode ' + v.modeInfo.mode + (v.modeInfo.assumed ? ' (assumed)' : ' (reported by a session)') : '';
+	box.append(el('p', {}, el('b', { class: v.decision }, v.decision.toUpperCase()), el('span', { class: 'muted' }, withMode), '  ', v.reason));
+	say(v.decision + withMode + ': ' + v.reason);
 	if (v.rule) box.append(el('p', { class: 'muted' }, 'Deciding rule: ', el('span', { class: 'mono' }, v.rule.pattern), ' (' + v.rule.scope + ' settings)'));
 	if (v.parts && v.parts.length > 1) box.append(el('table', {}, v.parts.map(p => el('tr', {}, el('td', { class: 'mono' }, p.command), el('td', { class: p.decision === 'none' ? 'ask' : p.decision }, p.decision === 'none' ? 'not covered' : p.decision + (p.rule ? ' by ' + p.rule.pattern : ''))))));
 	for (const n of v.notes) box.append(el('p', { class: 'muted' }, '• ' + n));
@@ -215,12 +227,16 @@ function verdict(v) {
 const check = () => { const text = $('call').value.trim(); if (text) vscode.postMessage({ type: 'simulate', text, agent: $('agent').value }); };
 $('go').onclick = check;
 $('call').addEventListener('keydown', e => { if (e.key === 'Enter') check(); });
-$('agent').onchange = check;
+$('agent').onchange = () => { $('mode').disabled = $('agent').value === 'Codex'; check(); };
+// The same list the extension checks the choice against; '' goes back to the detected mode.
+$('mode').append(el('option', { value: '' }, 'As detected'), ...${JSON.stringify(PERMISSION_MODES)}.map(m => el('option', { value: m }, m)));
+// The extension keeps the choice and re-renders; asking again re-runs the simulation in the new mode.
+$('mode').onchange = () => { vscode.postMessage({ type: 'mode', mode: $('mode').value }); check(); };
 $('pick').onclick = () => vscode.postMessage({ type: 'pick' });
 $('follow').onclick = () => vscode.postMessage({ type: 'follow' });
 window.addEventListener('message', e => { const m = e.data; if (m.type === 'data') render(m); else if (m.type === 'verdict' && m.text === $('call').value.trim()) verdict(m.verdict); });
 vscode.postMessage({ type: 'ready' });
-`, 'h3 { font-size: 13px; margin: 12px 0 4px; } .head { flex-wrap: wrap; } .card > .row { flex-wrap: wrap; } #call { min-width: 160px; } .head .grow { min-width: 220px; } h1 { overflow-wrap: anywhere; }');
+`, 'h3 { font-size: 13px; margin: 12px 0 4px; } .head { flex-wrap: wrap; } .card > .row { flex-wrap: wrap; } #call { min-width: 160px; } .head .grow { min-width: 220px; } h1 { overflow-wrap: anywhere; } .modeline { flex-wrap: wrap; margin-bottom: 6px; } #modeline { margin: 0; } .card > .row + .row { margin-top: 6px; }');
 	}
 
 	dispose() {

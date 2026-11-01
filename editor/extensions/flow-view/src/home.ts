@@ -12,10 +12,21 @@ import * as vscode from 'vscode';
 import { askInDock } from './askAgent';
 import { entryDisplay } from './entryLabel';
 import { Command } from './commands';
-import { entryName, type Endpoints, type Source } from './backends';
+import { entryName, type Endpoints, type IndexStatus, type Source } from './backends';
 
 /** The commands the shortcut row of the Home page can run. */
-const HOME_COMMANDS = new Set(['flow.showAtCursor', 'flow.pickEndpoint', 'workbench.action.quickOpen', 'workbench.view.extension.flowHarness', 'flow.agents.chooseAskTarget', 'flow.settings']);
+export const HOME_COMMANDS: ReadonlySet<string> = new Set([
+	'flow.showAtCursor', 'flow.pickEndpoint', 'workbench.action.quickOpen', 'workbench.view.extension.flowHarness', 'flow.agents.chooseAskTarget', 'flow.settings',
+	// The first-run strip and the rows under the lists: the sample tour, Import from VS Code (flow-import) and the boards.
+	'flow.tour.playSample', 'flow.importFromVSCode', 'flow.board.show', 'flow.board.fromCode',
+]);
+
+/** Whether a command id from the page is one of the shortcuts it shows: a message is not a licence to run any command. */
+export const isHomeCommand = (command: unknown): command is string => typeof command === 'string' && HOME_COMMANDS.has(command);
+
+/** The strip is dismissed for good in globalState (all windows), and a flow opened once ends it too. */
+const STRIP_HIDDEN = 'flow.home.stripHidden';
+const FLOW_OPENED = 'flow.home.flowOpened';
 
 const RECENT_FILES = 'flow.home.recentFiles';
 /** "Plan first" in words, for the chat panel when flow-agent is not there (flow-agent's planFirst says it the same way). */
@@ -64,22 +75,122 @@ export function homeLine(line: unknown, lineCount: number): number | undefined {
 	return Math.min(n, Math.max(0, lineCount - 1));
 }
 
+/** Where the prompts typed on Home go, in a sentence, from the setting flow.agents.askTarget (flow-agent contributes it). */
+export function askTargetSentence(value: unknown): string {
+	const none = 'Agent prompts are not available here';
+	if (typeof value !== 'string' || !value) {
+		return none;
+	}
+	switch (value) {
+		case 'ask': return 'You pick the agent each time';
+		case 'remember': return 'You pick the agent with your first prompt, and Insilode remembers it';
+		case 'claude': return 'Prompts go to Claude Code';
+		case 'codex': return 'Prompts go to Codex';
+		case 'chat': return 'Prompts go to the chat panel';
+		case 'clipboard': return 'Prompts are copied to the clipboard';
+	}
+	const name = /^custom:(.+)$/.exec(value)?.[1].trim().slice(0, 40);
+	return name ? `Prompts go to ${name}` : none;
+}
+
+/** The first-run strip shows until the user hides it or has opened a flow: after that Home is not a place that explains itself. */
+export const stripVisible = (s: { hidden: boolean; openedFlow: boolean }) => !s.hidden && !s.openedFlow;
+
+export type IndexState = 'none' | 'indexing' | 'empty' | 'ready';
+
+/** What the first index is doing, so "No endpoints found" is not said while the answer is still coming. `total`: endpoints known now. */
+export function indexView(status: IndexStatus, total: number): { state: IndexState; text: string } {
+	if (!status.hasFolder) {
+		return { state: 'none', text: 'Open a folder to index its code.' };
+	}
+	if (!status.ready) {
+		const p = status.progress;
+		const n = (v: number) => Math.max(0, Math.floor(Number.isFinite(v) ? v : 0)).toLocaleString('en-US');
+		return { state: 'indexing', text: p && p.total > 0 ? `Indexing… ${n(p.done)} of ${n(p.total)} files` : 'Indexing…' };
+	}
+	return total === 0 ? { state: 'empty', text: 'No endpoints found' } : { state: 'ready', text: '' };
+}
+
+/** The harness gaps as the page lists them: a few, as plain text, so the page does not draw an unbounded list from another extension. */
+export function shapeGaps(gaps: unknown): { label: string; message: string }[] {
+	const text = (v: unknown, max: number) => typeof v === 'string' ? v.replace(/\s+/g, ' ').trim().slice(0, max) : '';
+	return (Array.isArray(gaps) ? gaps : []).flatMap((g: { label?: unknown; message?: unknown } | null) => {
+		const label = text(g?.label, 60);
+		return label ? [{ label, message: text(g?.message, 200) }] : [];
+	}).slice(0, 5);
+}
+
+/** "Harness health 72 / 100 · 3 gaps". */
+export function healthLabel(score: unknown, gapCount: number): string {
+	const n = typeof score === 'number' && Number.isFinite(score) ? Math.round(score) : 0;
+	return `Harness health ${n} / 100${gapCount ? ` · ${gapCount} gap${gapCount === 1 ? '' : 's'}` : ''}`;
+}
+
+/**
+ * Git's churn per root, kept once it is known. A failed attempt (git missing, not a repository, a timeout) is never kept:
+ * the next show tries again, and `failed` says the last attempt did not work, so the page can say "churn unavailable".
+ */
+export class ChurnCache {
+	private readonly known = new Map<string, Map<string, number>>();
+	private readonly inflight = new Map<string, Promise<Map<string, number> | undefined>>();
+	private readonly misses = new Set<string>();
+
+	constructor(private readonly load: (root: string) => Promise<Map<string, number> | undefined>) { }
+
+	/** What is known now, without asking git. */
+	peek(root: string) {
+		return this.known.get(root);
+	}
+
+	/** The last attempt for `root` ended in a failure and none is running. */
+	failed(root: string) {
+		return this.misses.has(root) && !this.inflight.has(root);
+	}
+
+	get(root: string): Promise<Map<string, number> | undefined> {
+		const hit = this.known.get(root);
+		if (hit) {
+			return Promise.resolve(hit);
+		}
+		let run = this.inflight.get(root);
+		if (!run) {
+			run = Promise.resolve().then(() => this.load(root)).catch(() => undefined).then(got => {
+				this.inflight.delete(root);
+				if (got) {
+					this.known.set(root, got);
+					this.misses.delete(root);
+				} else {
+					this.misses.add(root);
+				}
+				return got;
+			});
+			this.inflight.set(root, run);
+		}
+		return run;
+	}
+}
+
 /**
  * How often git saw each file change lately (last 90 days), by `pathKey`. `--relative` makes the paths relative to `root`
  * (and leaves out files outside it): without it they are relative to the repository's top, and a workspace that is a
  * subfolder of the repository would join them onto itself and never match. Nothing when the folder is not a repository.
  */
-export function gitChurn(root: string): Promise<Map<string, number>> {
+export const gitChurn = async (root: string) => await gitChurnResult(root) ?? new Map<string, number>();
+
+/** `gitChurn`, but a git error (not a repository, no git, the timeout) is undefined rather than an empty answer, so it is not mistaken for "nothing changed". */
+export function gitChurnResult(root: string): Promise<Map<string, number> | undefined> {
 	return new Promise(resolve => {
 		execFile('git', ['log', '--since=90.days', '--relative', '--name-only', '--pretty=format:'], { cwd: root, maxBuffer: 32 * 1024 * 1024, timeout: 10_000, windowsHide: true }, (err, out) => {
+			if (err) {
+				resolve(undefined);
+				return;
+			}
 			const counts = new Map<string, number>();
-			if (!err) {
-				for (const line of out.split('\n')) {
-					const rel = line.trim();
-					if (rel) {
-						const key = pathKey(path.join(root, rel));
-						counts.set(key, (counts.get(key) ?? 0) + 1);
-					}
+			for (const line of out.split('\n')) {
+				const rel = line.trim();
+				if (rel) {
+					const key = pathKey(path.join(root, rel));
+					counts.set(key, (counts.get(key) ?? 0) + 1);
 				}
 			}
 			resolve(counts);
@@ -99,8 +210,20 @@ function interleave<T>(a: T[], b: T[]): T[] {
 export class FlowHome implements vscode.Disposable {
 	private panel: vscode.WebviewPanel | undefined;
 	private readonly disposables: vscode.Disposable[] = [];
+	/** What the page shows while the slow parts (the harness check, git) are still on their way. */
+	private health: Health | undefined;
+	private healthState: 'pending' | 'ok' | 'unavailable' = 'pending';
+	private branchName: string | undefined;
+	private readonly churnCache = new ChurnCache(gitChurnResult);
+	private repostTimer: NodeJS.Timeout | undefined;
 
 	constructor(private readonly context: vscode.ExtensionContext, private readonly endpoints: Endpoints) {
+		// The index fills in while Home is open: say so as it goes (progress comes often, so not more than a few times a second).
+		this.disposables.push(
+			endpoints.onDidChange(() => this.repostSoon()),
+			endpoints.onDidChangeStatus(() => this.repostSoon()),
+			vscode.workspace.onDidChangeConfiguration(e => e.affectsConfiguration('flow.agents.askTarget') && this.repostSoon()),
+		);
 		// Remember where you were: the files you open and the flows you draw.
 		this.disposables.push(vscode.window.onDidChangeActiveTextEditor(e => {
 			if (e?.document.uri.scheme === 'file') {
@@ -113,6 +236,19 @@ export class FlowHome implements vscode.Disposable {
 	rememberFlow(id: string, label: string, source?: Source) {
 		const list = this.context.workspaceState.get<RecentFlow[]>(RECENT_FLOWS, []).filter(r => r.id !== id);
 		void this.context.workspaceState.update(RECENT_FLOWS, [{ id, label, source, at: Date.now() }, ...list].slice(0, 8));
+		if (!this.context.globalState.get<boolean>(FLOW_OPENED)) {
+			void this.context.globalState.update(FLOW_OPENED, true);
+		}
+	}
+
+	/** Posts the page again from what is known, once a burst of changes is over: no git, no harness check. */
+	private repostSoon() {
+		if (this.panel && !this.repostTimer) {
+			this.repostTimer = setTimeout(() => {
+				this.repostTimer = undefined;
+				this.send();
+			}, 250);
+		}
 	}
 
 	async show() {
@@ -145,7 +281,17 @@ export class FlowHome implements vscode.Disposable {
 				? vscode.commands.executeCommand(Command.showEntry, m.id, m.label.slice(0, 500), m.source === 'roslyn' || m.source === 'poly' ? m.source : undefined)
 				: undefined;
 			// Only the shortcuts this page shows: a message is not a licence to run any command.
-			case 'run': return HOME_COMMANDS.has(m.command ?? '') ? vscode.commands.executeCommand(m.command!) : undefined;
+			// A command of a part that is not installed (Import lives in flow-import) says so rather than failing silently.
+			case 'run': {
+				const command = m.command ?? '';
+				if (!HOME_COMMANDS.has(command)) {
+					return undefined;
+				}
+				return Promise.resolve(vscode.commands.executeCommand(command)).then(undefined, () => void vscode.window.showInformationMessage(`Insilode: "${command}" is not available in this window.`));
+			}
+			case 'hideStrip':
+				await this.context.globalState.update(STRIP_HIDDEN, true);
+				return this.send();
 			default: return undefined;
 		}
 	}
@@ -180,23 +326,63 @@ export class FlowHome implements vscode.Disposable {
 		}
 	}
 
-	/** The endpoints people work on come first: git's churn, asked once per window, in the background. */
-	private churn: Promise<Map<string, number>> | undefined;
-	private churnOf(root: string) {
-		return this.churn ??= gitChurn(root);
-	}
-
+	/** Home's first paint is the cheap data; the harness check and git's churn arrive after it as more messages. */
 	private async post() {
 		const folder = vscode.workspace.workspaceFolders?.[0];
 		const root = folder?.uri.fsPath ?? '';
-		const health = await Promise.resolve(vscode.commands.executeCommand<Health | undefined>('flowHarness.health')).catch(() => undefined);
+		this.send();
+		if (!this.panel) {
+			return;
+		}
+		await Promise.all([
+			this.loadHealth(root),
+			this.loadChurn(root),
+			this.branch().then(b => {
+				if (b !== this.branchName) {
+					this.branchName = b;
+					this.send();
+				}
+			}),
+		]);
+	}
+
+	/** flow-harness answers the health command; without it (or a folder) the page says "not available", it does not fail. */
+	private async loadHealth(root: string) {
+		if (!root) {
+			return;
+		}
+		try {
+			this.health = await Promise.resolve(vscode.commands.executeCommand<Health | undefined>('flowHarness.health')) ?? undefined;
+			this.healthState = this.health ? 'ok' : 'unavailable';
+		} catch {
+			this.health = undefined;
+			this.healthState = 'unavailable';
+		}
+		this.send();
+	}
+
+	/** The endpoints people work on come first: git's churn, asked in the background and only kept when git answered. */
+	private async loadChurn(root: string) {
+		if (root && !this.churnCache.peek(root)) {
+			await this.churnCache.get(root);
+			this.send();
+		}
+	}
+
+	private send() {
+		const panel = this.panel;
+		if (!panel) {
+			return;
+		}
+		const folder = vscode.workspace.workspaceFolders?.[0];
+		const root = folder?.uri.fsPath ?? '';
 		// A file that is gone (in a removed agent worktree, say) is no place to go back to.
 		const files = this.context.workspaceState.get<Recent[]>(RECENT_FILES, []).filter(r => existsSync(r.path)).slice(0, 7)
 			.map(r => ({ path: r.path, name: path.basename(r.path), dir: path.relative(root, path.dirname(r.path)), at: r.at }));
 		const flows = this.context.workspaceState.get<RecentFlow[]>(RECENT_FLOWS, []).slice(0, 7);
 		const all = this.endpoints.cached();
 		// The endpoints whose files changed most lately first; then the order the backends gave.
-		const churn = root ? await this.churnOf(root) : new Map<string, number>();
+		const churn = (root && this.churnCache.peek(root)) || new Map<string, number>();
 		const heat = (file: string) => churn.get(pathKey(file)) ?? 0;
 		const ranked = interleave(all.filter(e => e.source === 'roslyn'), all.filter(e => e.source === 'poly'))
 			.map((e, i) => ({ e, i, heat: heat(e.file) }))
@@ -206,15 +392,25 @@ export class FlowHome implements vscode.Disposable {
 			const show = entryDisplay(e, path.relative(root, e.file));
 			return { id: e.id, source: e.source, label: entryName(e), http: e.http.split(/\s/)[0], route: show.title.replace(/^\S+\s+/, ''), detail: show.detail };
 		});
-		this.offered = offeredFiles(files, health?.issues);
-		await this.panel?.webview.postMessage({
+		const gaps = shapeGaps(this.health?.gaps);
+		const health = this.health && { ...this.health, gaps, label: healthLabel(this.health.score, gaps.length) };
+		this.offered = offeredFiles(files, this.health?.issues);
+		const hidden = this.context.globalState.get<boolean>(STRIP_HIDDEN, false);
+		const openedFlow = this.context.globalState.get<boolean>(FLOW_OPENED, false) || flows.length > 0;
+		void Promise.resolve(panel.webview.postMessage({
 			type: 'data',
 			repo: folder?.name ?? 'No folder open',
-			branch: await this.branch(),
+			branch: this.branchName,
 			hour: new Date().getHours(),
 			files, flows, endpoints, health,
+			healthState: root ? this.healthState : 'nofolder',
 			total: all.length,
-		});
+			strip: stripVisible({ hidden, openedFlow }),
+			agent: askTargetSentence(vscode.workspace.getConfiguration('flow.agents').get('askTarget')),
+			index: indexView(this.endpoints.status(), all.length),
+			// "churn unavailable" only when the last attempt failed; without a folder there is nothing to ask git.
+			churn: !root || this.churnCache.peek(root) ? 'ok' : this.churnCache.failed(root) ? 'unavailable' : 'pending',
+		})).catch(() => undefined);
 	}
 
 	private html() {
@@ -222,6 +418,7 @@ export class FlowHome implements vscode.Disposable {
 	}
 
 	dispose() {
+		clearTimeout(this.repostTimer);
 		this.panel?.dispose();
 		this.disposables.forEach(d => d.dispose());
 	}
@@ -238,8 +435,11 @@ export function homeHtml(nonce: string) {
 <style>
 :root {
 	--bg: var(--vscode-editor-background); --text: var(--vscode-foreground); --muted: var(--vscode-descriptionForeground);
-	--line: var(--vscode-widget-border, #30323c); --raised: var(--vscode-chat-requestBubbleBackground, #262832);
-	--signal: #6f86ff; --plan: #ffb454; --ok: #5fe0a1; --bad: #ff6b7d; --violet: #b88cff; --teal: #4fd6d0; --gold: #ffb454;
+	--line: var(--vscode-widget-border, color-mix(in srgb, var(--text) 18%, transparent));
+	--raised: var(--vscode-chat-requestBubbleBackground, color-mix(in srgb, var(--text) 6%, var(--bg)));
+	--signal: var(--vscode-textLink-foreground, #3b5bdb); --plan: var(--vscode-editorWarning-foreground, #b26a00);
+	--ok: var(--vscode-testing-iconPassed, #1a7f4b); --bad: var(--vscode-errorForeground, #c62828);
+	--violet: var(--vscode-terminal-ansiMagenta, #8250df); --teal: var(--vscode-terminal-ansiCyan, #0f8b8d); --gold: var(--plan);
 	--mono: var(--vscode-editor-font-family, ui-monospace, Menlo, monospace);
 }
 * { box-sizing: border-box; }
@@ -286,7 +486,7 @@ kbd { font: 11px var(--mono); padding: 0 5px; border: 1px solid var(--line); bor
 .col:first-child { padding-left: 4px; border-left: 0; }
 .col h2 { margin: 0 0 10px; font-size: 12.5px; font-weight: 600; display: flex; align-items: baseline; gap: 8px; }
 .col h2 span { color: var(--muted); font-weight: 400; }
-.more { margin: 4px 0 0; padding: 0; border: 0; background: none; color: var(--accent, #8ab4ff); font: inherit; font-size: 12px; cursor: pointer; }
+.more { margin: 4px 0 0; padding: 0; border: 0; background: none; color: var(--vscode-textLink-foreground, #3b5bdb); font: inherit; font-size: 12px; cursor: pointer; }
 .more:hover { text-decoration: underline; }
 .row { display: flex; align-items: baseline; gap: 8px; width: 100%; padding: 5px 8px; margin-left: -8px; border: 0; border-radius: 7px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .row:hover { background: color-mix(in srgb, var(--text) 6%, transparent); }
@@ -301,14 +501,36 @@ kbd { font: 11px var(--mono); padding: 0 5px; border: 1px solid var(--line); bor
 .score { font-size: 30px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .score.good { color: var(--ok); } .score.mid { color: var(--plan); } .score.bad { color: var(--bad); }
 .health p { margin: 0; color: var(--muted); font-size: 12px; }
-.gaps { margin: 6px 0 2px; color: var(--plan); font-size: 12px; }
 .sev { flex: none; width: 6px; height: 6px; border-radius: 50%; transform: translateY(-2px); }
 .sev.error { background: var(--bad); } .sev.warning { background: var(--plan); }
+
+.fl-a { fill: var(--plan); } .fl-v { fill: var(--violet); } .fl-s { fill: var(--signal); }
+.idx { margin-left: auto; font-size: 12px; color: var(--plan); }
+.idx:empty { display: none; }
+.gaps { margin: 8px 0 2px; color: var(--plan); font-size: 12px; }
+.gaplist { margin: 0 0 6px; padding-left: 16px; color: var(--muted); font-size: 12px; }
+.gaplist b { color: var(--text); font-weight: 600; }
+.chip.primary { color: var(--bg); background: var(--signal); border-color: var(--signal); }
+.chip.primary:hover { color: var(--bg); filter: brightness(1.1); }
+
+/* First run: what Insilode is, and where a prompt typed here goes. Gone once it is hidden or a flow was opened. */
+.strip { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 16px; margin-bottom: 26px; padding: 12px 16px; border: 1px solid color-mix(in srgb, var(--signal) 40%, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--signal) 8%, var(--bg)); }
+.strip-text { flex: 1 1 320px; min-width: 0; }
+.strip-text b { display: block; font-weight: 600; }
+.strip-text span { display: block; color: var(--muted); font-size: 12.5px; }
+.strip-acts { display: flex; gap: 8px; flex: none; }
+
+/* Under the lists: the parts that are not on the canvas. */
+.tools { margin-top: 36px; display: grid; gap: 4px; }
+.tool { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-top: 1px solid var(--line); }
+.tool div { flex: 1; min-width: 0; }
+.tool b { font-weight: 600; margin-right: 8px; }
+.tool span { color: var(--muted); font-size: 12px; }
 
 .keys { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 52px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .keys button { all: unset; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
 .keys button:hover { color: var(--text); }
-.keys button:focus-visible, .row:focus-visible, .chip:focus-visible, .send:focus-visible { outline: 1.5px solid var(--signal); outline-offset: 2px; }
+.keys button:focus-visible, .row:focus-visible, .chip:focus-visible, .more:focus-visible, .send:focus-visible { outline: 1.5px solid var(--signal); outline-offset: 2px; }
 
 @media (max-width: 760px) {
 	.cols { grid-template-columns: 1fr; gap: 28px; }
@@ -316,9 +538,10 @@ kbd { font: 11px var(--mono); padding: 0 5px; border: 1px solid var(--line); bor
 }
 @media (prefers-reduced-motion: reduce) { .ask { transition: none; } }
 </style></head><body><main>
+	<div id="strip"></div>
 	<div class="where">
-		<svg width="22" height="12" viewBox="0 0 240 120" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="10"><rect x="76" y="20" width="152" height="80" rx="22"/><path d="M46 60h48M136 60h32"/></g><path d="M14 36l36 24-36 24z" fill="#ffb454"/><path d="M115 37l23 23-23 23-23-23z" fill="#b88cff"/><circle cx="188" cy="60" r="18" fill="#6f86ff"/></svg>
-		<b id="repo">…</b><span id="branch"></span>
+		<svg width="22" height="12" viewBox="0 0 240 120" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="10"><rect x="76" y="20" width="152" height="80" rx="22"/><path d="M46 60h48M136 60h32"/></g><path class="fl-a" d="M14 36l36 24-36 24z"/><path class="fl-v" d="M115 37l23 23-23 23-23-23z"/><circle class="fl-s" cx="188" cy="60" r="18"/></svg>
+		<b id="repo">…</b><span id="branch"></span><span class="idx" id="idx" role="status"></span>
 	</div>
 	<h1 id="greet">What should we work on?</h1>
 	<form class="ask" id="ask">
@@ -339,6 +562,11 @@ kbd { font: 11px var(--mono); padding: 0 5px; border: 1px solid var(--line); bor
 		<div class="col"><h2>Where you were</h2><div id="files"></div></div>
 		<div class="col"><h2 id="flowsTitle">Flows</h2><div id="flows"></div></div>
 		<div class="col"><h2>Harness</h2><div id="health"></div></div>
+	</section>
+
+	<section class="tools" aria-label="More of Insilode">
+		<div class="tool"><div><b>Import from VS Code</b><span>Bring over your settings, keybindings, snippets, theme and extensions.</span></div><button class="chip" data-run="flow.importFromVSCode">Import…</button></div>
+		<div class="tool"><div><b>Boards</b><span>Draw a diagram from your code, or reopen the one you had.</span></div><button class="chip" data-run="flow.board.show">Show board</button><button class="chip" data-run="flow.board.fromCode">Board from code…</button></div>
 	</section>
 
 	<nav class="keys" aria-label="Shortcuts">
@@ -377,6 +605,12 @@ document.querySelectorAll('[data-run]').forEach(b => b.addEventListener('click',
 window.addEventListener('message', e => {
 	const d = e.data; if (d.type !== 'data') return;
 	$('repo').textContent = d.repo;
+	// The first-run strip: shown until it is hidden or a flow was opened (the host decides). What it says about the agent comes from the host too.
+	$('strip').innerHTML = d.strip ? '<section class="strip" aria-label="About Insilode"><div class="strip-text"><b>Insilode draws your code&#39;s call flow on a canvas and lets an agent point at it.</b><span>' + esc(d.agent || '') + '</span></div><div class="strip-acts"><button class="chip" data-run="flow.agents.chooseAskTarget">Change</button><button class="chip primary" data-run="flow.tour.playSample">Take the tour</button><button class="chip" data-hide="1" aria-label="Hide this welcome">Hide</button></div></section>' : '';
+	document.querySelectorAll('.strip [data-run]').forEach(b => b.onclick = () => vscode.postMessage({ type: 'run', command: b.dataset.run }));
+	document.querySelectorAll('.strip [data-hide]').forEach(b => b.onclick = () => vscode.postMessage({ type: 'hideStrip' }));
+	const ix = d.index || {};
+	$('idx').textContent = ix.state === 'indexing' ? String(ix.text || '') : '';
 	$('branch').innerHTML = d.branch ? '<span class="branch">' + esc(d.branch) + '</span>' : '';
 	const part = d.hour < 5 ? 'Late night' : d.hour < 12 ? 'Morning' : d.hour < 18 ? 'Afternoon' : 'Evening';
 	$('greet').textContent = part + ' in ' + d.repo + '. What should we work on?';
@@ -386,12 +620,14 @@ window.addEventListener('message', e => {
 		$('resume').innerHTML = '<button class="resume" id="resumeBtn"><svg width="26" height="14" viewBox="0 0 240 120" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="10"><rect x="76" y="20" width="152" height="80" rx="22"/><path d="M46 60h48M136 60h32"/></g><g fill="currentColor"><path d="M14 40l32 20-32 20z"/><path d="M115 39l21 21-21 21-21-21z"/><circle cx="188" cy="60" r="18"/></g></svg><div><b>' + esc(f.label) + '</b><span>Last flow you opened, ' + esc(ago(f.at)) + ' ago</span></div><span class="go">Open canvas</span></button>';
 		$('resumeBtn').onclick = () => vscode.postMessage({ type: 'flow', id: f.id, label: f.label, source: f.source || '' });
 		$('flowsTitle').innerHTML = 'Flows you opened';
-		$('flows').innerHTML = d.flows.map(f => '<button class="row" data-id="' + esc(f.id) + '" data-source="' + esc(f.source || '') + '" data-label="' + esc(f.label) + '"><svg class="glyph" viewBox="0 0 10 10"><path d="M5 0l5 5-5 5-5-5z" fill="#b88cff"/></svg><span class="name">' + esc(f.label) + '</span><span class="sub">' + esc(ago(f.at)) + '</span></button>').join('');
+		$('flows').innerHTML = d.flows.map(f => '<button class="row" data-id="' + esc(f.id) + '" data-source="' + esc(f.source || '') + '" data-label="' + esc(f.label) + '"><svg class="glyph" viewBox="0 0 10 10"><path class="fl-v" d="M5 0l5 5-5 5-5-5z"/></svg><span class="name">' + esc(f.label) + '</span><span class="sub">' + esc(ago(f.at)) + '</span></button>').join('');
 	} else {
 		const total = num(d.total);
 		$('flowsTitle').innerHTML = 'Endpoints <span>' + (total || '') + '</span>';
 		// The route first, as a developer reads it; the service and handler after it.
-		$('flows').innerHTML = (d.endpoints.length ? d.endpoints.map(e => '<button class="row" data-id="' + esc(e.id) + '" data-source="' + esc(e.source) + '" data-label="' + esc(e.label) + '" title="' + esc(e.http + ' ' + e.route + '  ' + e.detail) + '"><span class="verb v-' + esc(e.http) + '">' + esc(e.http) + '</span><span class="name">' + esc(e.route) + '</span><span class="sub">' + esc(e.detail) + '</span></button>').join('') : '<p class="empty">Open a source file and press <kbd data-k="mod+alt+F"></kbd> to draw its flow.</p>')
+		$('flows').innerHTML = (d.endpoints.length ? d.endpoints.map(e => '<button class="row" data-id="' + esc(e.id) + '" data-source="' + esc(e.source) + '" data-label="' + esc(e.label) + '" title="' + esc(e.http + ' ' + e.route + '  ' + e.detail) + '"><span class="verb v-' + esc(e.http) + '">' + esc(e.http) + '</span><span class="name">' + esc(e.route) + '</span><span class="sub">' + esc(e.detail) + '</span></button>').join('') : ix.state === 'indexing' || ix.state === 'none' ? '<p class="empty">' + esc(ix.text) + '</p>'
+				: '<p class="empty">' + (ix.state === 'empty' ? esc(ix.text) + '. ' : '') + 'Open a source file and press <kbd data-k="mod+alt+F"></kbd> to draw its flow.</p>')
+			+ (d.churn === 'unavailable' && d.endpoints.length ? '<p class="empty">Order by recent changes: churn unavailable.</p>' : '')
 			+ (total > d.endpoints.length ? '<button class="more" data-run="flow.pickEndpoint">All ' + total + ' endpoints…</button>' : '');
 	}
 	const h = d.health;
@@ -405,15 +641,16 @@ window.addEventListener('message', e => {
 		const counts = h.counts || {};
 		// A line goes back to the host as a number; anything else is no line at all.
 		const lineOf = l => Number.isInteger(l) && l >= 0 ? String(l) : '';
-		$('health').innerHTML = '<div class="health"><span class="score ' + cls + '">' + score + '</span><p>' + (num(counts.error) ? num(counts.error) + ' broken, ' : '') + num(counts.warning) + ' to look at<br>' + (num(h.startupTokens) / 1000).toFixed(1) + 'k tokens before your first prompt</p></div>'
+		$('health').innerHTML = '<div class="health"><span class="score ' + cls + '">' + score + '</span><p>' + (h.label ? '<b>' + esc(h.label) + '</b><br>' : '') + (num(counts.error) ? num(counts.error) + ' broken, ' : '') + num(counts.warning) + ' to look at<br>' + (num(h.startupTokens) / 1000).toFixed(1) + 'k tokens before your first prompt</p></div>'
 			+ (h.issues || []).slice(0, 4).map(i => '<button class="row" data-path="' + esc(i.file) + '" data-line="' + lineOf(i.line) + '"><span class="sev ' + esc(i.severity) + '"></span><span class="name">' + esc(i.message) + '</span></button>').join('')
-			+ (gaps.length ? '<p class="gaps" title="' + esc(gaps.map(g => g.message).join(' ')) + '">Not set up here: ' + esc(gaps.map(g => g.label).join(', ')) + '</p>' : '')
+			// The gaps and what to do about them are in the page, not in a tooltip.
+			+ (gaps.length ? '<p class="gaps">Not set up here:</p><ul class="gaplist">' + gaps.slice(0, 6).map(g => '<li><b>' + esc(g.label) + '</b>' + (g.message ? ' ' + esc(g.message) : '') + '</li>').join('') + '</ul>' : '')
 			// Which counts are the project's and which come from your own ~/.claude: an empty project is not "1 instruction, 20 skills".
 			+ (h.bySource
 				? '<p class="empty">This project: ' + list(h.bySource.project) + '<br>Yours (~/.claude): ' + list(h.bySource.user) + '</p>'
 				: '<p class="empty">' + list(t) + '</p>');
 	} else {
-		$('health').innerHTML = '<p class="empty">Open a folder to check its harness.</p>';
+		$('health').innerHTML = '<p class="empty">' + (d.healthState === 'pending' ? 'Checking the harness…' : d.healthState === 'unavailable' ? 'Harness health is not available here.' : 'Open a folder to check its harness.') + '</p>';
 	}
 	document.querySelectorAll('.row[data-path]').forEach(b => b.onclick = () => vscode.postMessage({ type: 'open', path: b.dataset.path, line: b.dataset.line ? Number(b.dataset.line) : undefined }));
 	applyKeys();

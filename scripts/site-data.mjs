@@ -300,10 +300,12 @@ import { join, relative, sep } from 'node:path'
 const root = ${JSON.stringify(root)}
 const all = d => readdirSync(d).flatMap(n => { const p = join(d, n); return statSync(p).isDirectory() ? (n === 'node_modules' || n === '.git' ? [] : all(p)) : [p] })
 const toRe = ${globToRegExp.toString()}
+// scan.ts asks once per workspace folder with a RelativePattern; the stub has one folder, so only the pattern counts.
+export class RelativePattern { constructor(base, pattern) { this.base = base; this.pattern = pattern } }
 export const workspace = {
 	workspaceFolders: [{ uri: { fsPath: root } }],
 	async findFiles(include, exclude, max) {
-		const inc = toRe(include)
+		const inc = toRe(typeof include === 'string' ? include : include.pattern)
 		const exc = exclude ? toRe(exclude) : undefined
 		const out = []
 		for (const p of all(root)) {
@@ -314,7 +316,7 @@ export const workspace = {
 		return out
 	},
 }
-export default { workspace }
+export default { workspace, RelativePattern }
 `)
 	const outfile = join(tmp, 'harness-scan.mjs')
 	// The ESM build of jsonc-parser: its UMD main cannot be bundled into an ES module.

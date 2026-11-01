@@ -21,6 +21,8 @@ export interface BoardExtra {
 	since?: BoardSpec;
 	/** The boards the store holds, for C4 zoom: a box with `zoom` opens one of them, and `up` marks the ones that zoom into this board. */
 	boards?: BoardRef[];
+	/** Bring the board's tab forward if it is open: set when someone asked to see the board (present), never for a draw or an update. */
+	reveal?: boolean;
 }
 
 export interface BoardRef {
@@ -47,6 +49,64 @@ export interface StoredBoard {
 export interface BoardChange { type: 'set' | 'node' | 'delete'; id: string }
 
 export const MAX_BOARDS = 30;
+
+/** The key/value store boards survive a reload in: VS Code's `workspaceState` fits it. The store itself stays vscode-free. */
+export interface BoardPersist {
+	get<T>(key: string): T | undefined;
+	update(key: string, value: unknown): PromiseLike<void>;
+}
+
+export interface BoardStoreOptions {
+	/** Where the boards are kept between windows. Without it they live in memory only (tests, other hosts). */
+	persist?: BoardPersist;
+	/** Where a problem with saving is written (once): the store itself has no log. */
+	warn?: (message: string) => void;
+}
+
+/** The workspaceState key the boards are saved under; the version is in the name so a later shape can sit beside it. */
+export const BOARDS_KEY = 'flow.boards.v1';
+
+/** Wait this long after a change before saving, so an agent's burst of node updates is one write. */
+export const SAVE_DELAY_MS = 400;
+
+/** What is saved of a board: not `previous` (the "what changed" comparison is for this session only). */
+export interface PersistedBoard {
+	id: string;
+	spec: BoardSpec;
+	origin: StoredBoard['origin'];
+	session?: string;
+	planFile?: string;
+	createdAt: number;
+	updatedAt: number;
+}
+
+const ORIGINS = new Set<string>(['agent', 'plan', 'user']);
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** A saved board checked field by field (the value came from disk and may be damaged or from another version): undefined when it cannot be trusted. */
+export function readPersistedBoard(raw: unknown, now = Date.now()): PersistedBoard | undefined {
+	if (!isObject(raw) || !isObject(raw.spec)) {
+		return undefined;
+	}
+	const id = cleanBoardId(raw.id);
+	const spec = raw.spec;
+	if (!id || id !== raw.id || typeof spec.title !== 'string' || typeof spec.kind !== 'string' || !Array.isArray(spec.nodes) || !Array.isArray(spec.edges)) {
+		return undefined;
+	}
+	if (!spec.nodes.every(n => isObject(n) && typeof n.id === 'string' && typeof n.label === 'string') || !spec.edges.every(e => isObject(e) && typeof e.from === 'string' && typeof e.to === 'string')) {
+		return undefined;
+	}
+	const time = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : now);
+	return {
+		id,
+		spec: spec as unknown as BoardSpec,
+		origin: typeof raw.origin === 'string' && ORIGINS.has(raw.origin) ? (raw.origin as StoredBoard['origin']) : 'agent',
+		session: typeof raw.session === 'string' ? raw.session : undefined,
+		planFile: typeof raw.planFile === 'string' ? raw.planFile : undefined,
+		createdAt: time(raw.createdAt),
+		updatedAt: time(raw.updatedAt),
+	};
+}
 
 /** A minimal event: the store is used outside VS Code too. */
 class Emitter<T> {
@@ -83,15 +143,67 @@ export function boardFileName(id: string): string {
 
 export class BoardStore {
 	private readonly boards = new Map<string, StoredBoard>();
+	/** Read by the persistence code: the review fixes load boards from it on start and save them on every change. */
+	readonly persist: BoardPersist | undefined;
+	/** Whether a board is open in a panel: an open board is never evicted. Set by the host that shows boards. */
+	private isOpen: ((id: string) => boolean) | undefined;
 	private readonly changed = new Emitter<BoardChange>();
 	readonly onDidChange = this.changed.event;
+	private readonly warn: ((message: string) => void) | undefined;
+	private saveTimer: ReturnType<typeof setTimeout> | undefined;
+	private dirty = false;
+	private warned = false;
+	/** Told about the first board the limit pushed out; later ones follow quietly (the message names how to keep a board). */
+	private onEvict: ((board: StoredBoard) => void) | undefined;
+	private evictionTold = false;
 	private host: BoardHost | undefined;
 	private seq = 0;
 	/** Paints a board before it is shown (skeleton first's plan vs code); the stored board stays as it was drawn. */
 	private decorator: ((id: string, spec: BoardSpec) => BoardSpec) | undefined;
 
+	constructor(options: BoardStoreOptions = {}) {
+		this.persist = options.persist;
+		this.warn = options.warn;
+		this.load();
+	}
+
+	/** Boards saved by an earlier window of this workspace. They are held, not shown: no tab opens until a board is asked for. */
+	private load() {
+		let saved: unknown;
+		try {
+			saved = this.persist?.get<unknown>(BOARDS_KEY);
+		} catch {
+			return;
+		}
+		if (!Array.isArray(saved)) {
+			return;
+		}
+		for (const raw of saved) {
+			const b = readPersistedBoard(raw);
+			if (b) {
+				this.boards.set(b.id, { ...b });
+			}
+		}
+		this.evict(undefined, false);
+	}
+
+	/** Called once per session with the first board the limit evicted, so the user hears about it (never a silent drop). */
+	setOnEvict(callback: ((board: StoredBoard) => void) | undefined) {
+		this.onEvict = callback;
+	}
+
 	setHost(host: BoardHost | undefined) {
 		this.host = host;
+	}
+
+	/** Tells the store which boards are open in a panel, so eviction skips them (plan boards are never evicted either). */
+	setOpenCheck(isOpen: ((id: string) => boolean) | undefined) {
+		this.isOpen = isOpen;
+	}
+
+	/** Whether eviction must leave a board alone. */
+	protected pinned(board: StoredBoard): boolean {
+		return board.origin === 'plan' || this.isOpen?.(board.id) === true;
 	}
 
 	setDecorator(decorator: ((id: string, spec: BoardSpec) => BoardSpec) | undefined) {
@@ -130,7 +242,7 @@ export class BoardStore {
 		if (!board) {
 			return false;
 		}
-		await this.host?.show(id, this.shown(id, board.spec), this.since(id));
+		await this.host?.show(id, this.shown(id, board.spec), { ...this.since(id), reveal: true });
 		return true;
 	}
 
@@ -148,16 +260,67 @@ export class BoardStore {
 		const old = this.boards.get(id);
 		const now = Date.now();
 		this.boards.set(id, { id, spec, previous: old?.spec, createdAt: old?.createdAt ?? now, updatedAt: now, origin: opts.origin ?? old?.origin ?? 'agent', session: opts.session ?? old?.session, planFile: opts.planFile ?? old?.planFile });
-		while (this.boards.size > MAX_BOARDS) {
-			const oldest = [...this.boards.values()].sort((a, b) => a.updatedAt - b.updatedAt)[0];
-			this.boards.delete(oldest.id);
-			this.changed.fire({ type: 'delete', id: oldest.id });
-		}
+		this.evict(id, true);
 		this.changed.fire({ type: 'set', id });
+		this.save();
 		if (opts.present !== false) {
 			await this.host?.show(id, this.shown(id, spec), this.since(id)); // a replaced board is shown again if its tab was closed
 		}
 		return id;
+	}
+
+	/**
+	 * Drops the oldest boards over MAX_BOARDS, never the one just drawn, a plan or one open in a tab: when everything left is
+	 * pinned the store holds more than the limit rather than lose work.
+	 */
+	private evict(keep: string | undefined, tell: boolean) {
+		while (this.boards.size > MAX_BOARDS) {
+			const oldest = [...this.boards.values()].filter(b => b.id !== keep && !this.pinned(b)).sort((a, b) => a.updatedAt - b.updatedAt)[0];
+			if (!oldest) {
+				return;
+			}
+			this.boards.delete(oldest.id);
+			this.changed.fire({ type: 'delete', id: oldest.id });
+			if (tell && !this.evictionTold) {
+				this.evictionTold = true;
+				try {
+					this.onEvict?.(oldest);
+				} catch {
+					// the message is a courtesy: the drawing goes on
+				}
+			}
+		}
+	}
+
+	/** Saves soon: a change restarts the wait, so a burst of updates is one write. */
+	private save() {
+		if (!this.persist) {
+			return;
+		}
+		this.dirty = true;
+		clearTimeout(this.saveTimer);
+		this.saveTimer = setTimeout(() => void this.flush(), SAVE_DELAY_MS);
+		this.saveTimer.unref?.();
+	}
+
+	/** Writes now what a change left unsaved (the extension calls it when it is disposed, before the host exits). */
+	async flush(): Promise<void> {
+		clearTimeout(this.saveTimer);
+		this.saveTimer = undefined;
+		if (!this.persist || !this.dirty) {
+			return;
+		}
+		this.dirty = false;
+		const value: PersistedBoard[] = [...this.boards.values()].map(b => ({ id: b.id, spec: b.spec, origin: b.origin, session: b.session, planFile: b.planFile, createdAt: b.createdAt, updatedAt: b.updatedAt }));
+		try {
+			await this.persist.update(BOARDS_KEY, value);
+		} catch (e) {
+			// A failed save must not break drawing: say so once (the next change tries again).
+			if (!this.warned) {
+				this.warned = true;
+				this.warn?.(`boards: could not be saved (${(e as Error)?.message ?? e})`);
+			}
+		}
 	}
 
 	private freshId(title: string) {
@@ -204,6 +367,7 @@ export class BoardStore {
 		const spec: BoardSpec = { ...board.spec, nodes, ...(patch.highlight ? { highlight: patch.highlight.length ? patch.highlight : undefined } : {}) };
 		this.boards.set(id, { ...board, spec, updatedAt: Date.now() });
 		this.changed.fire({ type: 'node', id });
+		this.save();
 		await this.host?.update(id, this.shown(id, spec), this.since(id));
 		return touched;
 	}
@@ -216,6 +380,7 @@ export class BoardStore {
 	delete(id: string) {
 		if (this.boards.delete(id)) {
 			this.changed.fire({ type: 'delete', id });
+			this.save();
 		}
 	}
 }

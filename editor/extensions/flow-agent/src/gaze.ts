@@ -146,6 +146,17 @@ export function looksFromHook(tool: string, input: Record<string, unknown> = {},
 	}
 }
 
+/**
+ * Files a shell command changed during a turn (shellEdits.ts) look like any other edit on the canvas: a file, no lines (the
+ * command's diff is not known here), and no content. The same roots and skipped folders apply as to an Edit tool.
+ */
+export function looksFromCommandEdits(files: readonly string[], roots: readonly string[]): Raw[] {
+	return files.flatMap(f => {
+		const abs = keep(f, roots);
+		return abs ? [{ act: 'edit' as const, file: abs }] : [];
+	});
+}
+
 /** ACP tool kinds that look at code; the rest (execute, fetch, think, other) are not gaze. */
 const ACP_ACT: Record<string, Raw['act']> = { read: 'read', edit: 'edit', delete: 'edit', move: 'edit', search: 'search' };
 

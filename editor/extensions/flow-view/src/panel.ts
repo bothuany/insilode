@@ -8,9 +8,12 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import type { CanvasToHostTour, Tour } from '../../../../protocol/flow';
+import { saveTourWithNotice } from './tourSave';
 import type { AgentChanges } from './agentDiff';
 import { askInDock } from './askAgent';
+import { refreshPlan } from './changeSet';
 import { Command } from './commands';
+import { engineOf, type Engine } from './cursorMessage';
 import { agentContext } from './harness';
 import { CardLanguage, cardQuery } from './language';
 import { CardOverlays } from './overlay';
@@ -26,7 +29,7 @@ import { TypeService } from './types/typeService';
 interface Request {
 	type: 'request';
 	id: number;
-	op: 'graph' | 'callers' | 'save' | 'keep' | 'undo' | 'impact' | 'context' | 'timeline' | 'undoFrom' | 'editHooks' | 'complete' | 'signature' | 'hover' | 'definition' | 'endEdit' | 'typeChips' | 'typeDetail';
+	op: 'graph' | 'callers' | 'save' | 'keep' | 'keepCard' | 'keepAll' | 'undo' | 'undoAll' | 'impact' | 'context' | 'timeline' | 'undoFrom' | 'editHooks' | 'complete' | 'signature' | 'hover' | 'definition' | 'endEdit' | 'typeChips' | 'typeDetail';
 	turn?: number;
 	target?: FlowTarget;
 	file?: string;
@@ -43,6 +46,12 @@ interface Request {
 	ref?: string;
 	fromFile?: string;
 	depth?: number;
+}
+
+/** The engine that traces `target`, named on the canvas bar; a language server also names the language, to tell a fall-back from the usual path. */
+function engineFor(target: FlowTarget): Engine | undefined {
+	const doc = target.kind === 'lsp' ? vscode.workspace.textDocuments.find(d => d.uri.toString() === target.uri) : undefined;
+	return engineOf(target.kind, doc?.languageId);
 }
 
 /** Registered by the type diagrams (typeviews.ts): the canvas offers "show in the diagram" only when it exists. */
@@ -116,13 +125,15 @@ export class FlowPanel implements vscode.Disposable {
 
 	async show(target: FlowTarget, label: string) {
 		this.shown = { target, label };
+		// The canvas loads what it is asked to show: a refresh owed to the flow before it is moot.
+		this.stale = false;
 		if (this.opening) {
 			await this.opening;
 		}
 		if (this.panel) {
 			this.panel.title = `Flow: ${label}`;
 			this.panel.reveal(undefined, true);
-			await this.panel.webview.postMessage({ type: 'show', target, label });
+			await this.panel.webview.postMessage({ type: 'show', target, label, engine: engineFor(target) });
 			return;
 		}
 		this.opening = this.open(target, label).finally(() => { this.opening = undefined; });
@@ -146,6 +157,7 @@ export class FlowPanel implements vscode.Disposable {
 		this.webviewReady = false;
 		panel.onDidDispose(() => {
 			this.webviewReady = false;
+			this.stale = false;
 			this.panel = undefined;
 			this.playing = undefined;
 			this.tourAt = undefined;
@@ -165,17 +177,31 @@ export class FlowPanel implements vscode.Disposable {
 			}
 			this.onMessage(m).catch(e => vscode.window.showErrorMessage(`Insilode: ${(e as Error).message ?? e}`));
 		});
+		// A tab nobody is looking at is not traced again; showing it does that once (see refreshSoon).
+		panel.onDidChangeViewState(e => this.refreshWhen(e.webviewPanel, 'visible'));
 		this.panel = panel;
 	}
 
-	/** Disk changed (user save, agent edit, git): providers re-read it; ask the canvas to re-fetch. */
+	/** The canvas missed a file event while its tab was hidden: it is traced once when the tab shows again. */
+	private stale = false;
+
+	/** Posts the refresh the canvas is owed, or remembers that it is owed one (see refreshPlan). */
+	private refreshWhen(panel: vscode.WebviewPanel, event: 'disk' | 'visible') {
+		const plan = refreshPlan(panel.visible, this.stale, event);
+		this.stale = plan.stale;
+		if (plan.post) {
+			void panel.webview.postMessage({ type: 'refresh' });
+		}
+	}
+
+	/** Disk changed (user save, agent edit, git): providers re-read it; ask the canvas to re-fetch, unless its tab is hidden. */
 	refreshSoon() {
 		if (!this.panel) {
 			return;
 		}
 		clearTimeout(this.refreshTimer);
 		// The Roslyn analyzer debounces its own file watcher by 300 ms.
-		this.refreshTimer = setTimeout(() => this.panel?.webview.postMessage({ type: 'refresh' }), 800);
+		this.refreshTimer = setTimeout(() => this.panel && this.refreshWhen(this.panel, 'disk'), 800);
 	}
 
 	/**
@@ -396,7 +422,7 @@ export class FlowPanel implements vscode.Disposable {
 		void this.panel?.webview.postMessage({ type: 'cursor', file, line });
 	}
 
-	private async onMessage(m: Request | { type: 'open' | 'reveal'; file: string; line: number } | { type: 'ask'; label: string; context: string } | { type: 'answer'; id: string; accept: boolean } | { type: 'mention'; file: string; start: number; end: number } | { type: 'typeDiagram'; id: string } | Extract<CanvasToHostTour, { type: 'tourState' | 'tourExit' | 'tourAsk' | 'tourRun' | 'pointAsk' | 'gazeReplay' }>) {
+	private async onMessage(m: Request | { type: 'open' | 'reveal' | 'showFlowAt'; file: string; line: number } | { type: 'ask'; label: string; context: string } | { type: 'answer'; id: string; accept: boolean } | { type: 'mention'; file: string; start: number; end: number } | { type: 'typeDiagram'; id: string } | Extract<CanvasToHostTour, { type: 'tourState' | 'tourExit' | 'tourAsk' | 'tourRun' | 'tourSave' | 'pointAsk' | 'gazeReplay' }>) {
 		if (m.type === 'open' || m.type === 'reveal') {
 			// open: jump there and type; reveal: show the line but keep the canvas focused.
 			const file = workspaceFile(m.file);
@@ -406,6 +432,22 @@ export class FlowPanel implements vscode.Disposable {
 			const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
 			const start = new vscode.Position(Math.max(0, Number(m.line) - 1 || 0), 0);
 			await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.One, selection: new vscode.Range(start, start), preview: true, preserveFocus: m.type === 'reveal' });
+			return;
+		}
+		if (m.type === 'showFlowAt') {
+			// An impact row: the flow of the function at that place when the code index knows it, else the place itself in the editor.
+			const file = workspaceFile(m.file);
+			const line = Number(m.line);
+			if (!file || !Number.isInteger(line) || line < 1) {
+				return;
+			}
+			const hit = await this.providerFor({ kind: 'poly', id: '' }).functionAt?.(file, line).catch(() => undefined);
+			if (hit) {
+				// The same route as Show Flow at Cursor: the flow is remembered on Home and marked in the endpoints list.
+				await vscode.commands.executeCommand(Command.showEntry, hit.id, hit.label, 'poly');
+				return;
+			}
+			await this.onMessage({ type: 'open', file, line });
 			return;
 		}
 		if (m.type === 'tourState' || m.type === 'tourExit') {
@@ -435,6 +477,13 @@ export class FlowPanel implements vscode.Disposable {
 				this.tourAt = { index: ask.index, paused: true };
 				const where = step.at?.file ? place(this.rel(step.at.file), step.at.startLine, step.at.endLine) : undefined;
 				await this.askAgent(tourAskPrompt(playing.tour, ask.index + 1, playing.steps, { label: step.at?.label || step.title, where }, ask.question), 'tour', step.at?.file ? [step.at.file] : [], playing.session);
+			}
+			return;
+		}
+		if (m.type === 'tourSave') {
+			// Only the tour this host sent, and only because the reader clicked Save.
+			if (this.playing && m.id === this.playing.id) {
+				await saveTourWithNotice(this.playing.tour);
 			}
 			return;
 		}
@@ -532,6 +581,9 @@ export class FlowPanel implements vscode.Disposable {
 				case 'undoFrom': data = await this.whileCardEdited() ?? await this.changes.undoFrom(m.turn!); break;
 				case 'save': data = await this.save(m); break;
 				case 'keep': this.changes.keep(m.file!); data = { ok: true }; break;
+				case 'keepCard': this.changes.keepCard(m.file!, m.startLine!, m.endLine!); data = { ok: true }; break;
+				case 'keepAll': this.changes.keepAll(); data = { ok: true }; break;
+				case 'undoAll': data = await this.whileCardEdited() ?? await this.changes.undoAll(); break;
 				case 'undo': data = await this.whileCardEdited(m.file) ?? await this.changes.undo(m.file!, m.startLine!, m.endLine!); break;
 				case 'complete': data = await this.language.complete(cardQuery({ ...m }), triggerOf(m.trigger)); break;
 				case 'signature': data = await this.language.signature(cardQuery({ ...m }), triggerOf(m.trigger)); break;
@@ -660,7 +712,7 @@ export class FlowPanel implements vscode.Disposable {
 		return `<!doctype html><html><head><meta charset="utf-8">` +
 			`<meta http-equiv="Content-Security-Policy" content="${csp}">` +
 			`<style>${safe(css, 'style')}</style>` +
-			`<script nonce="${nonce}">window.__FLOW__=${inertJson({ target, label, dark })}</script>` +
+			`<script nonce="${nonce}">window.__FLOW__=${inertJson({ target, label, dark, engine: engineFor(target) })}</script>` +
 			`</head><body><div id="root"></div><script nonce="${nonce}">${safe(js, 'script')}</script></body></html>`;
 	}
 

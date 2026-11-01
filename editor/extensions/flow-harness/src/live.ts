@@ -10,24 +10,17 @@ import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { countEvent, countTranscript, coveredDays, coveredFrom, loadActivity, prune, summary, WINDOW_DAYS, type ActivityData, type AgentEvent, type HookLike, type Summary } from './activity';
-import { redact, type FailureRecord, type PromptRecord } from './friction';
+import { frictionState, FRICTION_KEY, MAX_DISMISSED, MAX_FAILURES, MAX_PROMPTS, OLD_FRICTION_KEY, redact, sanitizeFriction, type FailureRecord, type FrictionData, type PromptRecord } from './friction';
 import { isTranscriptPath, parseTranscript, readLines, type TranscriptFacts } from './transcript';
 import { claudeDir, projectTranscripts } from './dirs';
 
 const ACTIVITY = 'flowHarness.activity';
-const FRICTION = 'flowHarness.friction';
-const MAX_PROMPTS = 300;
-const MAX_FAILURES = 300;
 const BACKFILL_FILES = 200;
 const DAY = 86_400_000;
 /** Agents remembered by name, for the X-ray's session list. */
 const MAX_SESSIONS = 50;
 
-export interface FrictionData {
-	prompts: PromptRecord[];
-	failures: FailureRecord[];
-	dismissed: string[];
-}
+export type { FrictionData };
 
 export interface LiveSession {
 	/** flow-agent's id for the session, when it ran in the Agents dock: what Compact and Measure in the X-ray address. */
@@ -82,8 +75,8 @@ export class Live implements vscode.Disposable {
 
 	constructor(private readonly state: vscode.Memento, private readonly hooks: () => HookLike[]) {
 		this.data = loadActivity(state.get(ACTIVITY), Date.now());
-		const f = state.get<FrictionData>(FRICTION);
-		this.friction = f && Array.isArray(f.prompts) && Array.isArray(f.failures) && Array.isArray(f.dismissed) ? f : { prompts: [], failures: [], dismissed: [] };
+		// The versioned key first, then what an earlier build stored: checked field by field either way, damaged data is ignored.
+		this.friction = sanitizeFriction(state.get<unknown>(FRICTION_KEY) ?? state.get<unknown>(OLD_FRICTION_KEY));
 	}
 
 	get frictionData(): Readonly<FrictionData> {
@@ -154,7 +147,7 @@ export class Live implements vscode.Disposable {
 	dismiss(id: string) {
 		if (!this.friction.dismissed.includes(id)) {
 			this.friction.dismissed.push(id);
-			this.friction.dismissed.splice(0, Math.max(0, this.friction.dismissed.length - 500));
+			this.friction.dismissed.splice(0, Math.max(0, this.friction.dismissed.length - MAX_DISMISSED));
 			this.touch();
 		}
 	}
@@ -278,7 +271,11 @@ export class Live implements vscode.Disposable {
 	private save() {
 		prune(this.data, Date.now());
 		void this.state.update(ACTIVITY, this.data);
-		void this.state.update(FRICTION, this.friction);
+		// Redacted and bounded again on the way out; the unversioned key of earlier builds is dropped once the new one is written.
+		void this.state.update(FRICTION_KEY, frictionState(this.friction));
+		if (this.state.get(OLD_FRICTION_KEY) !== undefined) {
+			void this.state.update(OLD_FRICTION_KEY, undefined);
+		}
 	}
 
 	dispose() {

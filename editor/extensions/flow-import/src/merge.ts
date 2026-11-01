@@ -51,6 +51,70 @@ export function themeKind(key: string): ThemeKind | undefined {
 
 const LANGUAGE_BLOCK = /^\[.+\]$/;
 
+/** A setting the import does not write on its own: it is listed, and written only when the user picks it. */
+export interface HeldBack {
+	/** The setting's name; inside a language block `[python].python.formatting.path`. */
+	key: string;
+	path: string[];
+	value: unknown;
+	reason: string;
+}
+
+/**
+ * The hold-back rules, in one table. A setting that makes the editor run a program (a shell, a formatter, a git binary)
+ * or that loosens a security boundary would turn a copied settings file into code that runs at the next start, so it is
+ * held back and the user decides. First matching rule wins; `reason` is what the review list shows.
+ *
+ * A key ending in `.path` is held as an executable path, except the names in NOT_EXECUTABLE_PATH: `search.path` is a
+ * folder to search, not a program. Values are looked at only for a string that names a script or program
+ * (`.exe .sh .cmd .bat .ps1`), and not for keys a user would set to such a file name for another reason.
+ */
+const NOT_EXECUTABLE_PATH = new Set(['search.path']);
+const VALUE_ALLOWLIST = new Set(['workbench.colorTheme', 'workbench.iconTheme', 'workbench.productIconTheme', 'editor.fontFamily', 'files.defaultLanguage']);
+const SCRIPT_FILE = /\.(exe|sh|cmd|bat|ps1)$/i;
+const looksLikePath = (v: unknown) => typeof v === 'string' && (/[\\/]/.test(v) || SCRIPT_FILE.test(v));
+
+export const HELD_BACK_RULES: readonly { reason: string; test: (key: string, value: unknown) => boolean }[] = [
+	{ reason: 'security setting', test: key => /^security\./.test(key) },
+	{ reason: 'terminal shell path', test: key => /^terminal\.integrated\.(shell|shellArgs|automationShell|automationProfile)\.(windows|osx|linux)$/.test(key) },
+	{ reason: 'terminal profiles run programs', test: key => /^terminal\.integrated\.profiles\./.test(key) },
+	{ reason: 'default terminal profile with a path', test: (key, value) => /^terminal\.integrated\.defaultProfile\./.test(key) && looksLikePath(value) },
+	{ reason: 'path to a program', test: key => key === 'git.path' || (/\.(path|executablePath)$/.test(key) && !NOT_EXECUTABLE_PATH.has(key)) },
+	{ reason: 'command that is run', test: key => /\.(command|commandPath)$/.test(key) },
+	{ reason: 'names a script or program', test: (key, value) => typeof value === 'string' && SCRIPT_FILE.test(value) && !VALUE_ALLOWLIST.has(key) },
+];
+
+/** Why a setting is held back, or undefined when it is imported as usual. */
+export function heldBackReason(key: string, value: unknown): string | undefined {
+	return HELD_BACK_RULES.find(r => r.test(key, value))?.reason;
+}
+
+/** Whether the import holds a setting back instead of writing it (the rules are HELD_BACK_RULES). */
+export function isHeldBack(key: string, value: unknown): boolean {
+	return heldBackReason(key, value) !== undefined;
+}
+
+/**
+ * The settings to write for a review: the held back ones whose keys were checked, and nothing else. A key the user has
+ * in Insilode now is never overwritten, even when it was checked.
+ */
+export function heldToImport(held: readonly HeldBack[], selectedKeys: Iterable<string>, current?: string): { path: string[]; value: unknown }[] {
+	const chosen = new Set(selectedKeys);
+	const mine = parseObject(current);
+	return held.filter(h => chosen.has(h.key) && !hasPath(mine, h.path)).map(h => ({ path: h.path, value: h.value }));
+}
+
+function hasPath(obj: Record<string, unknown>, path: string[]): boolean {
+	let at: unknown = obj;
+	for (const p of path) {
+		if (!isObject(at) || !(p in at)) {
+			return false;
+		}
+		at = at[p];
+	}
+	return true;
+}
+
 export interface SettingsPlan {
 	/** Settings to add, in the order of the imported file. A language block (`[python]`) may be added part by part. */
 	add: { path: string[]; value: unknown }[];
@@ -60,6 +124,8 @@ export interface SettingsPlan {
 	kept: string[];
 	/** Keys that are Insilode's own or about Microsoft services. */
 	skipped: string[];
+	/** Settings held back (see HELD_BACK_RULES): not in `add`, written only after the user picks them. */
+	held: HeldBack[];
 }
 
 export function parseObject(text: string | undefined): Record<string, unknown> {
@@ -83,10 +149,17 @@ const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v =
 export function planSettings(current: string | undefined, imported: string | undefined): SettingsPlan {
 	const mine = parseObject(current);
 	const theirs = parseObject(imported);
-	const plan: SettingsPlan = { add: [], theme: [], kept: [], skipped: [] };
+	const plan: SettingsPlan = { add: [], theme: [], kept: [], skipped: [], held: [] };
 	for (const [key, value] of Object.entries(theirs)) {
 		if (isSkipped(key)) {
 			plan.skipped.push(key);
+		} else if (!LANGUAGE_BLOCK.test(key) && heldBackReason(key, value) !== undefined) {
+			// A key the user has set keeps its value and is not offered again.
+			if (key in mine) {
+				plan.kept.push(key);
+			} else {
+				plan.held.push({ key, path: [key], value, reason: heldBackReason(key, value)! });
+			}
 		} else if (THEME_SET.has(key)) {
 			if (key in mine) {
 				plan.kept.push(key);
@@ -97,7 +170,14 @@ export function planSettings(current: string | undefined, imported: string | und
 			// A language block is merged setting by setting: one the user set for that language in Insilode stays.
 			const own = isObject(mine[key]) ? mine[key] as Record<string, unknown> : undefined;
 			if (!own) {
-				const kept = Object.fromEntries(Object.entries(value).filter(([k]) => !isSkipped(k)));
+				const entries = Object.entries(value).filter(([k]) => !isSkipped(k));
+				for (const [k, v] of entries) {
+					const reason = heldBackReason(k, v);
+					if (reason !== undefined) {
+						plan.held.push({ key: `${key}.${k}`, path: [key, k], value: v, reason });
+					}
+				}
+				const kept = Object.fromEntries(entries.filter(([k, v]) => !isHeldBack(k, v)));
 				if (Object.keys(kept).length) {
 					plan.add.push({ path: [key], value: kept });
 				}
@@ -108,6 +188,8 @@ export function planSettings(current: string | undefined, imported: string | und
 					plan.skipped.push(`${key}.${k}`);
 				} else if (k in own) {
 					plan.kept.push(`${key}.${k}`);
+				} else if (isHeldBack(k, v)) {
+					plan.held.push({ key: `${key}.${k}`, path: [key, k], value: v, reason: heldBackReason(k, v)! });
 				} else {
 					plan.add.push({ path: [key, k], value: v });
 				}

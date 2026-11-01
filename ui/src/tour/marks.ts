@@ -162,6 +162,58 @@ export function revealTimes(step: Pick<TourStep, 'caption' | 'marks'>): number[]
   return [...new Set((step.marks ?? []).map(m => starts[sentenceOf(m, starts.length) - 1]))].filter(t => t > 0).sort((a, b) => a - b)
 }
 
+// ---- the marks in words, for a screen reader ------------------------------------------------------------------------
+
+/** The longest summary: a caption's status region is read aloud in one go, so the marks must not drown the caption. */
+export const MAX_SUMMARY = 240
+
+const lineText = (m: TourMark) => {
+  const [a, b] = m.lines ?? [0, 0]
+  return a === b ? `line ${a}` : `lines ${a} to ${b}`
+}
+const shorten = (s: string, max: number) => (s.length > max ? `${s.slice(0, max - 1).trimEnd()}…` : s)
+const baseName = (file: string) => file.split(/[\\/]/).pop() || file
+
+/** One mark as a phrase: "ring lines 12 to 14", "check beside line 20", "arrow to Foo.bar labelled calls". */
+function markPhrase(m: TourMark): string {
+  let phrase: string
+  switch (m.kind) {
+    case 'ring': phrase = `ring ${lineText(m)}`; break
+    case 'underline': phrase = `underline ${lineText(m)}`; break
+    case 'strike': phrase = `strike through ${lineText(m)}`; break
+    case 'check': phrase = `check beside ${lineText(m)}`; break
+    case 'cross': phrase = `cross beside ${lineText(m)}`; break
+    case 'badge': phrase = m.n === undefined ? `number beside ${lineText(m)}` : `number ${m.n} beside ${lineText(m)}`; break
+    case 'connect': phrase = `arrow to ${shorten(m.to?.label || (m.to ? baseName(m.to.file) : 'another card'), MAX_LABEL)}`; break
+  }
+  return m.label ? `${phrase} labelled ${shorten(m.label, MAX_LABEL)}` : phrase
+}
+
+/**
+ * What the step's pen marks say, for a screen reader (the drawing is hidden from it): "Marked on this card: ring lines 12 to 14;
+ * check beside line 20; arrow to Foo.bar labelled calls". In the order the caption brings them in (by sentence, then as listed).
+ * Cut at MAX_SUMMARY characters, with how many more there are. Nothing when there are no marks.
+ */
+export function markSummary(marks: readonly TourMark[] | undefined): string {
+  if (!marks?.length) return ''
+  const phrases = marks
+    .map((m, i) => ({ s: Math.max(m.sentence ?? 1, 1), i, text: markPhrase(m) }))
+    .sort((x, y) => x.s - y.s || x.i - y.i)
+    .map(p => p.text)
+  const head = 'Marked on this card: '
+  let out = head
+  let used = 0
+  for (const p of phrases) {
+    const next = `${used ? '; ' : ''}${p}`
+    // Always say the first mark, even a long one; the rest only while they fit.
+    if (used && (out + next).length > MAX_SUMMARY) break
+    out += next
+    used++
+  }
+  const more = phrases.length - used
+  return more > 0 ? `${out}; and ${more} more` : out
+}
+
 // ---- where a mark sits ---------------------------------------------------------------------------------------------
 
 /**

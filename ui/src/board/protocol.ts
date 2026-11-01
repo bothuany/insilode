@@ -45,6 +45,8 @@ export type ToHost =
   | { type: 'export'; format: ExportFormat; data?: string; name?: string }
   /** C4: open the board a box zooms into (the host checks the id). */
   | { type: 'zoom'; board: string }
+  /** An empty state's "Edit DTO suffixes": open this setting (the host opens only the ones on its own list). */
+  | { type: 'settings'; setting: string }
 
 export type ToWebview =
   /** `refresh`: the same board drawn again because the code changed: the search, selection and viewport stay as they are. */
@@ -124,6 +126,34 @@ export function lineStyle(e: { kind?: EdgeKind; style?: EdgeLine; async?: boolea
 
 /** The text on an edge: "[guard] label ×N". The order is a badge of its own. */
 export const edgeText = (e: { label?: string; guard?: string; count?: number }): string => [e.guard ? `[${e.guard}]` : '', e.label ?? '', (e.count ?? 1) > 1 ? `×${e.count}` : ''].filter(Boolean).join(' ')
+
+/** An action under an empty board's message: it either draws the board again with other options or opens a setting. */
+export interface EmptyAction {
+  id: 'clear' | 'entities' | 'suffixes'
+  label: string
+  hint?: string
+  /** Ask the host for the board again with these options (merged into the current ones). */
+  rebuild?: Partial<BoardOpts>
+  /** Ask the host to open this setting. */
+  setting?: string
+}
+
+/**
+ * What an empty board offers. With filters on (a search, a focus, hidden kinds) the way out is clearing them. A DTO diagram with
+ * nothing filtered has two causes the user can fix: entities are left out by default, and a type is a DTO by its name suffix.
+ * Only a board the host can redraw offers anything, since a fixed board has no options to change.
+ */
+export function emptyActions(source: string | undefined, opts: BoardOpts, canRebuild: boolean): EmptyAction[] {
+  if (!canRebuild) return []
+  if (opts.query || opts.focusId || (opts.hideRoles?.length ?? 0) > 0) {
+    return [{ id: 'clear', label: 'Clear filters', rebuild: { query: undefined, focusId: undefined, depth: undefined, hideRoles: undefined } }]
+  }
+  if (source !== 'dto') return []
+  const actions: EmptyAction[] = []
+  if (!opts.includeEntities) actions.push({ id: 'entities', label: 'Include entities', hint: 'Draw entities (JPA, EF Core, Django models) too', rebuild: { includeEntities: true } })
+  actions.push({ id: 'suffixes', label: 'Edit DTO suffixes', hint: 'Open the setting that says which names are DTOs', setting: 'flow.types.dtoSuffixes' })
+  return actions
+}
 
 /** The kinds a role chip can hide, in the order they are shown. Entities and enums have their own toggles. */
 export const ROLE_CHIPS: { role: NodeKind; label: string }[] = [

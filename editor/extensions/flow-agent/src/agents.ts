@@ -26,10 +26,12 @@ import { parsePatch, patchFiles, patchText } from './patch';
 import { PrWatcher, type PrState } from './prState';
 import { shimScript } from './shim';
 import { canExplain, explainPrompt } from './explain';
-import { hookScript } from './hookScript';
+import { claudeHookCommand, hookRunner, hookScript, type HookRunner } from './hookScript';
+import { ShellEditSweep } from './shellEdits';
 import { SKELETON_GATE, SKELETON_PROMPT_GATE } from './skeleton';
 import { canType, notReady, oneLine, slashRefusal, slashText, type AgentCli, type AgentState, type CustomCli, type SessionInfo, type SlashKind, type SlashResult } from './askTarget';
 import { applyUsage, claudeTranscriptUsage, codexRolloutUsage, endUsage, findOnPath, hasOwnStatusLine, LimitsSender, parseClaudeStatus, statusScript, type ContextUsage, type UsageLimits } from './usage';
+import { SETUP_FILE, setupOfferKey, setupTemplate, shouldOfferSetup } from './worktreeSetup';
 import { createWorktree, sameDir, validBranch, worktreeSlug, type Worktree } from './worktrees';
 
 // Declared with the ask rules, which must not import this file (it needs vscode); every other file takes them from here.
@@ -134,6 +136,12 @@ interface HookPayload {
 	agent_id?: string;
 	/** The session's permission mode, on the events that carry it (default, plan, acceptEdits, auto, dontAsk, bypassPermissions). */
 	permission_mode?: string;
+}
+
+/** Looked up once per window: PATH is searched on the first hook that is written, not for every start. */
+let hookRunnerCache: HookRunner | undefined;
+function hookRunnerForWindow(): HookRunner {
+	return hookRunnerCache ??= hookRunner(findOnPath('node'), process.execPath, !!process.versions.electron);
 }
 
 const AGENT = 'Claude Code (terminal)';
@@ -269,6 +277,7 @@ function insilodeMcpScript(): string | undefined {
 
 export class Agents implements vscode.Disposable {
 	readonly sessions = new Map<string, AgentSession>();
+	private readonly notedOnce = new Set<string>();
 	private readonly terminals = new Map<string, vscode.Terminal>();
 	/** Sessions a hook has reported from: their CLI is up and past its own start screens, so typing reaches its prompt. */
 	private readonly heard = new Set<string>();
@@ -307,6 +316,8 @@ export class Agents implements vscode.Disposable {
 	private codexProfileReady: { key: string; ready: Promise<{ hooks: boolean } | undefined> } | undefined;
 	/** Files an agent edited since its last prompt, for the turn-end impact. */
 	private readonly touched = new Map<string, Set<string>>();
+	/** Files a shell command changed during a turn (shellEdits.ts). */
+	private readonly shellEdits = new ShellEditSweep();
 	/** Sessions whose plan was drawn from PreToolUse this turn, so PostToolUse does not draw it twice. */
 	private readonly planDrawn = new Set<string>();
 	/** Why each session needs you, and its failure streak. */
@@ -437,10 +448,11 @@ export class Agents implements vscode.Disposable {
 		// A tiny Node script, run with the editor's own Node: the same on macOS, Linux and Windows.
 		const script = path.join(this.dir, 'flow-hook.js');
 		await fs.writeFile(script, hookScript(portFile, tokenFile));
-		// On the desktop `process.execPath` is the Insilode executable itself: without ELECTRON_RUN_AS_NODE it would open
-		// an editor window for the script on every hook event. Claude Code runs hooks through bash, which takes the prefix.
-		const asNode = process.versions.electron ? 'ELECTRON_RUN_AS_NODE=1 ' : '';
-		const command = `${asNode}"${process.execPath}" "${script}"`;
+		// A plain `node` starts several times quicker than the editor in Node mode, and a hook runs on every event. Only
+		// when there is none does it fall back to the editor's own binary: `process.execPath` is then the Insilode
+		// executable, which opens an editor window for the script without ELECTRON_RUN_AS_NODE (hookRunner, hookScript.ts).
+		const runner = hookRunnerForWindow();
+		const command = claudeHookCommand(runner, script);
 		const hook = { type: 'command', command, timeout: 5 };
 		const hooks: Record<string, unknown[]> = {};
 		for (const e of HOOK_EVENTS) {
@@ -449,12 +461,10 @@ export class Agents implements vscode.Disposable {
 		}
 		await fs.writeFile(this.settingsFile, JSON.stringify({ hooks }, null, 2), { mode: 0o600 });
 		// The status line is the one place Claude Code tells the real context window and the plan's 5-hour and weekly
-		// limits. Claude runs it on every refresh, so it should start fast: a plain `node` on PATH starts several times
-		// quicker than the editor in Node mode, which stays the fallback. It runs through the same shell as the hooks.
+		// limits. Claude runs it on every refresh, so it starts fast too: the same runner as the hooks, through the same shell.
 		const statusFile = path.join(this.dir, 'flow-status.js');
 		await fs.writeFile(statusFile, statusScript(portFile, tokenFile, this.dir));
-		const node = findOnPath('node');
-		const statusCommand = node ? `"${node}" "${statusFile}"` : `${asNode}"${process.execPath}" "${statusFile}"`;
+		const statusCommand = claudeHookCommand(runner, statusFile);
 		const statusLine = { type: 'command', command: statusCommand, padding: 0 };
 		await fs.writeFile(this.statusSettingsFile, JSON.stringify({ hooks, statusLine }, null, 2), { mode: 0o600 });
 	}
@@ -474,7 +484,8 @@ export class Agents implements vscode.Disposable {
 			if (await fs.readFile(script, 'utf8').catch(() => '') !== CODEX_HOOK_SCRIPT) {
 				await fs.writeFile(script, CODEX_HOOK_SCRIPT);
 			}
-			command = codexHookCommand(process.platform, process.execPath, script, electron);
+			const runner = hookRunnerForWindow();
+			command = codexHookCommand(process.platform, runner.exe, script, runner.electron);
 		}
 		const file = codexProfileFile();
 		const text = codexProfile(command, mcpScript ? { execPath: process.execPath, script: mcpScript, electron } : undefined);
@@ -487,6 +498,43 @@ export class Agents implements vscode.Disposable {
 		const legacy = path.join(path.dirname(file), 'axle.config.toml');
 		if ((await fs.readFile(legacy, 'utf8').catch(() => '')).startsWith('# Written by Axle.')) {
 			await fs.rm(legacy, { force: true }).catch(() => undefined);
+		}
+	}
+
+	/** What worktreeBase decided about a start point (no origin, a failed fetch), told once per window per message. */
+	private noteOnce(message: string) {
+		if (!this.notedOnce.has(message)) {
+			this.notedOnce.add(message);
+			void vscode.window.showInformationMessage(`Insilode: ${message}.`);
+		}
+	}
+
+	/**
+	 * The first worktree of a repository that has no .insilode/worktree.json offers one, without a modal: copying `.env`
+	 * and installing dependencies is what turns a bare checkout into one an agent can work in. Asked once per repository
+	 * (workspaceState): Not now and Never both end it, and an existing file means no offer.
+	 */
+	private async offerWorktreeSetup(root: string) {
+		try {
+			const file = path.join(root, SETUP_FILE);
+			const key = setupOfferKey(root);
+			if (!shouldOfferSetup(existsSync(file), this.context.workspaceState.get(key))) {
+				return;
+			}
+			await this.context.workspaceState.update(key, 'offered');
+			const add = 'Add .insilode/worktree.json';
+			const pick = await vscode.window.showInformationMessage('Insilode: this repository has no .insilode/worktree.json, which copies files like .env and runs your install command in each new agent worktree.', add, 'Not now', 'Never for this repository');
+			if (pick === 'Never for this repository') {
+				await this.context.workspaceState.update(key, 'never');
+			} else if (pick === add) {
+				const names = await fs.readdir(root).catch(() => [] as string[]);
+				await fs.mkdir(path.dirname(file), { recursive: true });
+				// 'wx': a file that appeared meanwhile is never overwritten.
+				await fs.writeFile(file, setupTemplate(names), { flag: 'wx' });
+				await vscode.window.showTextDocument(vscode.Uri.file(file));
+			}
+		} catch (e) {
+			this.log.warn(`Agents: the worktree setup offer failed: ${(e as Error).message}`);
 		}
 	}
 
@@ -697,7 +745,9 @@ export class Agents implements vscode.Disposable {
 		if (!resume && folder && (place ?? (vscode.workspace.getConfiguration('flow.agents').get<boolean>('worktree', false) ? 'worktree' : 'here')) === 'worktree') {
 			try {
 				const slug = worktreeSlug(cli === 'custom' ? custom?.name ?? 'agent' : cli, randomBytes(2).toString('hex'));
-				worktree = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Insilode: creating a worktree for the agent' }, () => createWorktree(folder, slug));
+				const startFrom = vscode.workspace.getConfiguration('flow.agents').get<string>('worktreeBase', 'current') === 'origin-default' ? 'origin-default' : 'current';
+				worktree = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Insilode: creating a worktree for the agent' }, () => createWorktree(folder, slug, { base: startFrom, onNote: note => this.noteOnce(note) }));
+				void this.offerWorktreeSetup(worktree.root);
 			} catch (e) {
 				// Never fall back to the shared checkout without saying so: the user asked for a checkout of the agent's own.
 				void vscode.window.showErrorMessage(`Insilode: could not create a worktree for the agent: ${(e as Error).message}`);
@@ -1179,6 +1229,7 @@ export class Agents implements vscode.Disposable {
 				this.touched.delete(s.id);
 				this.turns.delete(s.id);
 				this.planDrawn.delete(s.id);
+				void this.shellEdits.begin(s.id, s.worktree?.path ?? p.cwd).catch(() => undefined);
 				gazeTurn(s.id);
 				set('working', 'Thinking');
 				void this.markPrompt(s);
@@ -1250,7 +1301,8 @@ export class Agents implements vscode.Disposable {
 				this.settleAsked(s, 'denied');
 				set('done', undefined);
 				void this.readUsage(s);
-				void this.turnImpact(s);
+				// What a shell command changed counts as touched before the turn's impact is worked out.
+				void this.sweepShellEdits(s, p.cwd).finally(() => this.turnImpact(s));
 				break;
 			case 'StopFailure':
 				// The turn ended on an error: nothing is running, and the row says why (s.need).
@@ -1314,6 +1366,17 @@ export class Agents implements vscode.Disposable {
 		const set = this.touched.get(s.id) ?? new Set<string>();
 		files.forEach(f => set.size < MAX_TOUCHED && set.add(f));
 		this.touched.set(s.id, set);
+	}
+
+	/** The turn is over: files a shell command changed, that no edit tool named, are reported to flow-view and counted as touched. */
+	private async sweepShellEdits(s: AgentSession, cwd: string | undefined) {
+		const files = await this.shellEdits.end(s.id, s.worktree?.path ?? cwd, this.touched.get(s.id) ?? new Set<string>()).catch(() => [] as string[]);
+		if (!files.length) {
+			return;
+		}
+		await Promise.resolve(vscode.commands.executeCommand('flow.agent.commandEdited', files)).catch(() => undefined);
+		this.touch(s, files);
+		this.recordEdits(s, files);
 	}
 
 	/** The turn is over: which flows did the edited files reach? Shown on the agent's row; clicking one opens it. */

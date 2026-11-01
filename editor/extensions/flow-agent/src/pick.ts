@@ -50,6 +50,38 @@ export function savedAgents(): CustomAgent[] {
 
 type Item = vscode.QuickPickItem & { run?: () => unknown };
 
+/** The part of an agent session the palette's quick pick shows. */
+export interface AgentChoice {
+	id: string;
+	name: string;
+	cli: string;
+	state: string;
+	worktree?: { branch: string };
+}
+
+export type AgentAction = 'rename' | 'swap' | 'remove';
+export type AgentPickItem = vscode.QuickPickItem & { id: string };
+
+const CLI_NAME: Record<string, string> = { claude: 'Claude Code', codex: 'Codex', custom: 'Your command' };
+/** The dock's words for a state (dockPage.ts LABEL), so the pick and the row say the same thing. */
+const STATE_WORD: Record<string, string> = { working: 'Working', blocked: 'Needs you', done: 'Done', idle: 'Ready', starting: 'Starting', unknown: 'Running', ended: 'Closed' };
+
+/**
+ * The rows of the quick pick that rename, swap or remove an agent from the palette: name, which CLI and what it is doing, in the
+ * order given (the dock's: the one that needs you first). Moving a conversation to the other CLI only exists between Claude and
+ * Codex, so a custom command is not offered for it.
+ */
+export function agentPickItems(list: readonly AgentChoice[], action: AgentAction): AgentPickItem[] {
+	return list
+		.filter(s => action !== 'swap' || s.cli === 'claude' || s.cli === 'codex')
+		.map(s => ({
+			id: s.id,
+			label: s.name,
+			description: CLI_NAME[s.cli] ?? s.cli,
+			detail: (STATE_WORD[s.state] ?? s.state) + (s.worktree ? ` · worktree ${s.worktree.branch}` : ''),
+		}));
+}
+
 export async function pickAgent(agents: Agents) {
 	const saved = savedAgents();
 	const found = (await Promise.all(KNOWN.filter(k => !saved.some(s => s.command.split(/\s+/)[0] === k.command)).map(async k => (await onPath(k.command) ? k : undefined)))).filter((k): k is CustomAgent => !!k);

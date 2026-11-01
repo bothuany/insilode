@@ -10,7 +10,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { itemKey } from './activity';
 import type { Live } from './live';
-import { page } from './page';
+import { page, SEGMENT_COLORS } from './page';
 import type { Harness } from './scan';
 import { arrayAt, previewAndWrite } from './settings';
 import { isTranscriptPath } from './transcript';
@@ -183,11 +183,12 @@ export class XrayView implements vscode.Disposable {
 	private html() {
 		return page('Context X-ray', /* html */ `
 <div class="row"><div class="grow"><h1 id="title">Context X-ray</h1><p class="sub" id="sub"></p></div><button id="refresh">Refresh</button></div>
-<div id="total"></div><div class="bar" id="bar"></div><div id="segments"></div>
+<div id="total"></div><div class="bar" id="bar" aria-hidden="true"></div><div id="segments"></div>
 <h2>Looks like waste</h2><div id="waste"></div>
 <p class="muted" id="legend"><span class="tag measured">measured</span> the API's own token count · <span class="tag">Claude Code's estimate</span> from /context · <span class="tag est">estimate</span> Insilode's, about 4 characters per token · <span class="tag est">derived</span> a measured total minus estimates</p>`, /* js */ `
 const $ = id => document.getElementById(id);
-const COLORS = ['#6f86ff', '#b88cff', '#ffb454', '#5fe0a1', '#4fd6d0', '#f0a6ca', '#f2a170', '#9aa4bf'];
+// Segment colours per theme: the pale set is under 3:1 on a white page, so a light theme gets a darker one (SEGMENT_COLORS, measured in test/page.test.mjs).
+const COLORS = ${JSON.stringify(SEGMENT_COLORS)}[document.body.classList.contains('vscode-light') || document.body.classList.contains('vscode-high-contrast-light') ? 'light' : 'dark'];
 const HOW = { measured: ['measured', 'tag measured'], 'claude-estimate': ["Claude Code's estimate", 'tag'], estimate: ['estimate', 'tag est'], derived: ['derived', 'tag est'] };
 const howTag = h => h ? el('span', { class: HOW[h][1] }, HOW[h][0]) : null;
 function render(d) {
@@ -210,10 +211,12 @@ function render(d) {
 		const a = w.action;
 		const label = !a ? null : a.kind === 'open' ? 'Open' : a.kind === 'disable-mcp' ? 'Disable here…' : a.kind === 'measure' ? (d.can.measure ? 'Measure with /context' : null) : (d.can.compact ? 'Compact' : null);
 		waste.append(el('div', { class: 'card row' }, el('div', { class: 'grow' }, el('b', {}, w.title), ' ', howTag(w.how), el('div', { class: 'muted' }, w.detail)),
-			label ? el('button', { class: a.kind === 'disable-mcp' ? 'primary' : '', onclick: () => vscode.postMessage({ type: 'act', id: w.id }) }, label) : null));
+			label ? el('button', { class: a.kind === 'disable-mcp' ? 'primary' : '', 'aria-label': label.replace(/…$/, '') + ': ' + w.title, onclick: () => { announce(label.replace(/…$/, '') + ' asked for.'); vscode.postMessage({ type: 'act', id: w.id }); } }, label) : null));
 	});
+	// What a screen reader hears after a refresh: the total and how many things look like waste (the list itself is read by moving into it).
+	announce('Context X-ray of ' + m.agent + (m.used !== undefined ? ': ' + fmt(m.used) + ' of ' + fmt(m.size) + ' tokens in use' : '') + (m.waste.length ? ', ' + m.waste.length + (m.waste.length === 1 ? ' thing looks' : ' things look') + ' like waste.' : ', nothing stands out.'));
 }
-$('refresh').onclick = () => vscode.postMessage({ type: 'refresh' });
+$('refresh').onclick = () => { announce('Refreshing.'); vscode.postMessage({ type: 'refresh' }); };
 window.addEventListener('message', e => { if (e.data.type === 'data') render(e.data); });
 vscode.postMessage({ type: 'ready' });
 `);

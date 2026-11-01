@@ -32,6 +32,23 @@ export interface FlowNode {
 	 * not written in the code. A migration says what it `added` and `dropped` and sums it up in `summary` ("adds key, drops legacy_ref").
 	 */
 	tableChange?: { entity?: string; table: string; guess?: boolean; migration?: { name: string; summary: string; added: string[]; dropped: string[] }[] };
+	/** Calls below this card that were not drawn because the flow reached its size limit: the card says so, so a cut flow never looks whole. */
+	truncated?: number;
+}
+
+/** One entry point or caller a method's change reaches, for the impact chip: a row the reader can open. */
+export interface ImpactItem {
+	label: string;
+	file: string | null;
+	line: number;
+	kind?: string;
+}
+
+/** What changing a method affects. `truncated`: entries left out because the walk reached its limit (the chip says "at least"). */
+export interface ImpactResult {
+	label: string;
+	items: ImpactItem[];
+	truncated?: number;
 }
 
 export interface FlowEdge {

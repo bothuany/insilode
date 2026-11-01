@@ -48,6 +48,22 @@ test('a flow is an index into the host list, a worktree action one of four', () 
 	assert.equal(d.dockAction({ type: 'wt', id: 'a', action: 'push' }), undefined)
 })
 
+test('the start menu names one of the two agents and one of two ways, never a command', () => {
+	for (const cli of ['claude', 'codex']) {
+		for (const how of d.START_HOWS) {
+			assert.deepEqual(d.dockAction({ type: 'start', cli, how, extra: 1 }), { type: 'start', cli, how })
+		}
+	}
+	assert.deepEqual([...d.START_HOWS], ['worktree', 'resume'])
+	for (const m of [
+		{ type: 'start', cli: 'claude' }, { type: 'start', how: 'worktree' }, { type: 'start', cli: 'custom', how: 'worktree' },
+		{ type: 'start', cli: 'claude', how: 'flow.agents.newClaudeWorktree' }, { type: 'start', cli: 'claude', how: 'rm -rf ~' },
+		{ type: 'start', cli: ['claude'], how: 'resume' }, { type: 'start', cli: 'claude', how: 7 },
+	]) {
+		assert.equal(d.dockAction(m), undefined, JSON.stringify(m))
+	}
+})
+
 test('anything else is dropped', () => {
 	for (const m of [null, undefined, 'show', 42, [], {}, { type: 1 }, { type: 'runCommand', id: 'workbench.action.terminal.sendSequence' }, { type: 'constructor', id: 'a' }, { type: 'toString', id: 'a' }]) {
 		assert.equal(d.dockAction(m), undefined, JSON.stringify(m))

@@ -52,7 +52,7 @@ Codex gets neither reminder (its hooks are separate and not wired for this), so 
 
 ## Stages
 
-Per agent session, held in the window's memory (`src/skeleton/sessions.ts`). A window reload loses them.
+Per agent session, held in the window's memory (`src/skeleton/sessions.ts`) and written to the workspace state under `flow.skeleton.sessions.v1` (`src/skeleton/persist.ts`) every time it changes, so a window reload keeps them. Only `{session, stage, boardId, skipped}` is stored, at most 20 sessions, and damaged data is ignored. The plan board is kept by the board store, not here. On start each saved session past the design stage comes back at its stage, attached to its board, when that board is still in the store; an entry whose board is gone is dropped without a word. The comparison with the code is recomputed. The baseline is not stored, so after a reload a type the developer already wrote reads as existing code instead of as a match, and in the hand-over the developer's declarations are read again from the code as it stands then (a change the agent made to one of them before the reload is not reported).
 
 | Stage | Entered by | `check_skeleton` answers |
 | --- | --- | --- |
@@ -61,7 +61,8 @@ Per agent session, held in the window's memory (`src/skeleton/sessions.ts`). A w
 | `skeleton` | The agent drew the design and every new type has members (the board colours it at once: new things missing until written, existing types neutral) | The diff, "explain, do not fix", and the replies mapped to steps |
 | `handover` | Step `handover` (the developer said "hand over") | The diff, numbered warnings, "fill the bodies, keep the signatures, report each warning, close with a tour" |
 
-- Step `just` drops the stage ("implement as usual"); step `finish` drops it at the end.
+- Step `just` drops the stage ("implement as usual") and remembers, per session, that the developer chose it. `flow.skeleton.stage(session)` then answers `{stage: undefined, skipped: true}`, so the dock can show a "skipped" badge on the agent's row. The badge is kept in the workspace state too, and goes at the session's next design step (its next `check_skeleton` that starts a stage), when `finish` is sent, or when the agent's switch goes off. While a session has a stage, the command answers `{stage, skipped: false}`.
+- Step `finish` drops the stage at the end.
 - Turning an agent's switch off ends its stage at once (the board loses its colours); other agents keep theirs. `check_skeleton` asks the dock for that agent's switch (`flow.agents.skeletonOn`); an agent Insilode did not start has no switch and follows the setting.
 
 ## Plan vs actual: the matcher
@@ -237,6 +238,6 @@ Tests: `test/skeleton-paths.test.mjs` (golden `paths-crm`, `broken-java`; fixtur
 - A redraw while the developer writes the skeleton becomes the plan even when it has new types without members; the answer asks for members, but the board follows the agent. If the index is still loading when the design is drawn, the turn-down cannot happen then; `check_skeleton` names the empty types later.
 - TypeScript interface method signatures are not in the type graph, so a planned interface method shows as missing. This needs work in the poly index.
 - Codex gets no approval-time reminder; it has only the server instructions.
-- The stages live in window memory, so a reload ends them.
+- A reload keeps the stages (workspace state), but not the baseline or the developer's kept declarations: see Stages. A saved session of an agent that is gone stays until its switch is turned off or it is finished; it counts toward the 20 sessions.
 - Only Java is read from a file that does not parse; the other languages rely on tree-sitter's own recovery.
 - Revert leaves a body that may use the reverted parameter. The agent is not told automatically; the warning text says what changed.

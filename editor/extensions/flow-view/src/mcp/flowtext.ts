@@ -60,7 +60,8 @@ export function flowToText(root: FlowNode, opts: FlowTextOptions, direction: 'ca
 			truncated = true;
 			return;
 		}
-		lines.push(prefix + describe(n, opts.rel));
+		// A flow cut at its size limit says so next to the card that was cut: a short flow and a cut one must not read alike.
+		lines.push(prefix + describe(n, opts.rel) + (n.truncated ? `  [${n.truncated} more ${n.truncated === 1 ? 'call' : 'calls'} not drawn: the flow was cut at its size limit]` : ''));
 		const table = n.kind === 'db' ? n.schema?.table ?? n.label : undefined;
 		if (table && !tables.includes(table)) {
 			tables.push(table);

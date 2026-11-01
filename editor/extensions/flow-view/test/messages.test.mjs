@@ -218,9 +218,9 @@ test('the flow goes on from a send into its listener, marked as a guess', async 
 
 	// Impact: changing what the listener calls reaches the HTTP endpoint that produced the message.
 	const impact = await index.request('impact', await idOf('java/shop/OrderListener.java', 'charge'))
-	assert.ok(impact.items.some(i => i.startsWith('POST /orders')), JSON.stringify(impact))
+	assert.ok(impact.items.some(i => i.label.startsWith('POST /orders')), JSON.stringify(impact))
 	const taskImpact = await index.request('impact', await idOf('py/tasks.py', 'send_email'))
-	assert.ok(taskImpact.items.some(i => i.startsWith('POST /signup')), JSON.stringify(taskImpact))
+	assert.ok(taskImpact.items.some(i => i.label.startsWith('POST /signup')), JSON.stringify(taskImpact))
 
 	// A guess stays out of the architecture view: no class edge from the producer to the listener.
 	const { calls } = await index.request('typeFacts')

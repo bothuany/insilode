@@ -80,6 +80,7 @@ const META: Record<string, Meta> = {
 	'flow.agents.showChat': ['agents', 'Start & run', 'Offer agents in the chat panel'],
 	'flow.agents.askTarget': ['agents', 'Start & run', 'Where questions go'],
 	'flow.agents.worktree': ['agents', 'Start & run', 'Start agents in a git worktree'],
+	'flow.agents.worktreeBase': ['agents', 'Start & run', 'Where a new worktree starts from'],
 	'flow.agents.installAgentExtensions': ['agents', 'Start & run', 'Install the Claude Code and Codex extensions'],
 	'flow.agents.custom': ['agents', 'Start & run', 'Your own agent commands'],
 	'insilode.skeletonFirst.enabled': ['agents', 'Behaviour', 'Skeleton first'],
