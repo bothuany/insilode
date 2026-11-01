@@ -27,8 +27,13 @@ export interface MarkLayerProps {
 const GUTTER = 46
 const CHAR_W = 7.25
 const PAD = 3
-/** The marks that sit beside a line, left of the card. */
-const SIDE = 15
+/**
+ * The marks that sit beside a line stay inside the card: the caption is often placed right against the card's left edge
+ * and would hide anything drawn there. A badge sits over the line number (it numbers the line instead), a tick or a
+ * cross just past the end of the line's text.
+ */
+const BADGE_X = 18
+const AFTER_TEXT = 14
 const GLYPH = 6
 
 /** Where the step's code is on the canvas, and how to find a line range on it. */
@@ -94,7 +99,7 @@ function Pen({ mark, place, to }: { mark: TourMark; place: Place; to?: Box }): R
   const x0 = box.x + GUTTER
   const x1 = Math.min(right, box.x + place.reach(lines))
   const mid = span.y1 + LINE_H / 2
-  const side = box.x - SIDE
+  const side = Math.min(right - GLYPH - 2, x1 + AFTER_TEXT)
   const at = box.y
   switch (mark.kind) {
     case 'ring':
@@ -108,10 +113,14 @@ function Pen({ mark, place, to }: { mark: TourMark; place: Place; to?: Box }): R
     case 'cross':
       return <path className="pen pen-stroke pen-pop" d={`M${side - GLYPH + 1} ${at + mid - GLYPH + 1} l${GLYPH * 2 - 2} ${GLYPH * 2 - 2} m0 ${-(GLYPH * 2 - 2)} l${-(GLYPH * 2 - 2)} ${GLYPH * 2 - 2}`} />
     case 'badge':
+      // The pop animation scales with CSS `transform`, which would replace a transform attribute on the same element and
+      // throw the badge to the layer's corner: the position goes on an outer group, the animation on the inner one.
       return (
-        <g className="pen pen-pop" transform={`translate(${side} ${at + mid})`}>
-          <circle className="pen-fill" r={10} />
-          <text className="pen-badge" textAnchor="middle" dominantBaseline="central" y={0.5}>{mark.n}</text>
+        <g transform={`translate(${box.x + BADGE_X} ${at + mid})`}>
+          <g className="pen pen-pop">
+            <circle className="pen-fill" r={10} />
+            <text className="pen-badge" textAnchor="middle" dominantBaseline="central" y={0.5}>{mark.n}</text>
+          </g>
         </g>
       )
   }
