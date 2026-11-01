@@ -63,3 +63,9 @@ test('a tour file keeps up to three', () => {
 	const { tour } = v.parseTourFile(args({ insilodeTour: 1, id: 'x', followUps: ['a', 'b', 'c', 'd'] }), host)
 	assert.deepEqual(tour.followUps, ['a', 'b', 'c'])
 })
+
+test('an edit with too many steps is told to send the rest in another edit, not to split the tour', () => {
+	const steps = Array.from({ length: 11 }, () => ({ title: 's', caption: 'c' }))
+	assert.throws(() => v.parseTourSteps(steps, host, true, 10), /one edit adds at most 10/)
+	assert.throws(() => v.parseTourSteps(Array.from({ length: 31 }, () => ({ title: 's', caption: 'c' })), host, true), /split it into two tours/)
+})

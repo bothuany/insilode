@@ -206,7 +206,9 @@ export function parseTourSteps(rawSteps: unknown, host: TourFileHost, strict: bo
 		throw new TourFileError('"steps" must list at least one step.');
 	}
 	if (rawSteps.length > max) {
-		throw new TourFileError(`"steps" has ${rawSteps.length} steps; a tour has at most ${max}. A longer one is a document: split it into two tours.`);
+		throw new TourFileError(max < MAX_STEPS
+			? `"steps" has ${rawSteps.length} steps; one edit adds at most ${max}. Send the rest in another edit.`
+			: `"steps" has ${rawSteps.length} steps; a tour has at most ${max}. A longer one is a document: split it into two tours.`);
 	}
 	// A file named by several steps is read once.
 	const cache = new Map<string, string | undefined>();

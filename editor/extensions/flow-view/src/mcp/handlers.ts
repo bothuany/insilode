@@ -1053,18 +1053,10 @@ export class AgentTools {
 	}
 
 	/** tour_control edit: new steps replace or join the playing tour; the reader stays on their step. */
-	private async tourEdit(a: Record<string, unknown>, id: string, state: { steps: number; index: number | undefined }): Promise<ToolResult> {
+	private async tourEdit(a: Record<string, unknown>, id: string): Promise<ToolResult> {
 		const roots = this.folders;
 		const methods = await this.tourMethods({ steps: a.steps }, roots);
 		const parsed = parseTourSteps(a.steps, { roots, readText: readTextIn(roots), methodsIn: f => methods.get(f) }, true, 10);
-		const current = this.d.tours.steps();
-		if (!current) {
-			throw new Error(`No tour "${id}" is playing.`);
-		}
-		const plan = planEdit({ steps: current, index: state.index, replace: typeof a.replace === 'number' ? Math.floor(a.replace) : undefined, insert: typeof a.insert === 'number' ? Math.floor(a.insert) : undefined, add: parsed.steps });
-		if (plan.error) {
-			throw new Error(plan.error);
-		}
 		// Only the new steps are checked against the drawn flow: the rest were marked when the tour started.
 		const target = this.d.shownTarget();
 		let off = new Map<number, string>();
@@ -1072,6 +1064,20 @@ export class AgentTools {
 			const provider = this.d.providerFor(target);
 			const [root, callers] = await Promise.all([within(provider.graph(target), 60_000, 'the flow'), within(provider.callers(target), 20_000, 'the callers').catch(() => null)]);
 			off = markOffFlow(parsed.steps, drawnOf(root, callers));
+		}
+		// The work above can take a minute, and the reader may have moved, resumed or closed the tour meanwhile: the plan is
+		// made from the state as it is now, and the paused-only rule is checked again.
+		const state = this.d.tours.state();
+		const current = this.d.tours.steps();
+		if (!state || state.id !== id || !current) {
+			throw new Error(`No tour "${id}" is playing any more; nothing was changed.`);
+		}
+		if (!state.paused && !state.asking) {
+			return text(`The user went on with the tour while the new steps were being placed (now on step ${(state.index ?? 0) + 1} of ${state.steps}). Nothing was changed: edit again when they pause or ask.`);
+		}
+		const plan = planEdit({ steps: current, index: state.index, replace: typeof a.replace === 'number' ? Math.floor(a.replace) : undefined, insert: typeof a.insert === 'number' ? Math.floor(a.insert) : undefined, add: parsed.steps });
+		if (plan.error) {
+			throw new Error(plan.error);
 		}
 		await this.d.tours.edit(plan.steps, plan.index, plan.map);
 		const lines = parsed.steps.map((s, i) => this.tourLine(s, plan.first + i, [parsed.notes[i], off.get(i)].filter(Boolean).join('; ')));
@@ -1109,7 +1115,7 @@ export class AgentTools {
 			if (!state.paused && !state.asking) {
 				return text(`${where} \`edit\` is for fixing the tour while the reader is paused or waiting for your answer; the user paces the tour. Nothing was changed.`);
 			}
-			return this.tourEdit(a, id, state);
+			return this.tourEdit(a, id);
 		}
 		if (a.action !== 'go') {
 			throw new Error('`action` must be go, note, edit, resume or end.');
@@ -1201,8 +1207,11 @@ export class AgentTools {
 		const id = await this.d.boards.set(spec, { id: wanted, origin: 'agent' });
 		const skeleton = await this.d.skeleton?.drawn(id, spec, ctx.session);
 		const lint = lintBoard(spec);
-		// What the layout would put on top of each other (callouts, labels): what Insilode nudged apart, and what still overlaps.
-		found.push(...checkOverlap(spec));
+		// What the layout would put on top of each other (callouts, labels). What still overlaps is a problem for the agent to fix,
+		// so it joins the lint; what Insilode already nudged apart is only news, shown after it.
+		const overlap = checkOverlap(spec);
+		const moved = overlap.filter(line => line.startsWith('moved '));
+		found.push(...overlap.filter(line => !line.startsWith('moved ')));
 		if (claimed) {
 			found.push(`id "${claimed}" is another agent's skeleton design, so this was drawn as a new board.`);
 		}
@@ -1211,6 +1220,7 @@ export class AgentTools {
 			`Board "${id}" ${replaced ? 'replaced' : 'drawn'} and shown to the user in Insilode: ${spec.kind}, ${spec.nodes.length} nodes, ${spec.edges.length} edges${layout}.`,
 			spec.kind === 'plan' ? `Tick steps off with update_board (id "${id}", nodeId one of: ${spec.nodes.slice(0, 20).map(n => n.id).join(', ')}).` : `Use id "${id}" again to replace it.`,
 			...formatLint(notes, found, lint),
+			...(moved.length ? [`Layout: ${moved.join('; ')}.`] : []),
 			...(skeleton ? ['', skeleton] : []),
 		].join('\n'));
 	}
