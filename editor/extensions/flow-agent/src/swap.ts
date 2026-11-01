@@ -57,12 +57,19 @@ async function sweepImportCopies(dir: string): Promise<void> {
 	}
 }
 
-/** At start: the leftover import copies of this folder's Claude conversations go (sweepImportCopies). */
+/**
+ * At start: the leftover import copies of this folder's Claude conversations go (sweepImportCopies), and those of its
+ * agents' worktrees, which live under the folder (.insilode/worktrees/<name>), so their project folders start with its name.
+ */
 export function sweepLeftoverCopies(): void {
 	const folder = agentCwd(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
-	if (folder) {
-		void sweepImportCopies(projectDir(folder));
+	if (!folder) {
+		return;
 	}
+	const main = projectDir(folder);
+	const projects = path.dirname(main);
+	const prefix = path.basename(main);
+	void fs.readdir(projects).catch(() => [] as string[]).then(names => Promise.all(names.filter(n => n === prefix || n.startsWith(`${prefix}-`)).map(n => sweepImportCopies(path.join(projects, n)))));
 }
 
 /** Runs Codex's importer on a Claude transcript and returns the id of the Codex thread it made. */
@@ -215,6 +222,9 @@ Insilode cannot tell whether ${s.name} is in the middle of a turn: Codex sends n
 				await sweepImportCopies(dir);
 				const copy = path.join(dir, `insilode-swap-${randomUUID()}.jsonl`);
 				await fs.copyFile(s.transcript, copy, constants.COPYFILE_EXCL);
+				// copyFile keeps the original's time on Windows: the copy is dated now, so another window's sweep sees it is in use.
+				const now = new Date();
+				await fs.utimes(copy, now, now);
 				try {
 					const thread = await importIntoCodex(copy, cwd, s.name);
 					return { ...base, id: thread, agentId: thread };
