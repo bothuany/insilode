@@ -21,6 +21,7 @@ import { SkeletonHost } from './skeletonHost';
 import { Command } from './commands';
 import { EndpointsView } from './endpoints';
 import { FlowHome } from './home';
+import { FlowSettings } from './settings';
 import { ClaudeIdeBridge } from './ide';
 import { legacySettingUpdates } from './legacySettings';
 import { PolyLenses, RoslynLenses } from './lenses';
@@ -148,8 +149,12 @@ export function activate(context: vscode.ExtensionContext) {
 
 function registerViews({ context, home, endpointsView, panel }: Flow) {
 	let cursorTimer: NodeJS.Timeout | undefined;
+	const settings = new FlowSettings(context);
 	context.subscriptions.push(
+		settings,
 		vscode.commands.registerCommand('flow.home', () => home.show()),
+		// The optional argument is a category id or a setting key to open the page on (settingsModel.ts).
+		vscode.commands.registerCommand('flow.settings', (target?: unknown) => settings.show(target)),
 		vscode.window.registerWebviewViewProvider('flow.endpoints', endpointsView, { webviewOptions: { retainContextWhenHidden: true } }),
 		// Editor → canvas sync (debounced: the canvas only needs to follow, not every keystroke).
 		vscode.window.onDidChangeTextEditorSelection(e => {
