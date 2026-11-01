@@ -44,6 +44,11 @@ const HELD = [
 	['terminal.integrated.shell.windows', 'C:\\Windows\\System32\\cmd.exe'],
 	['terminal.integrated.shell.osx', '/bin/zsh'],
 	['terminal.integrated.shell.linux', '/bin/bash'],
+	// the shells that tasks and agents run through are programs too, not only the interactive one
+	['terminal.integrated.automationShell.linux', '/bin/sh'],
+	['terminal.integrated.automationShell.windows', 'C:\\tools\\shell'],
+	['terminal.integrated.automationProfile.windows', { path: 'C:\\tools\\shell.exe' }],
+	['terminal.integrated.shellArgs.osx', ['-c', 'x']],
 	['terminal.integrated.profiles.windows', { PowerShell: { source: 'PowerShell' } }],
 	['terminal.integrated.profiles.linux', { zsh: { path: '/bin/zsh', args: ['-l'] } }],
 	['terminal.integrated.defaultProfile.windows', 'C:\\tools\\shell.exe'],

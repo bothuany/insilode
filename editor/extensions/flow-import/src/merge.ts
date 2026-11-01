@@ -76,7 +76,7 @@ const looksLikePath = (v: unknown) => typeof v === 'string' && (/[\\/]/.test(v) 
 
 export const HELD_BACK_RULES: readonly { reason: string; test: (key: string, value: unknown) => boolean }[] = [
 	{ reason: 'security setting', test: key => /^security\./.test(key) },
-	{ reason: 'terminal shell path', test: key => /^terminal\.integrated\.shell\.(windows|osx|linux)$/.test(key) },
+	{ reason: 'terminal shell path', test: key => /^terminal\.integrated\.(shell|shellArgs|automationShell|automationProfile)\.(windows|osx|linux)$/.test(key) },
 	{ reason: 'terminal profiles run programs', test: key => /^terminal\.integrated\.profiles\./.test(key) },
 	{ reason: 'default terminal profile with a path', test: (key, value) => /^terminal\.integrated\.defaultProfile\./.test(key) && looksLikePath(value) },
 	{ reason: 'path to a program', test: key => key === 'git.path' || (/\.(path|executablePath)$/.test(key) && !NOT_EXECUTABLE_PATH.has(key)) },
