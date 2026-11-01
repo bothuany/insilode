@@ -1,0 +1,4 @@
+/* The actions under an empty board's message (emptyState.tsx). .bd-empty itself is board.css's. */
+.bd-empty-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.bd-empty-actions .chip { height: 28px; padding: 0 14px; color: var(--fl-text); }
+.bd-empty-actions .chip:focus-visible { outline: 2px solid var(--fl-signal); outline-offset: 2px; }

@@ -6,12 +6,14 @@ import { createRoot } from 'react-dom/client'
 import { MiniMap, ReactFlow, ReactFlowProvider, useReactFlow, useViewport, type Node } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import './board.css'
+import './emptyState.css'
 import './tour.css'
 import type { BoardNode, BoardSpec } from './spec'
 import { adjacency, buildLayout, groupsHolding, groupDepth, matchNodes, type Layout } from './model'
-import { countChanges, KIND_COLOR, ROLE_CHIPS, type BoardOpts, type BoardRef, type Bootstrap, type ExportFormat, type ToHost, type ToWebview } from './protocol'
+import { countChanges, emptyActions, KIND_COLOR, ROLE_CHIPS, type BoardOpts, type BoardRef, type Bootstrap, type ExportFormat, type ToHost, type ToWebview } from './protocol'
 import { ActionsCtx, nodeTypes, type Actions, type CardData, type GroupData } from './cards'
 import { CalloutLayer } from './callouts'
+import { EmptyState } from './emptyState'
 import { EdgeLayer } from './edges'
 import { sequenceSvg, toSvg, type Palette } from './svg'
 import { SequenceView, type SequenceApi } from './SequenceView'
@@ -690,10 +692,15 @@ function BoardView() {
           )}
         </ActionsCtx.Provider>
         {spec.nodes.length === 0 && (
-          <div className="bd-empty">
-            <p>{spec.description || 'There is nothing to draw here.'}</p>
-            {canRebuild && (opts.query || opts.focusId || hidden.length > 0) && <button className="chip" onClick={() => { setQ(''); rebuild({ query: undefined, focusId: undefined, depth: undefined, hideRoles: undefined }) }}>Clear filters</button>}
-          </div>
+          <EmptyState
+            message={spec.description || 'There is nothing to draw here.'}
+            actions={emptyActions(boot.source, opts, canRebuild)}
+            onAction={a => {
+              if (a.id === 'clear') setQ('')
+              if (a.rebuild) rebuild(a.rebuild)
+              if (a.setting) post({ type: 'settings', setting: a.setting })
+            }}
+          />
         )}
       </div>
     </div>

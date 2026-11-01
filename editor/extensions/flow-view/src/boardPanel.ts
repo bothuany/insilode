@@ -10,7 +10,7 @@ import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { exportFormat, exportPayload, fileStem, sanitizeRequest, type BoardRequest, type ExportFormat } from './boardRequest';
+import { exportFormat, exportPayload, fileStem, openableSetting, revealsExistingTab, sanitizeRequest, type BoardRequest, type ExportFormat } from './boardRequest';
 import { toMermaid } from './board/mermaid';
 import { cleanBoardId, type BoardExtra, type BoardHost, type BoardRef } from './board/store';
 import type { BoardSpec } from './board/spec';
@@ -37,6 +37,8 @@ export interface BoardShowOptions {
 	preserveFocus?: boolean;
 	since?: BoardSpec;
 	boards?: BoardRef[];
+	/** Bring the tab forward when it is already open: only for a request to show the board, never for a redraw (see revealsExistingTab). */
+	reveal?: boolean;
 }
 
 interface Tab {
@@ -87,7 +89,9 @@ export class BoardPanel implements vscode.Disposable {
 		if (tab) {
 			Object.assign(tab, { spec, request, source: options.source ?? tab.source, since: options.since, boards: options.boards, stale: true });
 			tab.panel.title = spec.title;
-			tab.panel.reveal(undefined, options.preserveFocus ?? true);
+			if (revealsExistingTab(true, options.reveal)) {
+				tab.panel.reveal(undefined, options.preserveFocus ?? true);
+			}
 			this.post(tab);
 			return;
 		}
@@ -172,7 +176,9 @@ export class BoardPanel implements vscode.Disposable {
 
 	asHost(): BoardHost {
 		return {
-			show: (id, spec, extra?: BoardExtra) => this.show(spec, { key: `board:${id}`, preserveFocus: true, since: extra?.since, boards: extra?.boards }),
+			// A new tab opens without taking focus; an open one comes forward only when the store was asked to present it.
+			show: (id, spec, extra?: BoardExtra) => this.show(spec, { key: `board:${id}`, preserveFocus: true, since: extra?.since, boards: extra?.boards, reveal: extra?.reveal }),
+			// A redraw of an open tab: never reveals, so an agent updating a board does not pull it in front of the user's own tab.
 			update: (id, spec, extra?: BoardExtra) => (this.tabs.has(`board:${id}`) ? this.show(spec, { key: `board:${id}`, preserveFocus: true, since: extra?.since, boards: extra?.boards }) : undefined),
 		};
 	}
@@ -242,6 +248,14 @@ export class BoardPanel implements vscode.Disposable {
 				const format = exportFormat(m.format);
 				if (format) {
 					await this.export(tab, format, m.data, m.name);
+				}
+				return;
+			}
+			case 'settings': {
+				// An empty state's "Edit DTO suffixes": the page names a setting, the host opens it only when it is on the fixed list.
+				const setting = openableSetting(m.setting);
+				if (setting) {
+					await vscode.commands.executeCommand('workbench.action.openSettings', setting);
 				}
 				return;
 			}

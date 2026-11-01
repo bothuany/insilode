@@ -105,6 +105,41 @@ test('the DTO board: more nodes than the limit are cut, the most connected stay,
 	assert.ok(node(boards.dtoBoard(g, { maxNodes: 1, focusId: 'Money' }), 'Money'))
 })
 
+test('a diagram cut by maxNodes exports with a first comment line that says how many types it shows', async () => {
+	const g = await graphOf('java-shop')
+	const cutBoard = boards.dtoBoard(g, { maxNodes: 3 })
+	assert.deepEqual(boards.cutOf(cutBoard), { shown: 3, total: 9 })
+	const mermaid = boards.withCutNote(exporter.exportMermaid(cutBoard), cutBoard, 'mermaid')
+	assert.equal(mermaid.split('\n')[0], '%% showing 3 of 9 types')
+	assert.equal(mermaid.split('\n')[1], exporter.exportMermaid(cutBoard).split('\n')[0], 'the diagram itself follows unchanged')
+	const uml = boards.withCutNote(exporter.exportPlantUml(cutBoard), cutBoard, 'plantuml').split('\n')
+	assert.equal(uml[0], '@startuml')
+	assert.equal(uml[1], "' showing 3 of 9 types")
+	// The architecture board says the same.
+	const arch = boards.architectureBoard(g, { maxNodes: 2 })
+	assert.equal(boards.withCutNote('flowchart LR', arch, 'mermaid').split('\n')[0], `%% showing ${boards.cutOf(arch).shown} of ${boards.cutOf(arch).total} types`)
+})
+
+test('a whole diagram exports with no cut comment', async () => {
+	const g = await graphOf('java-shop')
+	const whole = boards.dtoBoard(g)
+	assert.equal(boards.cutOf(whole), undefined)
+	const text = exporter.exportMermaid(whole)
+	assert.equal(boards.withCutNote(text, whole, 'mermaid'), text)
+	assert.doesNotMatch(boards.withCutNote(exporter.exportPlantUml(whole), whole, 'plantuml'), /showing/)
+	// A search that matches nothing is not a cut either.
+	assert.equal(boards.cutOf(boards.dtoBoard(g, { query: 'zzz' })), undefined)
+})
+
+test('an empty DTO diagram says why, and a filtered empty one does not blame the suffixes', async () => {
+	const empty = boards.dtoBoard(await graphOf([], { options: { dtoSuffixes: ['Zzz', 'Yyy'] } }))
+	assert.equal(empty.nodes.length, 0)
+	assert.match(empty.description, /No DTO found: a name ending in Zzz, Yyy counts as one\./)
+	const searched = boards.dtoBoard(await graphOf('java-shop'), { query: 'nothing-matches-this' })
+	assert.equal(searched.nodes.length, 0)
+	assert.doesNotMatch(searched.description, /No DTO found/)
+})
+
 test('the architecture board: modules closed, roles inside, injection as depends', async () => {
 	const g = await graphOf('java-shop')
 	const b = boards.architectureBoard(g)

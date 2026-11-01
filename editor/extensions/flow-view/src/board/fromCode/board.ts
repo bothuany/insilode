@@ -7,6 +7,10 @@
 
 import type { BoardEdge, BoardGroup, BoardNode, BoardSpec } from '../spec';
 
+/** The kinds board_from_code generates. */
+export const FROM_CODE_KINDS = ['sequence', 'er', 'architecture', 'state'] as const;
+export type FromCodeKind = (typeof FROM_CODE_KINDS)[number];
+
 export type GenKind = BoardSpec['kind'] | 'state';
 
 export interface GenNode extends BoardNode {
