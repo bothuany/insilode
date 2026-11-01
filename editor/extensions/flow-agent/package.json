@@ -586,6 +586,11 @@
           "default": false,
           "markdownDescription": "Start each new Claude Code and Codex agent in a git worktree of its own: a checkout under `.insilode/worktrees/<name>` on a new branch `insilode/<name>`, cut from the branch you are on. Agents working in parallel then never write over each other's files; the agent's row shows the branch, how far it is ahead of and behind its base, and buttons to open it, show its changes in flow, merge it back and remove it. Insilode git-ignores `.insilode/worktrees/` in the repository's `.git/info/exclude`. A committed `.insilode/worktree.json` sets each new worktree up (files to copy such as `.env`, commands to run such as `npm ci`, as argument lists) in a trusted workspace. Off: agents work in this checkout (\"Other…\" in the Agents dock still offers a worktree)."
         },
+        "flow.agents.installAgentExtensions": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Install Claude Code's and Codex's own extensions (`anthropic.claude-code`, `openai.chatgpt`) from Open VSX the first time Insilode starts, so they are there as if they came with it. Each is installed once: one you uninstall stays uninstalled. Off: Insilode installs neither."
+        },
         "flow.agents.codexHooks": {
           "type": "boolean",
           "default": true,

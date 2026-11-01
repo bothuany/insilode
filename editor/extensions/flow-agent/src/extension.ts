@@ -6,6 +6,7 @@
 import * as vscode from 'vscode';
 import { AgentHost, type AgentKind } from './acp';
 import { agentLook } from './agentLook';
+import { installAgentExtensions } from './agentExtensions';
 import { Agents } from './agents';
 import { AskRouter } from './ask';
 import { DesktopStatus } from './desktop';
@@ -24,6 +25,10 @@ import { cleanupWorktrees, runWorktreeSetup } from './worktreeCleanup';
 export function activate(context: vscode.ExtensionContext) {
 	const log = vscode.window.createOutputChannel('Insilode Agents', { log: true });
 	context.subscriptions.push(log, registerPlaceholderModels());
+	// Claude Code's and Codex's own extensions, from Open VSX on the first start (agentExtensions.ts); after the window is
+	// up, so the start is not slower for it.
+	const installLater = setTimeout(() => void installAgentExtensions(context, log).catch(e => log.warn(`Agents: agent extensions: ${(e as Error).message}`)), 5000);
+	context.subscriptions.push({ dispose: () => clearTimeout(installLater) });
 	// A window that closed during a move to Codex left the transcript copy Codex was given (swap.ts); it goes now.
 	sweepLeftoverCopies();
 	// The chat session types are contributed only while flow.agents.showChat is on (their `when` in package.json), and VS Code
