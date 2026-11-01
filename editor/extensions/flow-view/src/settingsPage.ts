@@ -262,9 +262,10 @@ function listControl(s) {
 	box.onclick = () => input.focus();
 	return { node: box, set: (v, st, off) => {
 		items = Array.isArray(v) ? v : [];
-		box.replaceChildren();
-		for (const t of items) { const tag = el('span', 'tag', t); const x = el('button', '', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Remove ' + t); x.onclick = e => { e.stopPropagation(); commit(items.filter(o => o !== t)); }; tag.appendChild(x); box.appendChild(tag); }
-		input.disabled = off; box.appendChild(input);
+		// Only the chips are rebuilt: replacing the input too would drop its focus after every Enter.
+		box.querySelectorAll('.tag').forEach(n => n.remove());
+		for (const t of items) { const tag = el('span', 'tag', t); const x = el('button', '', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Remove ' + t); x.onclick = e => { e.stopPropagation(); commit(items.filter(o => o !== t)); }; tag.appendChild(x); box.insertBefore(tag, input.parentNode === box ? input : null); }
+		input.disabled = off; if (input.parentNode !== box) { box.appendChild(input); }
 	} };
 }
 function flagsControl(s) {
@@ -343,6 +344,8 @@ function render() {
 		body.appendChild(Object.assign(el('div', 'empty'), { id: 'none', hidden: true }));
 		const none = $('none'); none.appendChild(el('b', '', 'Nothing matches')); none.appendChild(document.createTextNode('Try another word, or open all VS Code settings.'));
 	}
+	// Every row knows its new state before any is drawn: a dimmed row reads the setting it needs.
+	for (const s of settings) { rows.get(s.key).s = s; }
 	for (const s of settings) { refresh(s); }
 	tabs(); filter();
 }

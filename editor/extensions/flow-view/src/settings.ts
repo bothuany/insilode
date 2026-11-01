@@ -120,7 +120,7 @@ export class FlowSettings implements vscode.Disposable {
 			const workspace = i?.workspaceValue !== undefined;
 			const stored = i?.workspaceValue ?? i?.globalValue;
 			const fallback = i?.defaultValue ?? s.fallback;
-			return { ...s, value: stored ?? fallback, modified: stored !== undefined && !deepEqual(stored, fallback), scope: workspace ? 'workspace' : 'user' };
+			return { ...s, value: stored ?? fallback, modified: stored !== undefined, scope: workspace ? 'workspace' : 'user' };
 		});
 		await this.panel.webview.postMessage({ type: 'data', categories: CATEGORIES, settings, focus: this.focus });
 		this.focus = undefined;
