@@ -357,6 +357,10 @@ export class PolyProvider implements FlowProvider, vscode.Disposable {
 		return this.index.impact(this.id(t));
 	}
 
+	functionAt(file: string, line: number) {
+		return this.index.functionAt(file, line);
+	}
+
 	dispose() {
 		this.save.dispose();
 	}
