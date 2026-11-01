@@ -9,13 +9,13 @@
 import { spawn } from 'child_process';
 import { randomUUID } from 'crypto';
 import { constants, existsSync, promises as fs, readFileSync } from 'fs';
-import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { projectDir, type Agents, type AgentSession } from './agents';
 import { codexCommand, codexLaunch } from './codexHooks';
 import { agentCwd, agentProcessEnv } from './env';
-import { claudeTranscript, codexImportRequests, codexImportStep, codexRolloutId, codexTurns, MAX_ROLLOUT_BYTES, swappedName } from './swapCore';
+import { codexHome, rolloutFiles } from './resume';
+import { claudeTranscript, codexImportRequests, codexImportStep, codexRolloutId, codexTurns, IMPORT_COPY, MAX_ROLLOUT_BYTES, rolloutDays, swappedName } from './swapCore';
 import { findOnPath } from './usage';
 
 const NAME = { claude: 'Claude', codex: 'Codex' } as const;
@@ -23,28 +23,46 @@ const NAME = { claude: 'Claude', codex: 'Codex' } as const;
 /** The import is local (a few hundred milliseconds); a Codex that has not answered by then is not going to. */
 const IMPORT_TIMEOUT_MS = 60_000;
 
-function codexHome() {
-	return process.env.CODEX_HOME?.trim() || path.join(os.homedir(), '.codex');
+/**
+ * The rollout of a Codex session: ~/.codex/sessions/<y>/<m>/<d>/rollout-<time>-<id>.jsonl. The day the id names is
+ * read first (a few readdirs); only a session not there (archived, or an id that is not a uuidv7) costs a full walk.
+ */
+async function findRollout(id: string): Promise<string | undefined> {
+	const mine = (file: string) => codexRolloutId(path.basename(file))?.toLowerCase() === id.toLowerCase();
+	const sessions = path.join(codexHome(), 'sessions');
+	for (const day of rolloutDays(id)) {
+		const hit = (await rolloutFiles(path.join(sessions, ...day), 3)).find(mine);
+		if (hit) {
+			return hit;
+		}
+	}
+	return (await rolloutFiles(sessions)).find(mine) ?? (await rolloutFiles(path.join(codexHome(), 'archived_sessions'))).find(mine);
 }
 
-/** The rollout of a Codex session: ~/.codex/sessions/<y>/<m>/<d>/rollout-<time>-<id>.jsonl, or the same under archived_sessions. */
-async function findRollout(id: string): Promise<string | undefined> {
-	const suffix = `-${id}.jsonl`.toLowerCase();
-	const walk = async (dir: string, depth: number): Promise<string | undefined> => {
-		for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
-			const full = path.join(dir, e.name);
-			if (e.isDirectory() && depth < 3) {
-				const hit = await walk(full, depth + 1);
-				if (hit) {
-					return hit;
-				}
-			} else if (e.isFile() && e.name.startsWith('rollout-') && e.name.toLowerCase().endsWith(suffix) && codexRolloutId(e.name) === id) {
-				return full;
+/**
+ * Removes the copies Codex's importer was given in `dir` (IMPORT_COPY) that are older than a minute: each is removed
+ * once Codex has read it, so one that is still there was left by a window that closed during the import. Claude would
+ * list it as a second copy of that conversation.
+ */
+async function sweepImportCopies(dir: string): Promise<void> {
+	const old = Date.now() - 60_000;
+	for (const name of await fs.readdir(dir).catch(() => [] as string[])) {
+		if (IMPORT_COPY.test(name)) {
+			const file = path.join(dir, name);
+			const st = await fs.stat(file).catch(() => undefined);
+			if (st?.isFile() && st.mtimeMs < old) {
+				await fs.rm(file, { force: true }).catch(() => undefined);
 			}
 		}
-		return undefined;
-	};
-	return await walk(path.join(codexHome(), 'sessions'), 0) ?? await walk(path.join(codexHome(), 'archived_sessions'), 0);
+	}
+}
+
+/** At start: the leftover import copies of this folder's Claude conversations go (sweepImportCopies). */
+export function sweepLeftoverCopies(): void {
+	const folder = agentCwd(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath);
+	if (folder) {
+		void sweepImportCopies(projectDir(folder));
+	}
 }
 
 /** Runs Codex's importer on a Claude transcript and returns the id of the Codex thread it made. */
@@ -167,11 +185,15 @@ export async function swapAgent(agents: Agents, id: unknown): Promise<void> {
 		void vscode.window.showErrorMessage(`Insilode: the worktree of ${s.name} (${s.worktree.path}) is gone; the conversation cannot continue there.`);
 		return;
 	}
+	// A Codex agent whose hooks are not trusted never reports a turn, so its row cannot say it is busy: the dialog says so instead.
+	const unseen = s.cli === 'codex' && s.state === 'unknown';
 	if (s.state !== 'ended') {
 		const go = `Continue in ${NAME[to]}`;
 		const pick = await vscode.window.showInformationMessage(
 			`Continue ${s.name}'s conversation in ${NAME[to]}?`,
-			{ modal: true, detail: `${NAME[to]} starts in the same folder with what was said so far (the messages, not ${NAME[s.cli]}'s tool output). ${s.name}'s terminal closes once ${NAME[to]} is up; its conversation is kept, so you can come back to it.` },
+			{ modal: true, detail: `${NAME[to]} starts in the same folder with what was said so far (the messages, not ${NAME[s.cli]}'s tool output). ${s.name}'s terminal closes once ${NAME[to]} is up; its conversation is kept, so you can come back to it.${unseen ? `
+
+Insilode cannot tell whether ${s.name} is in the middle of a turn: Codex sends no status until its hooks are trusted (/hooks in Codex). Continue only if it is waiting for you; a turn in progress would be cut off and left out.` : ''}` },
 			go,
 		);
 		if (pick !== go) {
@@ -189,7 +211,9 @@ export async function swapAgent(agents: Agents, id: unknown): Promise<void> {
 				// Codex imports a transcript path once: a conversation it took before (the Codex app offers to import Claude's)
 				// would come back with nothing, or as it was then. A copy under a new name, beside the original (Codex only
 				// detects Claude sessions in Claude's own project folders), is new to it; the copy goes once Codex has read it.
-				const copy = path.join(path.dirname(s.transcript), `${randomUUID()}.jsonl`);
+				const dir = path.dirname(s.transcript);
+				await sweepImportCopies(dir);
+				const copy = path.join(dir, `insilode-swap-${randomUUID()}.jsonl`);
 				await fs.copyFile(s.transcript, copy, constants.COPYFILE_EXCL);
 				try {
 					const thread = await importIntoCodex(copy, cwd, s.name);

@@ -100,27 +100,34 @@ export async function pastSessions(cwd: string | undefined): Promise<PastSession
 	return read.filter(s => s.title || s.prompt);
 }
 
+/** Codex's own folder: CODEX_HOME, or ~/.codex. */
+export function codexHome() {
+	return process.env.CODEX_HOME?.trim() || path.join(os.homedir(), '.codex');
+}
+
+/** Every rollout-*.jsonl under `dir`: Codex keeps them in <year>/<month>/<day> folders (archived ones lie flat). */
+export async function rolloutFiles(dir: string, depth = 0): Promise<string[]> {
+	const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => []);
+	const nested = await Promise.all(entries.map(e => {
+		const full = path.join(dir, e.name);
+		if (e.isDirectory() && depth < 3) {
+			return rolloutFiles(full, depth + 1);
+		}
+		return Promise.resolve(e.isFile() && e.name.startsWith('rollout-') && e.name.endsWith('.jsonl') ? [full] : []);
+	}));
+	return nested.flat();
+}
+
 /** Codex's sessions of this folder: the session_meta line says which folder, a user_message event says what it was about. */
 async function codexSessions(cwd: string | undefined): Promise<PastSession[]> {
 	if (!cwd) {
 		return [];
 	}
-	const root = path.join(process.env.CODEX_HOME ?? path.join(os.homedir(), '.codex'), 'sessions');
-	const files: { file: string; modified: number; bytes: number }[] = [];
-	const walk = async (dir: string, depth: number): Promise<void> => {
-		for (const e of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
-			const full = path.join(dir, e.name);
-			if (e.isDirectory() && depth < 3) {
-				await walk(full, depth + 1);
-			} else if (e.isFile() && e.name.startsWith('rollout-') && e.name.endsWith('.jsonl')) {
-				const st = await fs.stat(full).catch(() => undefined);
-				if (st && st.size > 0) {
-					files.push({ file: full, modified: st.mtimeMs, bytes: st.size });
-				}
-			}
-		}
-	};
-	await walk(root, 0);
+	const stats = await Promise.all((await rolloutFiles(path.join(codexHome(), 'sessions'))).map(async file => {
+		const st = await fs.stat(file).catch(() => undefined);
+		return st && st.size > 0 ? { file, modified: st.mtimeMs, bytes: st.size } : undefined;
+	}));
+	const files = stats.filter((f): f is NonNullable<typeof f> => !!f);
 	const newest = files.sort((a, b) => b.modified - a.modified).slice(0, 200);
 	const read = await Promise.all(newest.map(async f => {
 		const lines = await slice(f.file, 'head', 512 * 1024).catch(() => [] as string[]);

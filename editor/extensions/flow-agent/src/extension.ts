@@ -16,7 +16,7 @@ import { AttentionNotifier } from './notify';
 import { pickAgent } from './pick';
 import { PrEvents } from './prEvents';
 import { startOrResume } from './resume';
-import { swapAgent } from './swap';
+import { swapAgent, sweepLeftoverCopies } from './swap';
 import { AgentSessionType } from './sessionType';
 import { WorktreeRows } from './worktreeActions';
 import { cleanupWorktrees, runWorktreeSetup } from './worktreeCleanup';
@@ -24,6 +24,8 @@ import { cleanupWorktrees, runWorktreeSetup } from './worktreeCleanup';
 export function activate(context: vscode.ExtensionContext) {
 	const log = vscode.window.createOutputChannel('Insilode Agents', { log: true });
 	context.subscriptions.push(log, registerPlaceholderModels());
+	// A window that closed during a move to Codex left the transcript copy Codex was given (swap.ts); it goes now.
+	sweepLeftoverCopies();
 	// The chat session types are contributed only while flow.agents.showChat is on (their `when` in package.json), and VS Code
 	// refuses a chat participant that is not contributed: registering them regardless logged two errors on every start.
 	const showChat = () => vscode.workspace.getConfiguration('flow.agents').get<boolean>('showChat', false);

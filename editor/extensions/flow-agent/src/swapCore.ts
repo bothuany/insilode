@@ -108,6 +108,26 @@ export function codexRolloutId(fileName: string, firstLine?: string): string | u
 	return m?.[1];
 }
 
+/**
+ * Where Codex most likely put a session's rollout: its <year>/<month>/<day> folder, named by the local date the session
+ * started. Codex's thread ids are uuidv7, whose first 48 bits are that start time in milliseconds, so the day is read
+ * from the id; the days on either side cover a changed time zone. Empty for an id that is not a uuidv7.
+ */
+export function rolloutDays(id: string): string[][] {
+	if (!UUID.test(id) || id[14] !== '7') {
+		return [];
+	}
+	const ms = parseInt(id.replace(/-/g, '').slice(0, 12), 16);
+	const pad = (n: number) => String(n).padStart(2, '0');
+	return [0, -1, 1].map(d => {
+		const t = new Date(ms + d * 86_400_000);
+		return [String(t.getFullYear()), pad(t.getMonth() + 1), pad(t.getDate())];
+	});
+}
+
+/** A copy of a Claude transcript made for Codex's importer: named so Insilode finds a leftover one (Codex takes any name). */
+export const IMPORT_COPY = /^insilode-swap-[0-9a-f-]{36}\.jsonl$/i;
+
 export interface ClaudeMeta {
 	cwd: string;
 	sessionId: string;

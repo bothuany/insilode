@@ -147,3 +147,19 @@ test('two long answers in a row are joined first and cut once, with one note for
 	assert.equal(turns[1].text.match(/more characters left out/g).length, 1)
 	assert.match(turns[1].text, new RegExp(`${c.MAX_TURN_CHARS + 2} more characters`))
 })
+
+test('a uuidv7 thread id names its local start day first, then the days on either side', () => {
+	const id = '01a196fe-0980-7751-b741-cade1b720233'
+	const t = new Date(parseInt('01a196fe0980', 16))
+	const pad = n => String(n).padStart(2, '0')
+	const days = c.rolloutDays(id)
+	assert.equal(days.length, 3)
+	assert.deepEqual(days[0], [String(t.getFullYear()), pad(t.getMonth() + 1), pad(t.getDate())])
+	assert.deepEqual(c.rolloutDays('not-an-id'), [])
+	assert.deepEqual(c.rolloutDays('0f1e2d3c-4b5a-4978-8a6b-5c4d3e2f1a0b'), [], 'a uuidv4 has no time in it')
+})
+
+test('the import copy name is Insilode\'s own and never a Claude session name', () => {
+	assert.ok(c.IMPORT_COPY.test('insilode-swap-0f1e2d3c-4b5a-4978-8a6b-5c4d3e2f1a0b.jsonl'))
+	assert.ok(!c.IMPORT_COPY.test('0f1e2d3c-4b5a-4978-8a6b-5c4d3e2f1a0b.jsonl'))
+})
