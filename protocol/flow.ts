@@ -95,7 +95,37 @@ export interface TourStep {
 	/** The method's code, for a peek card when no drawn card holds it. */
 	peek?: { code: string; startLine: number };
 	notes?: TourNote[];
+	/** Pen marks drawn on this step's card as the caption is read: each appears with its caption sentence. */
+	marks?: TourMark[];
+	/** A hands-on step: the tour does not go on by itself or by Next until the user has done this. */
+	wait?: TourWait;
 }
+
+/**
+ * One pen mark on a step. Lines are current-file 1-based, resolved by the host like `highlights`. `sentence` is the
+ * 1-based caption sentence it appears with (default 1). ring, underline and strike mark lines of the step's card;
+ * check and cross sit beside a line; badge puts the order number `n` beside a line; connect draws a curved arrow from
+ * the step's card to another card (`to`, resolved like a step's `at`), labelled with `label`.
+ */
+export interface TourMark {
+	kind: 'ring' | 'underline' | 'strike' | 'check' | 'cross' | 'badge' | 'connect';
+	lines?: [number, number];
+	n?: number;
+	to?: { file: string; startLine: number; endLine: number; label: string };
+	label?: string;
+	sentence?: number;
+}
+
+/**
+ * What a hands-on step waits for. click: the user clicks the step's card. command: the user presses the step's button,
+ * which asks the host to run `command` (the host runs only commands on its own allowlist and reads the id from its
+ * copy of the tour, never from the canvas message). continue: the user presses Continue after doing the work by hand.
+ * `prompt` is the button or hint text.
+ */
+export type TourWait =
+	| { kind: 'click'; prompt?: string }
+	| { kind: 'command'; command: string; prompt: string }
+	| { kind: 'continue'; prompt?: string };
 
 export interface TourNote {
 	question?: string;
@@ -115,6 +145,8 @@ export interface Tour {
 	start: number;
 	/** The agent that made it, when known: the ghost cursor takes its colour and name. A plain pointer otherwise. */
 	agent?: { label: string; color: string };
+	/** Up to three follow-up questions shown as chips after the last step; tapping one asks it like a question. */
+	followUps?: string[];
 }
 
 /** One thing an agent looked at or changed, for the gaze. A file and lines only: never content or search text. */
@@ -136,6 +168,10 @@ export type HostToCanvasTour =
 	| { type: 'tourEnd'; id: string; reason: 'agent' | 'replaced' }
 	/** The agent answered the reader's question and the tour goes on (the reader may also press play). */
 	| { type: 'tourResume'; id: string }
+	/** The agent edited the tour while the reader was paused (tour_control edit): the whole new step list; the reader stays on `index`. */
+	| { type: 'tourSteps'; id: string; steps: TourStep[]; index: number }
+	/** The command a hands-on step waited for has run (ok) or was refused or failed (ok false, with why). */
+	| { type: 'tourWaitDone'; id: string; index: number; ok: boolean; reason?: string }
 	| { type: 'gaze'; events: GazeEvent[] }
 	| { type: 'gazeClear'; session?: string };
 
@@ -144,5 +180,7 @@ export type CanvasToHostTour =
 	| { type: 'tourAsk'; id: string; index: number; question: string }
 	| { type: 'tourSave'; id: string }
 	| { type: 'tourExit'; id: string }
+	/** The reader pressed a command step's button: the host runs that step's own `wait.command` if it is allowed, then answers tourWaitDone. */
+	| { type: 'tourRun'; id: string; index: number }
 	| { type: 'pointAsk'; kind?: 'ask' | 'explain' | 'edit'; file: string; startLine: number; endLine: number; label: string; question: string }
 	| { type: 'gazeReplay'; session: string };
