@@ -8,7 +8,7 @@
 import * as vscode from 'vscode';
 import type { Agents, AgentSession } from './agents';
 import { PrWatcher, type PrState } from './prState';
-import { allowed, composeLine, DailyCap, EventQueue, PrTracker, type PrEvent } from './prEventsCore';
+import { allowed, autoSendQuestion, AUTO_SEND_ANSWER_KEY, composeLine, DailyCap, EventQueue, parseAutoSendAnswer, PrTracker, sendDecision, type PrEvent } from './prEventsCore';
 
 interface Watch {
 	tracker: PrTracker;
@@ -24,6 +24,7 @@ export class PrEvents implements vscode.Disposable {
 	private readonly subs: vscode.Disposable[] = [];
 	private timer: ReturnType<typeof setTimeout> | undefined;
 	private disposed = false;
+	private asking = false;
 
 	/** `state`: the window-independent memory (globalState) the first-send question's answer (Always, Never) is kept in. */
 	constructor(readonly agents: Agents, protected readonly state?: vscode.Memento) {
@@ -119,8 +120,13 @@ export class PrEvents implements vscode.Disposable {
 			return false;
 		}
 		const { autoSend, max } = this.cfg();
-		if (!force && (!autoSend || !this.cap.allows(w.pr.url, max))) {
+		const decision = sendDecision({ setting: autoSend, answer: parseAutoSendAnswer(this.state?.get(AUTO_SEND_ANSWER_KEY)), force });
+		if (decision === 'hold' || (!force && !this.cap.allows(w.pr.url, max))) {
 			return false; // kept for later
+		}
+		if (decision === 'ask') {
+			void this.ask(id, w.pr.number);
+			return false; // the news waits in the queue while the question is open
 		}
 		if (!this.agents.deliver(id, composeLine(w.pr.number, w.queue.peek()))) {
 			return false; // busy or being looked at: the next turn end tries again
@@ -130,6 +136,30 @@ export class PrEvents implements vscode.Disposable {
 			this.cap.record(w.pr.url);
 		}
 		return true;
+	}
+
+	/**
+	 * The first automatic send in a window with no remembered answer asks once, without a modal: sending costs the user's
+	 * tokens. Always and Never are kept in globalState and win over the setting from then on; Not now (or closing the
+	 * notice) sends nothing and asks again on the next event. One question is open at a time, whatever the number of agents.
+	 */
+	private async ask(id: string, prNumber: number) {
+		if (this.asking || this.disposed) {
+			return;
+		}
+		this.asking = true;
+		try {
+			const agent = this.agents.sessions.get(id)?.name ?? 'the agent';
+			const pick = await vscode.window.showInformationMessage(autoSendQuestion(agent, prNumber), 'Always', 'Not now', 'Never');
+			if (pick === 'Always' || pick === 'Never') {
+				await this.state?.update(AUTO_SEND_ANSWER_KEY, pick === 'Always' ? 'always' : 'never');
+			}
+			if (pick === 'Always') {
+				this.flush(id, false);
+			}
+		} finally {
+			this.asking = false;
+		}
 	}
 
 	dispose() {

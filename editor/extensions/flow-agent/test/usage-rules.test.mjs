@@ -117,11 +117,16 @@ test('a status line of the user\'s own is found in the user settings or in any f
 test('findOnPath finds a program without starting anything', () => {
 	const dir = mkdtempSync(join(tmp, 'path-'))
 	writeFileSync(join(dir, 'node.exe'), '')
-	writeFileSync(join(dir, 'node'), '')
+	writeFileSync(join(dir, 'node'), '', { mode: 0o755 })
 	assert.equal(u.findOnPath('node', `/nowhere;${dir}`, 'win32'), join(dir, 'node.exe'))
 	// A ':'-separated PATH cannot hold a Windows drive path, so that case runs where paths have no drive letter.
 	if (process.platform !== 'win32') {
 		assert.equal(u.findOnPath('node', `/nowhere:${dir}`, 'linux'), join(dir, 'node'))
+		// A node that is on PATH but not executable does not count: the next entry is used, and none means no node.
+		const stray = mkdtempSync(join(tmp, 'stray-'))
+		writeFileSync(join(stray, 'node'), '', { mode: 0o644 })
+		assert.equal(u.findOnPath('node', `${stray}:${dir}`, 'linux'), join(dir, 'node'))
+		assert.equal(u.findOnPath('node', stray, 'linux'), undefined)
 	}
 	assert.equal(u.findOnPath('node', '/nowhere', 'linux'), undefined)
 })

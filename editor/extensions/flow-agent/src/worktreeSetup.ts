@@ -21,6 +21,47 @@ export interface SetupConfig {
 
 export const SETUP_FILE = path.join('.insilode', 'worktree.json');
 
+// ── The template offered to a repository that has none ──────────────────────────────────────────
+
+/** The install command for the lockfile found in the repository's top folder, as an argument list; none: no command. */
+export function detectInstallCommand(files: readonly string[]): string[] | undefined {
+	if (files.includes('package-lock.json')) {
+		return ['npm', 'ci'];
+	}
+	if (files.includes('pnpm-lock.yaml')) {
+		return ['pnpm', 'install', '--frozen-lockfile'];
+	}
+	if (files.includes('yarn.lock')) {
+		return ['yarn', 'install', '--frozen-lockfile'];
+	}
+	return undefined;
+}
+
+/** Git-ignored files that usually belong in a fresh worktree; only those that exist are listed. */
+const COPY_CANDIDATES = ['.env', '.env.local'];
+
+/**
+ * The text of a new .insilode/worktree.json for a repository whose top folder holds `files` (names only): the env files
+ * it has under `copy`, the install command for its lockfile under `setup` (an empty list without one) and an empty
+ * `teardown`. It parses with parseSetupConfig, so what the offer writes is what worktreeCleanup.ts reads.
+ */
+export function setupTemplate(files: readonly string[]): string {
+	const install = detectInstallCommand(files);
+	const template: SetupConfig = { copy: COPY_CANDIDATES.filter(f => files.includes(f)), setup: install ? [install] : [], teardown: [] };
+	return `${JSON.stringify(template, null, '\t')}\n`;
+}
+
+/** Where the answer to the offer is kept, per repository (workspaceState). */
+export const setupOfferKey = (root: string) => `flow.agents.worktreeSetupOffer:${root}`;
+
+/**
+ * Whether to offer the template: the repository has no setup file and the offer was not made (or refused) before. Once
+ * per repository, so any remembered value, 'Not now' as much as 'Never', ends it.
+ */
+export function shouldOfferSetup(fileExists: boolean, remembered: unknown): boolean {
+	return !fileExists && remembered === undefined;
+}
+
 /** Why a `copy` entry is refused, or undefined when it is a relative path that stays inside the repository. */
 export function copyPathProblem(entry: unknown): string | undefined {
 	if (typeof entry !== 'string' || !entry.trim()) {

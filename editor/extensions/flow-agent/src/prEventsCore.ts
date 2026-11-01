@@ -153,6 +153,36 @@ export function composeLine(number: number, events: readonly PrEvent[]): string 
 	return `${head}${body}${tail}`.replace(/\s+/g, ' ');
 }
 
+/** Where the answer to the first-send question is kept (globalState), so it holds in every window. */
+export const AUTO_SEND_ANSWER_KEY = 'flow.agents.pr.autoSendAnswer';
+
+export type AutoSendAnswer = 'always' | 'never';
+
+/** The remembered answer as stored; anything else (a hand-edited value) counts as no answer. */
+export function parseAutoSendAnswer(raw: unknown): AutoSendAnswer | undefined {
+	return raw === 'always' || raw === 'never' ? raw : undefined;
+}
+
+/**
+ * What to do with queued news for an agent. `force` (a button the user pressed) always sends. A remembered answer wins
+ * over the setting, in both directions: Never holds even when flow.agents.pr.autoSend is turned on later, Always sends even
+ * with it off. With no answer the setting decides: off holds, on asks once (non-modal) before the first automatic send.
+ */
+export function sendDecision(input: { setting: boolean; answer?: AutoSendAnswer; force?: boolean }): 'send' | 'ask' | 'hold' {
+	if (input.force) {
+		return 'send';
+	}
+	if (input.answer) {
+		return input.answer === 'always' ? 'send' : 'hold';
+	}
+	return input.setting ? 'ask' : 'hold';
+}
+
+/** The question's text: one line, saying what is about to be sent and that it costs tokens. */
+export function autoSendQuestion(agent: string, prNumber: number): string {
+	return `Insilode wants to tell ${agent} that PR #${prNumber} has news; this uses tokens`;
+}
+
 /** Automatic sends per PR per local day. `max` 0 means never automatic. */
 export class DailyCap {
 	private readonly counts = new Map<string, number>();
