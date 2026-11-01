@@ -420,7 +420,7 @@ function wireAgentBridge(flow: Flow) {
 		},
 	});
 	// Skeleton first: the plan board against the type index, the stages the dock drives (docs/design/skeleton-first.md).
-	const skeleton = new SkeletonHost(boards, TypeService.get(log), log);
+	const skeleton = new SkeletonHost(boards, TypeService.get(log), log, context.workspaceState);
 	const bridge = new AgentBridge({
 		log, endpoints: endpointList, analyzer, poly, boards, tables: flow.tables, skeleton, types: TypeService.get(log),
 		providerFor: flow.providerFor,

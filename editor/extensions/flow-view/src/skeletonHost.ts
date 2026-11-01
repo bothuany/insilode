@@ -47,7 +47,8 @@ export class SkeletonHost implements SkeletonTools, vscode.Disposable {
 	/** Files whose unsaved text the index read: closing them without saving puts the disk version back. */
 	private readonly overlaid = new Set<string>();
 
-	constructor(private readonly boards: BoardStore, private readonly types: TypeService, private readonly log: vscode.LogOutputChannel) {
+	/** `state`: where each session's stage is kept across a reload (the skeleton part reads and writes it). */
+	constructor(private readonly boards: BoardStore, private readonly types: TypeService, private readonly log: vscode.LogOutputChannel, protected readonly state?: vscode.Memento) {
 		this.typing = new ChangeBatcher(TYPING_MS, batch => this.typed(batch), e => this.warn(e));
 		this.onDisk = new ChangeBatcher(DISK_MS, batch => this.written([...batch.values()]), e => this.warn(e));
 		boards.setDecorator((id, spec) => {
