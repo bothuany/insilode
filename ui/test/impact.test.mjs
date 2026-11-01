@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { impactSummary } from '../src/impact/summary.ts'
-import { answered, asked, chipState, emptyFill, failed, messageOf } from '../src/impact/fill.ts'
+import { answered, asked, barChip, chipState, emptyFill, failed, messageOf } from '../src/impact/fill.ts'
 import { cardLabel, cutNote } from '../src/impact/cardLabel.ts'
 
 const row = (label, file = null, line = 0) => ({ label, file, line })
@@ -80,6 +80,19 @@ test('a refresh keeps the old impact while it asks, and a failed refresh keeps i
   const retry = asked(bad, true)
   assert.equal(retry.error, '')
   assert.equal(retry.pending, true)
+})
+
+test('a flow that never drew is "not checked", not "checking" for good', () => {
+  // Before the first answer: checking. The trace failed, so the impact is never asked: blocked.
+  assert.equal(barChip(emptyFill(), false, false), 'checking')
+  assert.equal(barChip(emptyFill(), false, true), 'blocked')
+  // Once the flow is drawn the impact answer decides, and it ends in a result or an error.
+  assert.equal(barChip(asked(emptyFill(), false), true, false), 'checking')
+  assert.equal(barChip(answered({ label: 'entry point', items: [] }), true, false), 'result')
+  assert.equal(barChip(failed(emptyFill(), 'no'), true, false), 'error')
+  for (const ready of [true, false]) {
+    assert.notEqual(barChip(failed(emptyFill(), 'no'), ready, !ready), 'checking')
+  }
 })
 
 test('an error with no text still says something', () => {

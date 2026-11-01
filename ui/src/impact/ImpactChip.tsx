@@ -2,13 +2,15 @@
 // whose rows open that flow; the list closes on Escape (focus goes back to the chip) and on a press anywhere outside it.
 import { useEffect, useRef } from 'react'
 import type { ImpactItem, ImpactResult } from '../types'
-import { chipState, type Fill } from './fill'
+import { barChip, type Fill } from './fill'
 import { impactSummary } from './summary'
 
 interface Props {
   fill: Fill<ImpactResult>
   /** The flow is drawn: before that the chip only says it will check. */
   ready: boolean
+  /** The flow could not be traced, so the impact is never asked: the chip says it was not checked instead of waiting for good. */
+  blocked?: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
   onRetry: () => void
@@ -18,11 +20,11 @@ interface Props {
 
 const baseName = (file: string) => file.split(/[\\/]/).pop() ?? file
 
-export function ImpactChip({ fill, ready, open, onOpenChange, onRetry, onOpen }: Props) {
+export function ImpactChip({ fill, ready, blocked, open, onOpenChange, onRetry, onOpen }: Props) {
   const wrap = useRef<HTMLSpanElement>(null)
   const chip = useRef<HTMLButtonElement>(null)
   const pop = useRef<HTMLDivElement>(null)
-  const state = ready ? chipState(fill) : 'checking'
+  const state = barChip(fill, ready, !!blocked)
   const summary = state === 'result' && fill.value ? impactSummary(fill.value) : null
   const listed = !!summary?.hasRows
 
@@ -43,6 +45,7 @@ export function ImpactChip({ fill, ready, open, onOpenChange, onRetry, onOpen }:
     if (open && !listed) onOpenChange(false)
   }, [open, listed]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  if (state === 'blocked') return <span className="chip ghosted" role="status" title="The flow could not be traced, so its impact was not checked.">Impact not checked</span>
   if (state === 'checking') return <span className="chip ghosted" role="status">Checking impact…</span>
   if (state === 'error') {
     return (

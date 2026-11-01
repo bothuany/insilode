@@ -443,7 +443,8 @@ export class FlowPanel implements vscode.Disposable {
 			}
 			const hit = await this.providerFor({ kind: 'poly', id: '' }).functionAt?.(file, line).catch(() => undefined);
 			if (hit) {
-				await vscode.commands.executeCommand(Command.showTarget, { kind: 'poly', id: hit.id }, hit.label);
+				// The same route as Show Flow at Cursor: the flow is remembered on Home and marked in the endpoints list.
+				await vscode.commands.executeCommand(Command.showEntry, hit.id, hit.label, 'poly');
 				return;
 			}
 			await this.onMessage({ type: 'open', file, line });

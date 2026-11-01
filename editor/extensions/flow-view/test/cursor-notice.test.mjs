@@ -16,7 +16,7 @@ test('outside a function: the cursor is told to move into one, and a fall-back s
 	assert.equal(notice('csharp', 'outside-function', false), 'The cursor is not inside a function: move it into one to see its flow.')
 	assert.equal(notice('typescript', 'outside-function', false), 'The cursor is not inside a function: move it into one to see its flow.')
 	const fell = notice('python', 'outside-function', true)
-	assert.match(fell, /not inside a function/)
+	assert.ok(fell.startsWith('The cursor is not inside a function: move it into one to see its flow.'), 'the same sentence first')
 	assert.match(fell, /language server/)
 })
 
@@ -57,5 +57,9 @@ test('the canvas names the engine from the target kind, with a hint only for a f
 	const fallback = m.engineOf('lsp', 'typescript')
 	assert.equal(fallback.name, 'Language server')
 	assert.match(fallback.hint, /index did not trace this flow/)
-	assert.ok(m.engineOf('lsp', 'csharp').hint)
+	assert.equal(fallback.note, 'the index did not trace this')
+	// For C# the engine that did not trace it is Roslyn.
+	const cs = m.engineOf('lsp', 'csharp')
+	assert.match(cs.hint, /Roslyn did not trace this flow/)
+	assert.equal(cs.note, 'Roslyn did not trace this')
 })

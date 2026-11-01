@@ -34,3 +34,14 @@ export function chipState<T>(fill: Fill<T>): ChipState {
   if (fill.value) return 'result'
   return 'checking'
 }
+
+/**
+ * What the bar shows before and after the flow is drawn. `ready`: the flow is drawn, so the impact has been asked for.
+ * `blocked`: it could not be drawn, so the impact is never asked: "not checked", not "checking" for good.
+ */
+export type BarChip = ChipState | 'blocked'
+
+export function barChip<T>(fill: Fill<T>, ready: boolean, blocked: boolean): BarChip {
+  if (!ready) return blocked ? 'blocked' : 'checking'
+  return chipState(fill)
+}

@@ -31,6 +31,8 @@ type Target = Record<string, unknown>
 /** The engine that traced the flow (the host names it from the target's kind); a hint when it is the weaker one. */
 interface Engine {
   name: string
+  /** Set when this engine stands in for a better one: a few words on the bar, and the longer sentence as its tooltip. */
+  note?: string
   hint?: string
 }
 declare global {
@@ -256,7 +258,11 @@ function Flow() {
     const live = loads.whileCurrent(loads.current())
     setCallersError('')
     request<FlowNode | null>('callers', { target: target.target, turn: turnRef.current }).then(
-      v => live(() => setUp(v)),
+      v => live(() => {
+        // Callers that were not drawn before arrive folded the way a first load folds them, not all open.
+        if (v && !treesRef.current.up) setHidden(h => new Set([...h, ...initialHidden(v, 1)]))
+        setUp(v)
+      }),
       e => live(() => setCallersError(messageOf(e))),
     )
   }
@@ -723,7 +729,7 @@ function Flow() {
         {target.engine && (
           <span className={`engine${target.engine.hint ? ' weaker' : ''}`} title={target.engine.hint ?? `Traced by ${target.engine.name}`}>
             {target.engine.name}
-            {target.engine.hint && <span className="engine-hint"> · the code index did not trace this</span>}
+            {target.engine.note && <span className="engine-hint"> · {target.engine.note}</span>}
           </span>
         )}
         {/* Callers and the impact chip are on the bar from the first frame, before the flow arrives, so the bar keeps its lines: on a
@@ -731,7 +737,7 @@ function Flow() {
         <button className="chip" aria-pressed={showUp} disabled={!down} onClick={() => setShowUp(v => !v)} title="Show who calls this method, to the left">
           Callers
         </button>
-        <ImpactChip fill={impactFill} ready={!!down} open={impactOpen} onOpenChange={setImpactOpen} onRetry={() => askImpact(target.target, loads.current(), true)} onOpen={openImpact} />
+        <ImpactChip fill={impactFill} ready={!!down} blocked={!down && !!error} open={impactOpen} onOpenChange={setImpactOpen} onRetry={() => askImpact(target.target, loads.current(), true)} onOpen={openImpact} />
         {(flowTurns.length > 0 || turn !== undefined) && (
           <span className="impact-wrap">
             <button className={`chip${turn !== undefined ? ' agent' : ''}`} aria-expanded={timelineOpen} onClick={() => setTimelineOpen(v => !v)} title="Changes by prompt (all of them; Undo works across files)">

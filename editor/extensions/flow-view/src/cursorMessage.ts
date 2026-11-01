@@ -25,7 +25,7 @@ export function cursorNotice(input: CursorNoticeInput): string | undefined {
 	const { reason, falling, languageId } = input;
 	if (reason === 'outside-function') {
 		return falling
-			? 'The cursor is not inside a function the index knows: showing the language server\'s flow for what is under it instead. Move the cursor into a function to use the index.'
+			? 'The cursor is not inside a function: move it into one to see its flow. Showing the language server\'s flow for what is under it instead.'
 			: 'The cursor is not inside a function: move it into one to see its flow.';
 	}
 	if (reason === 'index-not-ready') {
@@ -45,7 +45,8 @@ export function cursorNotice(input: CursorNoticeInput): string | undefined {
 /** The engine that traced a flow, as the canvas names it, and what to tell the reader when it is the weaker one. */
 export interface Engine {
 	name: 'Index' | 'Roslyn' | 'Language server';
-	/** Set for a language server where the index or Roslyn would normally trace this language. */
+	/** Set for a language server where the index or Roslyn would normally trace this language: a few words for the bar, and a sentence for its tooltip. */
+	note?: string;
 	hint?: string;
 }
 
@@ -58,8 +59,11 @@ export function engineOf(kind: string, languageId?: string): Engine | undefined 
 		return { name: 'Roslyn' };
 	}
 	if (kind === 'lsp') {
+		if (languageId === 'csharp') {
+			return { name: 'Language server', note: 'Roslyn did not trace this', hint: 'Roslyn did not trace this flow, so calls it would resolve (MediatR, dependency injection) may be missing.' };
+		}
 		const fallback = languageId !== undefined && FIRST_ENGINE.has(languageId);
-		return { name: 'Language server', ...(fallback ? { hint: 'The code index did not trace this flow, so calls it cannot see may be missing.' } : {}) };
+		return { name: 'Language server', ...(fallback ? { note: 'the index did not trace this', hint: 'The code index did not trace this flow, so calls it cannot see may be missing.' } : {}) };
 	}
 	return undefined;
 }
