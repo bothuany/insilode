@@ -84,9 +84,10 @@ export function reduce(s: PlayerState, a: PlayerAction): PlayerState {
       if (!tour) return s
       if (!a.steps.length) return idle
       return { ...s, tour: { ...tour, steps: a.steps }, index: clamp(s.index, a.steps.length) }
-    // Contract stub: the live-edit part swaps the list and keeps the reader on their step.
     case 'edit':
-      return s
+      // Not a restart: the reader is paused or waiting for an answer, and stays so (`paused` and `asking` are kept).
+      if (!tour || tour.id !== a.id || !a.steps.length) return s
+      return { ...s, tour: { ...tour, steps: a.steps }, index: clamp(a.index, a.steps.length) }
   }
 }
 
