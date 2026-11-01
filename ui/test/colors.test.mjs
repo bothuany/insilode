@@ -58,7 +58,9 @@ test('card and edge accents: text-sized labels get 4.5:1 in both themes, and KIN
   assert.equal(KIND_COLOR.controller, 'var(--kind-controller)')
   assert.match(KIND_CSS, /:root \{ --kind-controller: #ffb454;/)
   assert.match(KIND_CSS, /body\.vscode-light, body\.vscode-high-contrast-light \{ --kind-controller: #9a5b00;/)
-  assert.doesNotMatch(readFileSync(join(root, 'src/layout.ts'), 'utf8').replace(/KIND_PALETTE[\s\S]*?\n}\n/, ''), /'#(ffb454|b88cff|8b93a1|4fd6d0|ff6b7d|5c6370)'/i, 'no literal accent left in the layouts')
+  // Line endings differ between a checkout and CI: compare with LF.
+  const source = readFileSync(join(root, 'src/layout.ts'), 'utf8').replaceAll('\r\n', '\n')
+  assert.doesNotMatch(source.replace(/KIND_PALETTE[\s\S]*?\n}\n/, ''), /'#(ffb454|b88cff|8b93a1|4fd6d0|ff6b7d|5c6370)'/i, 'no literal accent left in the layouts')
 })
 
 /** The custom properties a CSS rule sets, by name. */

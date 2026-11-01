@@ -20,21 +20,24 @@ export const TONE_VAR: Record<Tone, string> = {
 interface View { x: number; y: number; k: number }
 
 /**
- * The diagram as text, for a screen reader: the participants, then each message in the drawn order as "1. A calls B: text" (a reply
- * "replies to", an asynchronous one "sends to", one to itself "calls itself"), then the groups it is cut into. It covers what the
- * SVG shows (everything but where things sit), which is why the SVG itself is hidden from assistive technology.
+ * The diagram as text, for a screen reader: a sentence naming the participants, the messages in the drawn order as "1. A calls B: text"
+ * (a reply "replies to", an asynchronous one "sends to", one to itself "calls itself"; they go in an ordered list, so the number is
+ * the item's own position) and a sentence on the groups it is cut into, if any. It covers what the SVG shows (everything but where
+ * things sit), which is why the SVG itself is hidden from assistive technology.
  */
-export function sequenceMessageList(layout: SeqLayout): string[] {
+export function sequenceText(layout: SeqLayout): { participants: string; messages: string[]; groups?: string } {
   const name = (i: number) => layout.lifelines[i]?.node.label ?? '?'
-  const out = [`Participants: ${layout.lifelines.map(l => l.node.label).join(', ') || 'none'}.`]
-  layout.messages.forEach((m, i) => {
+  const messages = layout.messages.map((m, i) => {
     const text = (m.edge.guard ? `[${m.edge.guard}] ` : '') + (m.edge.label ?? '')
     const verb = m.self ? 'calls itself' : m.ret ? `replies to ${name(m.to)}` : m.async ? `sends to ${name(m.to)}` : `calls ${name(m.to)}`
-    out.push(`${i + 1}. ${name(m.from)} ${verb}${text ? ': ' + text : ''}`)
+    return `${i + 1}. ${name(m.from)} ${verb}${text ? ': ' + text : ''}`
   })
   const frames = layout.frames.filter(f => !f.isElse)
-  if (frames.length) out.push(`Groups: ${frames.map(f => `${f.kind} ${f.label}`.trim()).join('; ')}.`)
-  return out
+  return {
+    participants: `Participants: ${layout.lifelines.map(l => l.node.label).join(', ') || 'none'}.`,
+    messages,
+    groups: frames.length ? `Groups: ${frames.map(f => `${f.kind} ${f.label}`.trim()).join('; ')}.` : undefined,
+  }
 }
 
 export interface SequenceApi {
@@ -116,13 +119,18 @@ export function SequenceView({ spec, lit, selected, onSelect, apiRef }: {
   }, [lit, hover, layout])
   const { shapes, dim } = useMemo(() => sequenceShapes(layout, spec, hoverLit), [layout, spec, hoverLit])
   const byId = useMemo(() => new Map(spec.nodes.map(n => [n.id, n])), [spec])
-  const messages = useMemo(() => sequenceMessageList(layout), [layout])
+  const text = useMemo(() => sequenceText(layout), [layout])
 
   return (
     <>
-    <ul className="sr-only" role="list" aria-label={`Sequence diagram: ${spec.title || 'untitled'}`}>
-      {messages.map((m, i) => <li key={i}>{m}</li>)}
-    </ul>
+    <div className="sr-only" role="group" aria-label={`Sequence diagram: ${spec.title || 'untitled'}`}>
+      <p>{text.participants}</p>
+      {/* The numbers are in the text already ("1. A calls B"): no marker of the list's own to read them twice. */}
+      <ol role="list" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+        {text.messages.map((m, i) => <li key={i}>{m}</li>)}
+      </ol>
+      {text.groups && <p>{text.groups}</p>}
+    </div>
     <svg
       ref={box}
       className="sq"
