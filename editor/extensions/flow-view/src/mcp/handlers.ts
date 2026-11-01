@@ -88,7 +88,7 @@ export interface TourPlayer {
 	/** The steps of the playing tour as the host holds them (notes included), for an edit to build on. */
 	steps(): TourStep[] | undefined;
 	/** Swaps the playing tour's steps for a new list and puts the reader on `index`, paused or waiting as they were. */
-	edit(steps: TourStep[], index: number): Promise<void>;
+	edit(steps: TourStep[], index: number, map: (i: number) => number): Promise<void>;
 	/** Pins an agent's answer to a step; a message says what is wrong, nothing when it was pinned. */
 	note(index: number, text: string): Promise<string | undefined>;
 	resume(): Promise<void>;
@@ -1036,7 +1036,7 @@ export class AgentTools {
 	}
 
 	/** The methods of every file the steps name, within a budget: a file that is not listed in time is placed by its line. */
-	private async tourMethods(raw: unknown, roots: readonly string[]): Promise<Map<string, readonly Method[] | undefined>> {
+	private async tourMethods(raw: unknown, roots: string[]): Promise<Map<string, readonly Method[] | undefined>> {
 		const methods = new Map<string, readonly Method[] | undefined>();
 		await within(Promise.all(stepFiles(raw, roots).map(async f => {
 			methods.set(f, realInside(roots, f) ? await methodsOf(this.d, f).catch(() => undefined) : undefined);
@@ -1053,7 +1053,7 @@ export class AgentTools {
 	}
 
 	/** tour_control edit: new steps replace or join the playing tour; the reader stays on their step. */
-	private async tourEdit(a: Record<string, unknown>, id: string, state: { steps: number; index: number | undefined }, where: string): Promise<ToolResult> {
+	private async tourEdit(a: Record<string, unknown>, id: string, state: { steps: number; index: number | undefined }): Promise<ToolResult> {
 		const roots = this.folders;
 		const methods = await this.tourMethods({ steps: a.steps }, roots);
 		const parsed = parseTourSteps(a.steps, { roots, readText: readTextIn(roots), methodsIn: f => methods.get(f) }, true, 10);
@@ -1073,7 +1073,7 @@ export class AgentTools {
 			const [root, callers] = await Promise.all([within(provider.graph(target), 60_000, 'the flow'), within(provider.callers(target), 20_000, 'the callers').catch(() => null)]);
 			off = markOffFlow(parsed.steps, drawnOf(root, callers));
 		}
-		await this.d.tours.edit(plan.steps, plan.index);
+		await this.d.tours.edit(plan.steps, plan.index, plan.map);
 		const lines = parsed.steps.map((s, i) => this.tourLine(s, plan.first + i, [parsed.notes[i], off.get(i)].filter(Boolean).join('; ')));
 		return text([`Edited tour "${id}": ${parsed.steps.length} new step${parsed.steps.length === 1 ? '' : 's'} at position ${plan.first + 1}; the reader stays on step ${plan.index + 1}.`, ...lines].join('\n'));
 	}
@@ -1109,7 +1109,7 @@ export class AgentTools {
 			if (!state.paused && !state.asking) {
 				return text(`${where} \`edit\` is for fixing the tour while the reader is paused or waiting for your answer; the user paces the tour. Nothing was changed.`);
 			}
-			return this.tourEdit(a, id, state, where);
+			return this.tourEdit(a, id, state);
 		}
 		if (a.action !== 'go') {
 			throw new Error('`action` must be go, note, edit, resume or end.');

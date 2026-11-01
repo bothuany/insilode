@@ -328,7 +328,7 @@ export class FlowPanel implements vscode.Disposable {
 	}
 
 	/** An agent's edit of the playing tour: the new list replaces the steps and the reader stays where `index` says, paused or waiting as they were. */
-	async editTour(steps: Tour['steps'], index: number) {
+	async editTour(steps: Tour['steps'], index: number, map: (i: number) => number = i => i) {
 		const playing = this.playing;
 		if (!playing || !this.panel || !steps.length) {
 			return;
@@ -342,8 +342,10 @@ export class FlowPanel implements vscode.Disposable {
 		if (this.tourAt) {
 			this.tourAt = { index: at, paused: this.tourAt.paused };
 		}
-		if (this.asked && this.asked.index >= steps.length) {
-			this.asked = undefined;
+		// A question stays with the step it was asked on, which may have moved; its step is gone when it is past the end.
+		if (this.asked) {
+			const moved = map(this.asked.index);
+			this.asked = moved >= steps.length ? undefined : { ...this.asked, index: moved };
 		}
 		await this.panel.webview.postMessage({ type: 'tourSteps', id: playing.id, steps, index: at });
 	}

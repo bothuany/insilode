@@ -107,3 +107,13 @@ test('a refused edit leaves the list and reader as they were', () => {
 	assert.equal(p.steps, steps)
 	assert.equal(p.index, 1)
 })
+
+test('map follows a step through an insert before it and a replace that grows', () => {
+	const ins = e.planEdit({ steps: tour(4), index: 2, insert: 1, add: [step('a'), step('b')] })
+	assert.equal(ins.map(2), 4)
+	assert.equal(ins.map(0), 2)
+	const rep = e.planEdit({ steps: tour(4), index: 0, replace: 2, add: [step('a'), step('b'), step('c')] })
+	assert.equal(rep.map(0), 0)
+	assert.equal(rep.map(2), 4)
+	assert.equal(e.planEdit({ steps: tour(4), index: 0, replace: 9, add: [step('n')] }).map(3), 3)
+})
