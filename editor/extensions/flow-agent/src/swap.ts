@@ -8,7 +8,7 @@
 
 import { spawn } from 'child_process';
 import { randomUUID } from 'crypto';
-import { existsSync, promises as fs, readFileSync } from 'fs';
+import { constants, existsSync, promises as fs, readFileSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -183,8 +183,17 @@ export async function swapAgent(agents: Agents, id: unknown): Promise<void> {
 				if (!s.transcript || !existsSync(s.transcript)) {
 					throw new Error(`${s.name}'s transcript was not found: it has nothing to carry over yet`);
 				}
-				const thread = await importIntoCodex(s.transcript, cwd, s.name);
-				return { ...base, id: thread, agentId: thread };
+				// Codex imports a transcript path once: a conversation it took before (the Codex app offers to import Claude's)
+				// would come back with nothing, or as it was then. A copy under a new name, beside the original (Codex only
+				// detects Claude sessions in Claude's own project folders), is new to it; the copy goes once Codex has read it.
+				const copy = path.join(path.dirname(s.transcript), `${randomUUID()}.jsonl`);
+				await fs.copyFile(s.transcript, copy, constants.COPYFILE_EXCL);
+				try {
+					const thread = await importIntoCodex(copy, cwd, s.name);
+					return { ...base, id: thread, agentId: thread };
+				} finally {
+					await fs.rm(copy, { force: true }).catch(() => undefined);
+				}
 			}
 			const made = await claudeFromCodex(s, cwd);
 			return { ...base, id: made.id, transcript: made.file };
