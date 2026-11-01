@@ -1327,3 +1327,35 @@ export function simulateCodex(call: Call, cfg: CodexConfig, ctx: SimContext): Ve
 		? v('allow', 'Runs in the sandbox; Codex asks only if it fails there')
 		: v('allow', 'Runs in the workspace-write sandbox (no network); Codex asks only when it wants to leave it');
 }
+
+/** Claude Code's permission modes, in the order the simulator's selector lists them. */
+export const PERMISSION_MODES = ['default', 'acceptEdits', 'plan', 'auto', 'dontAsk', 'bypassPermissions'] as const;
+
+export interface ResolvedMode {
+	mode: string;
+	/** Who said so: the person on the page, a running session, the settings, or Claude Code's own default. */
+	source: 'override' | 'session' | 'settings' | 'builtin';
+	/** The line shown above the simulator. */
+	text: string;
+	/** False when a session reported the mode: the verdict is then not an assumption. */
+	assumed: boolean;
+}
+
+/**
+ * The permission mode the simulator runs in. A mode chosen on the page wins, then the one the newest session reported
+ * (a session can start in another mode or switch with Shift+Tab), then `defaultMode` as the settings apply it, then
+ * Claude Code's built-in default. An override that is not a known mode is ignored, so a message from the page cannot
+ * put the simulator in a mode that does not exist.
+ */
+export function resolveMode(sessionMode: string | undefined, defaultMode: string | undefined, override?: string, builtinNote?: string): ResolvedMode {
+	if (override && (PERMISSION_MODES as readonly string[]).includes(override)) {
+		return { mode: override, source: 'override', text: `Assuming mode: ${override} (chosen on this page)`, assumed: true };
+	}
+	if (sessionMode) {
+		return { mode: sessionMode, source: 'session', text: `Session reported: ${sessionMode}`, assumed: false };
+	}
+	if (defaultMode) {
+		return { mode: defaultMode, source: 'settings', text: `Assuming mode: ${defaultMode} (settings defaultMode)`, assumed: true };
+	}
+	return { mode: 'auto', source: 'builtin', text: `Assuming mode: auto (built-in default since v2.1.283${builtinNote ? `; ${builtinNote}` : ''})`, assumed: true };
+}
