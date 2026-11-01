@@ -17,6 +17,7 @@ import { CardOverlays } from './overlay';
 import type { FlowNode, FlowProvider, FlowTarget } from './providers';
 import { flowRoot } from './root';
 import { MAX_NOTES, noteText, parseFlowAsk, parsePointAsk, parseTourAsk, place, selectionPrompt, tourAskPrompt } from './tour/ask';
+import { parseTourRun, runWait, WAIT_COMMANDS } from './tour/wait';
 import { readTextIn } from './tour/files';
 import { GazeLog, gazeTour, parseGaze } from './tour/gaze';
 import { tourReport } from './tour/validate';
@@ -46,6 +47,8 @@ interface Request {
 
 /** Registered by the type diagrams (typeviews.ts): the canvas offers "show in the diagram" only when it exists. */
 const FOCUS_TYPE = 'flow.types.focusType';
+/** The commands a hands-on tour step may run (tour/wait.ts); the id is checked against this set right where it runs. */
+const WAIT_ALLOWED = new Set<string>(WAIT_COMMANDS);
 
 const normalize = (s: string) => s.replace(/\r\n/g, '\n');
 
@@ -319,6 +322,34 @@ export class FlowPanel implements vscode.Disposable {
 		}
 	}
 
+	/** The steps of the playing tour as the host holds them. */
+	tourSteps() {
+		return this.playing?.tour.steps;
+	}
+
+	/** An agent's edit of the playing tour: the new list replaces the steps and the reader stays where `index` says, paused or waiting as they were. */
+	async editTour(steps: Tour['steps'], index: number, map: (i: number) => number = i => i) {
+		const playing = this.playing;
+		if (!playing || !this.panel || !steps.length) {
+			return;
+		}
+		const tour = { ...playing.tour, steps };
+		this.playing = { ...playing, steps: steps.length, tour };
+		// The per-step note counts follow the steps: a kept step keeps its notes, a new one starts without.
+		this.noteCount.clear();
+		steps.forEach((s, i) => s.notes?.length && this.noteCount.set(i, s.notes.length));
+		const at = Math.max(0, Math.min(index, steps.length - 1));
+		if (this.tourAt) {
+			this.tourAt = { index: at, paused: this.tourAt.paused };
+		}
+		// A question stays with the step it was asked on, which may have moved; its step is gone when it is past the end.
+		if (this.asked) {
+			const moved = map(this.asked.index);
+			this.asked = moved >= steps.length ? undefined : { ...this.asked, index: moved };
+		}
+		await this.panel.webview.postMessage({ type: 'tourSteps', id: playing.id, steps, index: at });
+	}
+
 	/** Closes the playing tour, from the agent's side. */
 	async endTour() {
 		const playing = this.playing;
@@ -365,7 +396,7 @@ export class FlowPanel implements vscode.Disposable {
 		void this.panel?.webview.postMessage({ type: 'cursor', file, line });
 	}
 
-	private async onMessage(m: Request | { type: 'open' | 'reveal'; file: string; line: number } | { type: 'ask'; label: string; context: string } | { type: 'answer'; id: string; accept: boolean } | { type: 'mention'; file: string; start: number; end: number } | { type: 'typeDiagram'; id: string } | Extract<CanvasToHostTour, { type: 'tourState' | 'tourExit' | 'tourAsk' | 'pointAsk' | 'gazeReplay' }>) {
+	private async onMessage(m: Request | { type: 'open' | 'reveal'; file: string; line: number } | { type: 'ask'; label: string; context: string } | { type: 'answer'; id: string; accept: boolean } | { type: 'mention'; file: string; start: number; end: number } | { type: 'typeDiagram'; id: string } | Extract<CanvasToHostTour, { type: 'tourState' | 'tourExit' | 'tourAsk' | 'tourRun' | 'pointAsk' | 'gazeReplay' }>) {
 		if (m.type === 'open' || m.type === 'reveal') {
 			// open: jump there and type; reveal: show the line but keep the canvas focused.
 			const file = workspaceFile(m.file);
@@ -404,6 +435,16 @@ export class FlowPanel implements vscode.Disposable {
 				this.tourAt = { index: ask.index, paused: true };
 				const where = step.at?.file ? place(this.rel(step.at.file), step.at.startLine, step.at.endLine) : undefined;
 				await this.askAgent(tourAskPrompt(playing.tour, ask.index + 1, playing.steps, { label: step.at?.label || step.title, where }, ask.question), 'tour', step.at?.file ? [step.at.file] : [], playing.session);
+			}
+			return;
+		}
+		if (m.type === 'tourRun') {
+			// The command is the one the host's own copy of the step carries (never one from the message), and only an allowlisted one runs.
+			const playing = this.playing;
+			const index = parseTourRun(playing, m);
+			if (playing && this.panel && index !== undefined) {
+				const done = await runWait(playing.tour.steps[index], command => WAIT_ALLOWED.has(command) ? vscode.commands.executeCommand(command) : Promise.reject(new Error('That command is not allowed in a tour.')));
+				await this.panel.webview.postMessage({ type: 'tourWaitDone', id: playing.id, index, ok: done.ok, ...(done.reason ? { reason: done.reason } : {}) });
 			}
 			return;
 		}

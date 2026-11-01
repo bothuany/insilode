@@ -4,6 +4,7 @@ import { useMemo } from 'react'
 import { useStore } from '@xyflow/react'
 import type { Layout } from './model'
 import { drawEdges } from './edges'
+import { nudgeApart } from './overlap'
 
 const WIDTH = 188
 const CHARS = 31
@@ -35,7 +36,12 @@ export interface Bubble {
   text: string
 }
 
-/** Places each callout above-right of its anchor, nudged down a row when two would sit on the same spot. */
+/**
+ * Places each callout above-right of its anchor, then nudges overlapping ones apart (overlap.ts): a bubble that sits on a card or
+ * on another bubble moves up (stacking above, as bubbles always did) or right, and the cards stay where the layout put them. The boxes are the cards and the bubbles. Edge
+ * labels are not obstacles: edges.tsx draws their text at the edge's midpoint and has no width for it, so there is no box to avoid.
+ * A bubble with no overlap keeps exactly its first place, so a board without crowding draws as before.
+ */
 export function placeBubbles(layout: Layout, direction: 'LR' | 'TB'): Bubble[] {
   const edges = new Map(drawEdges(layout, direction).map(e => [e.key, e]))
   const nodes = new Map(layout.nodes.map(n => [n.id, n]))
@@ -47,12 +53,14 @@ export function placeBubbles(layout: Layout, direction: 'LR' | 'TB'): Bubble[] {
     if (!at) return
     const lines = wrap(c.text)
     const h = lines.length * LINE + 12
-    const box = { x: at.x + 16, y: at.y - h - 14, w: WIDTH, h }
-    // Two bubbles on one spot: stack the later one above.
-    while (out.some(b => Math.abs(b.box.x - box.x) < WIDTH && Math.abs(b.box.y - box.y) < Math.max(h, b.box.h))) box.y -= h + 6
-    out.push({ key: `${i}`, at, box, lines, text: c.text })
+    out.push({ key: `${i}`, at, box: { x: at.x + 16, y: at.y - h - 14, w: WIDTH, h }, lines, text: c.text })
   })
-  return out
+  const cards = layout.nodes.map(n => ({ id: `card:${n.id}`, ...n.box }))
+  const nudged = nudgeApart([...cards, ...out.map(b => ({ id: `callout:${b.key}`, ...b.box }))], { fixed: cards.length, axes: ['right', 'up'] })
+  return out.map((b, i) => {
+    const { x, y } = nudged.boxes[cards.length + i]
+    return x === b.box.x && y === b.box.y ? b : { ...b, box: { ...b.box, x, y } }
+  })
 }
 
 export function CalloutLayer({ layout, direction }: { layout: Layout; direction: 'LR' | 'TB' }) {

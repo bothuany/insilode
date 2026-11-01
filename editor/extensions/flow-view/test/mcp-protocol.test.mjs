@@ -287,11 +287,29 @@ test('mcp-protocol: the tour tools are described for a model and their schemas a
 	assert.match(t.description, /tour_guide/)
 	assert.match(t.description, /missing/)
 	const c = tool('tour_control')
-	assert.deepEqual(c.inputSchema.properties.action.enum, ['go', 'note', 'resume', 'end'])
+	assert.deepEqual(c.inputSchema.properties.action.enum, ['go', 'note', 'edit', 'resume', 'end'])
 	assert.equal(c.inputSchema.properties.text.maxLength, 2000)
 	assert.match(c.description, /note/)
 	assert.equal(c.inputSchema.additionalProperties, false)
 	for (const x of [t, c]) assert.equal(x.annotations.readOnlyHint, true)
+})
+
+test('mcp-protocol: the tour schema carries marks, hands-on steps, follow-ups and edits within their limits', () => {
+	const tool = name => tools.TOOLS.find(t => t.name === name)
+	const t = tool('tour')
+	const step = t.inputSchema.properties.steps.items
+	assert.equal(step.properties.marks.maxItems, 6)
+	assert.deepEqual(step.properties.marks.items.properties.kind.enum, ['ring', 'underline', 'strike', 'check', 'cross', 'badge', 'connect'])
+	assert.equal(step.properties.marks.items.additionalProperties, false)
+	assert.deepEqual(step.properties.wait.properties.kind.enum, ['click', 'command', 'continue'])
+	assert.equal(step.properties.wait.additionalProperties, false)
+	assert.equal(t.inputSchema.properties.followUps.maxItems, 3)
+	assert.equal(t.inputSchema.properties.followUps.items.maxLength, 120)
+	const c = tool('tour_control')
+	assert.equal(c.inputSchema.properties.steps.items, step)
+	assert.ok(c.inputSchema.properties.replace && c.inputSchema.properties.insert)
+	for (const word of [/marks/, /wait/, /followUps/]) assert.match(t.description, word)
+	assert.match(c.description, /edit/)
 })
 
 test('mcp-protocol: the agent session the server was started for reaches the window with each call; an odd one is dropped', async () => {
