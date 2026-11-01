@@ -52,7 +52,7 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .impact-pop ul { margin: 0; padding: 0; list-style: none; max-height: 240px; overflow: auto; }
 .impact-pop li { font: 11.5px/20px var(--fl-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-.icon-btn { width: 26px; height: 26px; border: 0; border-radius: 6px; background: transparent; color: var(--fl-muted); cursor: pointer; font-size: 14px; }
+.icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--fl-muted); cursor: pointer; font-size: 14px; }
 .icon-btn:hover { background: var(--fl-line); color: var(--fl-text); }
 .ask { height: 26px; padding: 0 12px; border: 0; border-radius: 6px; background: var(--vscode-button-background, #e5e5e5); color: var(--vscode-button-foreground, #141414); font-weight: 600; cursor: pointer; }
 .ask:hover:not(:disabled) { background: var(--vscode-button-hoverBackground, #fff); }
