@@ -260,6 +260,13 @@ function transcriptPath(id: string, cwd: string | undefined) {
 	return path.join(projectDir(cwd), `${id}.jsonl`);
 }
 
+/** The `insilode` MCP server's script in the flow-view extension, when this installation has it. */
+function insilodeMcpScript(): string | undefined {
+	const view = vscode.extensions.getExtension('flow.flow-view');
+	const script = view && path.join(view.extensionPath, 'out', 'insilode-mcp.js');
+	return script && existsSync(script) ? script : undefined;
+}
+
 export class Agents implements vscode.Disposable {
 	readonly sessions = new Map<string, AgentSession>();
 	private readonly terminals = new Map<string, vscode.Terminal>();
@@ -294,7 +301,7 @@ export class Agents implements vscode.Disposable {
 	private ready: Promise<void> | undefined;
 	private settingsOk = false;
 	/** Whether Codex can take Insilode's profile (`-p insilode`): settled on the first Codex start of this window. */
-	private codexHooks: Promise<boolean> | undefined;
+	private codexProfileReady: Promise<{ hooks: boolean } | undefined> | undefined;
 	/** Files an agent edited since its last prompt, for the turn-end impact. */
 	private readonly touched = new Map<string, Set<string>>();
 	/** Sessions whose plan was drawn from PreToolUse this turn, so PostToolUse does not draw it twice. */
@@ -450,23 +457,28 @@ export class Agents implements vscode.Disposable {
 	}
 
 	/**
-	 * Codex's hooks, in Insilode's own Codex profile (see codexHooks.ts). One script for every window, outside the
-	 * per-workspace folder, so the profile's text (and the trust Codex keeps for it) is the same everywhere.
-	 * Written only when it changed: rewriting the same bytes is harmless, but a changed file asks for trust again.
+	 * Codex's hooks and the `insilode` tools, in Insilode's own Codex profile (see codexHooks.ts). One hook script for every
+	 * window, outside the per-workspace folder, so the profile's text (and the trust Codex keeps for it) is the same
+	 * everywhere. Written only when it changed: rewriting the same bytes is harmless, but a changed file asks for trust again.
 	 */
-	private async writeCodexProfile() {
-		const shared = path.join(this.context.globalStorageUri.fsPath, 'agents');
-		await fs.mkdir(shared, { recursive: true });
-		const script = path.join(shared, 'codex-hook.js');
-		if (await fs.readFile(script, 'utf8').catch(() => '') !== CODEX_HOOK_SCRIPT) {
-			await fs.writeFile(script, CODEX_HOOK_SCRIPT);
+	private async writeCodexProfile(hooks: boolean, mcpScript: string | undefined) {
+		const electron = !!process.versions.electron;
+		let command: string | undefined;
+		if (hooks) {
+			const shared = path.join(this.context.globalStorageUri.fsPath, 'agents');
+			await fs.mkdir(shared, { recursive: true });
+			const script = path.join(shared, 'codex-hook.js');
+			if (await fs.readFile(script, 'utf8').catch(() => '') !== CODEX_HOOK_SCRIPT) {
+				await fs.writeFile(script, CODEX_HOOK_SCRIPT);
+			}
+			command = codexHookCommand(process.platform, process.execPath, script, electron);
 		}
 		const file = codexProfileFile();
-		const text = codexProfile(codexHookCommand(process.platform, process.execPath, script, !!process.versions.electron));
+		const text = codexProfile(command, mcpScript ? { execPath: process.execPath, script: mcpScript, electron } : undefined);
 		if (await fs.readFile(file, 'utf8').catch(() => '') !== text) {
 			await fs.mkdir(path.dirname(file), { recursive: true });
 			await fs.writeFile(file, text);
-			this.log.info(`Agents: wrote the Codex profile ${file}; Codex asks once to trust its hooks (/hooks)`);
+			this.log.info(`Agents: wrote the Codex profile ${file}${hooks ? '; Codex asks once to trust its hooks (/hooks)' : ''}`);
 		}
 		// The profile of the same name before the rename (`codex -p axle`): ours only if it still says so.
 		const legacy = path.join(path.dirname(file), 'axle.config.toml');
@@ -480,12 +492,16 @@ export class Agents implements vscode.Disposable {
 	 * [profiles] name and would not start at all. `codex -p insilode mcp list` loads the profile without starting a
 	 * session (a profile it cannot read fails it). Asked on the first Codex start, never at activation, so nothing
 	 * is written to ~/.codex for someone who never runs Codex from Insilode. Any failure means plain `codex`.
+	 * Undefined then, else whether the profile holds the hooks (the `insilode` tools need no trust, the hooks do).
 	 */
-	private codexTakesHooks(): Promise<boolean> {
-		if (!this.server || !vscode.workspace.getConfiguration('flow.agents').get<boolean>('codexHooks', true)) {
-			return Promise.resolve(false);
+	private codexProfileFor(): Promise<{ hooks: boolean } | undefined> {
+		const settings = vscode.workspace.getConfiguration('flow.agents');
+		const hooks = !!this.server && settings.get<boolean>('codexHooks', true);
+		const mcpScript = settings.get<boolean>('mcp', true) ? insilodeMcpScript() : undefined;
+		if (!hooks && !mcpScript) {
+			return Promise.resolve(undefined);
 		}
-		return this.codexHooks ??= this.writeCodexProfile().then(() => new Promise<boolean>(resolve => {
+		return this.codexProfileReady ??= this.writeCodexProfile(hooks, mcpScript).then(() => new Promise<{ hooks: boolean } | undefined>(resolve => {
 			// No `shell: true`: `codex` is looked up on PATH here. npm installs it on Windows as codex.cmd, which execFile
 			// cannot start without cmd.exe, so the shim's script runs under Node instead (the node.exe beside it, a `node`
 			// on PATH, or this editor in Node mode). A batch wrapper of the user's own runs under cmd.exe with this one
@@ -501,25 +517,25 @@ export class Agents implements vscode.Disposable {
 				},
 			});
 			if (!launch) {
-				this.log.warn('Agents: Codex runs without status: no `codex` program found on PATH');
-				resolve(false);
+				this.log.warn('Agents: Codex runs without status or the insilode tools: no `codex` program found on PATH');
+				resolve(undefined);
 				return;
 			}
 			const run = codexCommand(launch, ['-p', CODEX_PROFILE, 'mcp', 'list'], 'script' in launch && !launch.node ? findOnPath('node') : undefined, process.execPath, !!process.versions.electron, process.env.ComSpec || 'cmd.exe');
 			if (!run) {
-				this.log.warn(`Agents: Codex runs without status: ${'batch' in launch ? launch.batch : 'codex'} cannot be started safely`);
-				resolve(false);
+				this.log.warn(`Agents: Codex runs without status or the insilode tools: ${'batch' in launch ? launch.batch : 'codex'} cannot be started safely`);
+				resolve(undefined);
 				return;
 			}
 			execFile(run.file, run.argv, { timeout: 8000, windowsHide: true, windowsVerbatimArguments: run.verbatim, env: agentProcessEnv(run.electronAsNode ? { ELECTRON_RUN_AS_NODE: '1' } : {}) }, (err, _out, stderr) => {
 				if (err) {
-					this.log.warn(`Agents: Codex runs without status: \`codex -p ${CODEX_PROFILE}\` failed (${String(stderr || err.message).trim().split('\n')[0]})`);
+					this.log.warn(`Agents: Codex runs without status or the insilode tools: \`codex -p ${CODEX_PROFILE}\` failed (${String(stderr || err.message).trim().split('\n')[0]})`);
 				}
-				resolve(!err);
+				resolve(err ? undefined : { hooks });
 			});
 		}), e => {
-			this.log.warn(`Agents: Codex runs without status: no Codex profile (${(e as Error).message})`);
-			return false;
+			this.log.warn(`Agents: Codex runs without status or the insilode tools: no Codex profile (${(e as Error).message})`);
+			return undefined;
 		});
 	}
 
@@ -622,9 +638,8 @@ export class Agents implements vscode.Disposable {
 			return undefined;
 		}
 		try {
-			const view = vscode.extensions.getExtension('flow.flow-view');
-			const script = view && path.join(view.extensionPath, 'out', 'insilode-mcp.js');
-			if (!script || !existsSync(script)) {
+			const script = insilodeMcpScript();
+			if (!script) {
 				return undefined;
 			}
 			// Like the hooks: on the desktop process.execPath is the editor, which runs a script only as Node.
@@ -681,12 +696,15 @@ export class Agents implements vscode.Disposable {
 			}
 		}
 		const cwd = agentCwd(worktree?.path ?? folder);
+		// Codex reads the `insilode` server from Insilode's profile, which names the variables it takes from this terminal
+		// (CODEX_MCP_ENV). The tools find this window by its folder, so a worktree agent gets the main folder.
+		const codex = cli === 'codex' ? await this.codexProfileFor() : undefined;
 		const terminal = vscode.window.createTerminal({
 			name,
 			cwd,
 			iconPath: new vscode.ThemeIcon(cli === 'claude' ? 'sparkle' : cli === 'codex' ? 'hubot' : 'terminal'),
 			color: new vscode.ThemeColor(cli === 'claude' ? 'terminal.ansiYellow' : cli === 'codex' ? 'terminal.ansiCyan' : 'terminal.ansiMagenta'),
-			env: { ...inheritedAgentEnv(), FLOW_AGENT_SESSION: id, FLOW_HOOK_DIR: this.dir },
+			env: { ...inheritedAgentEnv(), FLOW_AGENT_SESSION: id, FLOW_HOOK_DIR: this.dir, ...(codex ? { INSILODE_SESSION: id, ...(folder ? { INSILODE_WORKSPACE: folder } : {}) } : {}) },
 			isTransient: false,
 		});
 		// Double quotes work in bash, zsh, PowerShell and cmd alike.
@@ -694,8 +712,8 @@ export class Agents implements vscode.Disposable {
 		// --mcp-config takes any number of files, so it goes last; it adds to the user's own MCP servers (no --strict-mcp-config).
 		// The `insilode` tools find this window by its folder, so a worktree agent gets the main folder's config.
 		const mcp = cli === 'claude' ? await this.mcpConfig(folder, id) : undefined;
-		const codexHooks = cli === 'codex' && await this.codexTakesHooks();
-		const profile = codexHooks ? ` -p ${CODEX_PROFILE}` : '';
+		const codexHooks = !!codex?.hooks;
+		const profile = codex ? ` -p ${CODEX_PROFILE}` : '';
 		const command = cli === 'claude'
 			? `claude ${resume ? '--resume' : '--session-id'} ${id}${this.server && this.settingsOk ? ` --settings ${quote(this.claudeSettings())}` : ''}${mcp ? ` --mcp-config ${quote(mcp)}` : ''}`
 			// Codex chose its session id; until a hook told us, `codex resume` without one opens its own picker.
