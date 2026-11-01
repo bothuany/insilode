@@ -73,12 +73,13 @@ index 64e1c4d2..12b78386 100644
  	"agentsTelemetryAppName": "agents",
  	"webviewContentExternalBaseUrlTemplate": "https://{{uuid}}.vscode-cdn.net/insider/ef65ac1ba57f57f2a3961bfe94aa20481caca4c6/out/vs/workbench/contrib/webview/browser/pre/",
  	"builtInExtensions": [
-@@ -246,5 +248,12 @@
+@@ -246,5 +248,13 @@
  		"GitHub.copilot-chat"
  	],
  	"sessionsWindowAllowedExtensions": [],
 -	"voiceWsUrl": "wss://falcon-caas.mai.microsoft.com/voice-code/api/v1/realtime/voice"
 +	"voiceWsUrl": "wss://falcon-caas.mai.microsoft.com/voice-code/api/v1/realtime/voice",
++	"trustedExtensionPublishers": ["anthropic", "openai"],
 +	"extensionsGallery": {
 +		"serviceUrl": "https://open-vsx.org/vscode/gallery",
 +		"itemUrl": "https://open-vsx.org/vscode/item",
