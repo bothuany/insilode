@@ -8,7 +8,8 @@
 
 import * as vscode from 'vscode';
 import { askInDock } from './askAgent';
-import { MAX_QUESTION, oneLine, place, selectedRange, selectionPrompt, type PointKind } from './tour/ask';
+import { selectionAskPrompt, type SelectedLines } from './selectionPrompt';
+import { MAX_QUESTION, oneLine, place, selectedRange, type PointKind } from './tour/ask';
 
 export const SelectionCommand = {
 	ask: 'flow.selection.ask',
@@ -22,10 +23,24 @@ const PROMPT: Record<PointKind, { title: string; placeHolder: string } | undefin
 	explain: undefined,
 };
 
+/**
+ * The whole lines the selection touches, read in one look at the document: the text and the line numbers are of the same
+ * version, and the numbers are the live buffer's (the disk may hold other lines when there are unsaved changes).
+ */
+function lookAt(ed: vscode.TextEditor): (SelectedLines & { version: number }) | undefined {
+	const range = selectedRange(ed.selection);
+	if (!range) {
+		return undefined;
+	}
+	const doc = ed.document;
+	const text = doc.getText(new vscode.Range(range.startLine - 1, 0, range.endLine - 1, doc.lineAt(range.endLine - 1).range.end.character));
+	return { text, ...range, unsaved: doc.isDirty, version: doc.version };
+}
+
 async function run(kind: PointKind): Promise<void> {
 	const ed = vscode.window.activeTextEditor;
-	const range = ed && selectedRange(ed.selection);
-	if (!ed || !range) {
+	let sel = ed && lookAt(ed);
+	if (!ed || !sel) {
 		void vscode.window.showInformationMessage('Select some code first.');
 		return;
 	}
@@ -34,18 +49,44 @@ async function run(kind: PointKind): Promise<void> {
 		return;
 	}
 	const file = ed.document.uri.fsPath;
+	const rel = vscode.workspace.asRelativePath(file, false).replace(/\\/g, '/');
 	let question = '';
 	const ask = PROMPT[kind];
 	if (ask) {
-		const answer = await vscode.window.showInputBox({ ...ask, prompt: place(vscode.workspace.asRelativePath(file, false).replace(/\\/g, '/'), range.startLine, range.endLine), ignoreFocusOut: true });
+		const answer = await vscode.window.showInputBox({ ...ask, prompt: place(rel, sel.startLine, sel.endLine), ignoreFocusOut: true });
 		question = oneLine(answer, MAX_QUESTION);
 		if (!question) {
 			return;
 		}
 	}
-	const where = place(vscode.workspace.asRelativePath(file, false).replace(/\\/g, '/'), range.startLine, range.endLine);
-	const label = vscode.workspace.asRelativePath(file, false).split(/[\\/]/).pop() ?? 'this code';
-	const prompt = selectionPrompt({ kind, label, where, question });
+	// The editor may have changed while the box was open: look again, so the lines sent are the ones the numbers name.
+	if (ed.document.version !== sel.version) {
+		sel = lookAt(ed);
+		if (!sel) {
+			void vscode.window.showInformationMessage('The selection changed. Select the code again.');
+			return;
+		}
+	}
+	if (sel.unsaved) {
+		// The agent reads files from disk: say so once, and let the user choose between disk and buffer.
+		const save = 'Save and ask';
+		const unsaved = 'Ask with unsaved text';
+		const pick = await vscode.window.showInformationMessage(`${rel.split('/').pop()} has unsaved changes.`, save, unsaved);
+		if (pick === undefined) {
+			return;
+		}
+		if (pick === save) {
+			await ed.document.save();
+			// Saving may reformat the file: the selection and its lines are read again. A save that did not take stays labelled as unsaved.
+			sel = lookAt(ed);
+			if (!sel) {
+				void vscode.window.showInformationMessage('The selection changed. Select the code again.');
+				return;
+			}
+		}
+	}
+	const label = rel.split('/').pop() ?? 'this code';
+	const prompt = selectionAskPrompt({ kind, label, file: rel, question, selected: sel });
 	if (!await askInDock(prompt, true, 'editor', [file])) {
 		await vscode.commands.executeCommand('workbench.action.chat.open', { query: prompt, isPartialQuery: false, attachFiles: [ed.document.uri] });
 	}

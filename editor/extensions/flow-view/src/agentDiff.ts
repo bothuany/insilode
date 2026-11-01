@@ -4,9 +4,11 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { structuredPatch } from 'diff';
+import { execFile } from 'child_process';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { chooseCommandBaseline, hunksBetween, keepInRange, looksBinary, reviewable, type Hunk, type HeadText } from './changedMethods';
 import { rangeOfHunk, rangesFromHunks, rangeTouches, spanDiff, undoEdit, type LineRange } from './mcp/changedMethods';
 import type { FlowNode } from './providers';
 
@@ -17,18 +19,55 @@ export interface CardDiff {
 	removed: { after: number; lines: string[] }[];
 	plus: number;
 	minus: number;
-	/** 'git' when the change is only known from the Git-changes view: not necessarily an agent's. */
-	source?: 'git';
+	/**
+	 * 'git' when the change is only known from the Git-changes view: not necessarily an agent's. 'command' when a shell
+	 * command made it (flow-agent's turn-end sweep), which no edit tool reported.
+	 */
+	source?: 'git' | 'command';
 	/** What a Git change is measured against when that is not HEAD ("main"): committed work, so the card offers no Undo. */
 	base?: string;
 }
 
-interface Hunk {
-	oldStart: number;
-	oldLines: number;
-	newStart: number;
-	newLines: number;
-	lines: string[];
+/** What a command's change is measured against when the file's text before the turn is not known: committed work, so no Undo. */
+const HEAD_LABEL = 'the last commit';
+/** A turn's sweep names at most this many files (flow-agent caps it too); more would be a repository-wide formatter's work. */
+const MAX_COMMAND_FILES = 40;
+/** Git gets this long to answer; a hung process must not hold the end of a turn. */
+const GIT_TIMEOUT_MS = 5000;
+const GIT_MAX_OUTPUT = 4 << 20;
+
+/** Runs git with an argument array (never a shell); undefined when it fails, is missing or prints too much. */
+function git(cwd: string, args: string[]): Promise<string | undefined> {
+	return new Promise(resolve => {
+		execFile('git', args, { cwd, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_OUTPUT, windowsHide: true, encoding: 'utf8' }, (err, stdout) => resolve(err ? undefined : stdout));
+	});
+}
+
+/** The file as HEAD has it. A folder the command removed is stepped over: git runs from its nearest folder that is still there. */
+async function headText(file: string): Promise<HeadText> {
+	let dir = path.dirname(file);
+	for (let i = 0; i < 64; i++) {
+		if (await fs.stat(dir).then(s => s.isDirectory(), () => false)) {
+			break;
+		}
+		const up = path.dirname(dir);
+		if (up === dir) {
+			return { state: 'unknown' };
+		}
+		dir = up;
+	}
+	const rel = path.relative(dir, file).split(path.sep).join('/');
+	const entry = await git(dir, ['ls-tree', '-z', 'HEAD', '--', rel]);
+	if (entry === undefined) {
+		return { state: 'unknown' }; // not a repository, no commit yet, or git did not answer
+	}
+	if (!entry.trim()) {
+		return { state: 'absent' };
+	}
+	// "100644 blob <sha>\t<path>": only a regular file has text to compare (a submodule or a folder does not).
+	const blob = /^100\d+ blob ([0-9a-f]{40,64})\t/.exec(entry);
+	const text = blob ? await git(dir, ['cat-file', 'blob', blob[1]]) : undefined;
+	return text === undefined || looksBinary(text) ? { state: 'unknown' } : { state: 'found', text };
 }
 
 /** A file as VS Code spells it: agents say `C:\x`, documents and the canvas say `c:\x`; everything here is keyed by this. */
@@ -84,6 +123,8 @@ interface Saved {
 	nextTurn: number;
 	baselines: [string, string][];
 	committed?: [string, string][];
+	/** Files a shell command changed: their cards say so. */
+	command?: string[];
 	turns: { id: number; prompt: string; agent: string; at: number; before: [string, string][]; after: [string, string][]; created?: string[]; base?: string }[];
 }
 
@@ -109,6 +150,13 @@ export class AgentChanges implements vscode.Disposable {
 	 * baseline back, so these never get one, whoever edits the file afterwards; it lasts as long as the baseline does.
 	 */
 	private readonly committed = new Map<string, string>();
+	/** Files whose change a shell command made (no edit tool named them): the cards say "changed by a command". */
+	private readonly commandFiles = new Set<string>();
+	/**
+	 * The last Keep of a card still being worked out. The panel does not wait for it, and the canvas redraws as soon as its
+	 * request answers, so everything that reads the baselines waits for this first.
+	 */
+	private settling: Promise<void> = Promise.resolve();
 	private readonly turns: Turn[] = [];
 	private nextTurn = 1;
 	private readonly changed = new vscode.EventEmitter<void>();
@@ -139,6 +187,7 @@ export class AgentChanges implements vscode.Disposable {
 			const keyed = (list: [string, string][]) => new Map(list.map(([f, t]) => [fileKey(f), t] as const));
 			keyed(saved.baselines).forEach((t, f) => this.baselines.set(f, t));
 			keyed(saved.committed ?? []).forEach((base, f) => this.baselines.has(f) && this.committed.set(f, base));
+			(saved.command ?? []).map(fileKey).forEach(f => this.baselines.has(f) && this.commandFiles.add(f));
 			this.turns.push(...saved.turns.map(t => ({ ...t, before: keyed(t.before), after: keyed(t.after), created: new Set((t.created ?? []).map(fileKey)), lastActivity: t.at })), ...early);
 			this.turns.splice(0, Math.max(0, this.turns.length - MAX_TURNS));
 			this.changed.fire();
@@ -176,6 +225,7 @@ export class AgentChanges implements vscode.Disposable {
 			nextTurn: this.nextTurn,
 			baselines: keep(this.baselines),
 			committed: [...this.committed],
+			command: [...this.commandFiles],
 			turns: this.turns.map(t => ({ id: t.id, prompt: t.prompt, agent: t.agent, at: t.at, before: keep(t.before), after: keep(t.after), created: [...t.created].filter(f => !SECRET.test(f)), base: t.base })),
 		};
 	}
@@ -291,9 +341,66 @@ export class AgentChanges implements vscode.Disposable {
 	/**
 	 * Files a shell command changed during a turn, that no edit tool named (flow-agent's turn-end sweep): they show as
 	 * "changed by a command", measured against the snapshot taken at the turn's start when one exists, else against HEAD.
-	 * A stub until the edits part fills it.
+	 *
+	 * A file that already has a baseline is left alone: an edit tool's snapshot is the truer "before" (so a file changed by
+	 * a tool and by a command in one turn is measured from the tool's), and another agent's step on the same file keeps its
+	 * own. A file measured against HEAD is committed work for Undo's purposes: HEAD is not known to be what the file held
+	 * when the turn began (it may have been dirty then), so Undo is refused rather than risk writing back the wrong text.
 	 */
-	async commandEdited(_files: string[]) { }
+	async commandEdited(files: string[]) {
+		await this.loading;
+		const turn = this.turns.at(-1);
+		if (!turn) {
+			return;
+		}
+		let recorded = false;
+		for (const file of files.slice(0, MAX_COMMAND_FILES)) {
+			const f = fileKey(file);
+			if (this.baselines.has(f)) {
+				continue;
+			}
+			// The command wrote to disk and an open editor may not have reloaded yet: the file itself says what it is now.
+			let current: string;
+			try {
+				current = norm(await fs.readFile(f, 'utf8'));
+			} catch (e) {
+				if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+					continue; // locked or unreadable right now: record nothing rather than a file Undo would empty
+				}
+				current = ''; // deleted by the command: its text is the baseline, and it shows as removed
+			}
+			const turnStart = turn.before.get(f);
+			const choice = chooseCommandBaseline(turnStart, turnStart === undefined ? await headText(f) : { state: 'unknown' });
+			if (!choice) {
+				continue;
+			}
+			const text = norm(choice.text);
+			if (reviewable(text, current) !== 'ok') {
+				continue; // unchanged, binary, or too large to compare line by line
+			}
+			if (!turn.before.has(f)) {
+				turn.before.set(f, text);
+			}
+			if (choice.created) {
+				turn.created.add(f);
+			}
+			turn.after.set(f, current);
+			this.baselines.set(f, text);
+			this.commandFiles.add(f);
+			if (choice.from !== 'turn-start') {
+				this.committed.set(f, HEAD_LABEL);
+			}
+			recorded = true;
+		}
+		turn.lastActivity = Date.now();
+		while (this.baselines.size > MAX_BASELINES) {
+			this.forget(this.baselines.keys().next().value!);
+		}
+		if (recorded) {
+			this.save();
+			this.changed.fire();
+		}
+	}
 
 	/** Called before the agent writes: remember the file as it is now (first write of a change wins). */
 	async willEdit(files: string[]) {
@@ -328,6 +435,7 @@ export class AgentChanges implements vscode.Disposable {
 	private forget(file: string) {
 		this.baselines.delete(file);
 		this.committed.delete(file);
+		this.commandFiles.delete(file);
 	}
 
 	private async hunks(file: string): Promise<Hunk[]> {
@@ -340,7 +448,7 @@ export class AgentChanges implements vscode.Disposable {
 			this.forget(file); // reverted elsewhere (chat Undo, git): nothing to show
 			return [];
 		}
-		return structuredPatch('a', 'b', base, now, '', '', { context: 0 }).hunks;
+		return hunksBetween(base, now);
 	}
 
 	/** A file's change during one prompt: from before that prompt to before the next one that touched it. */
@@ -489,6 +597,7 @@ export class AgentChanges implements vscode.Disposable {
 
 	/** Adds `diff` to every card whose method the agent touched (or, with `turnId`, touched in that prompt). */
 	async annotate(root: FlowNode | null, turnId?: number) {
+		await this.settling; // a Keep the canvas just asked for must be in the baselines before they are read
 		if (!root || (turnId === undefined ? !this.baselines.size : !this.turns.some(t => t.id === turnId))) {
 			return;
 		}
@@ -509,6 +618,8 @@ export class AgentChanges implements vscode.Disposable {
 				const d = this.cardDiff(cache.get(file)!, n.startLine, n.endLine);
 				if (d && gitTurn(file)) {
 					d.source = 'git';
+				} else if (d && this.commandFiles.has(file)) {
+					d.source = 'command';
 				}
 				// Measured against committed work: say against what, and the canvas offers no Undo.
 				const base = turnId === undefined ? this.committed.get(file) : this.turns.find(t => t.id === turnId)?.base;
@@ -516,7 +627,8 @@ export class AgentChanges implements vscode.Disposable {
 					d.base = base;
 				}
 				if (d) {
-					(n as FlowNode & { diff?: CardDiff }).diff = d;
+					// CardDiff is wider than the wire type's `diff` (its `source` may be 'command'); the canvas reads it as such.
+					(n as unknown as { diff?: CardDiff }).diff = d;
 				}
 			}
 			for (const c of n.children) {
@@ -538,9 +650,36 @@ export class AgentChanges implements vscode.Disposable {
 		this.changed.fire();
 	}
 
-	/** Keep the agent's changes inside one card. A stub until the edits part gives it its own state: for now it keeps the card's file, as Keep does. */
-	keepCard(file: string, _start: number, _end: number) {
-		this.keep(file);
+	/**
+	 * Keep the agent's changes inside one card (the hunks Undo would restore for it): they become part of the file's
+	 * baseline, so the rest of the file still shows as changes, and nothing later (lines added above, an Undo of another
+	 * card) can bring the kept ones back. A file with nothing left is forgotten, as Keep does. Resolves when it is done;
+	 * the panel does not wait for it, so `annotate` and `undo` do (see `settling`).
+	 */
+	keepCard(file: string, start: number, end: number): Promise<void> {
+		const run = this.settling.then(() => this.keepInCard(fileKey(file), start, end)).catch(() => undefined);
+		this.settling = run;
+		return run;
+	}
+
+	private async keepInCard(file: string, start: number, end: number) {
+		await this.loading;
+		const base = this.baselines.get(file);
+		if (base === undefined) {
+			return;
+		}
+		const now = norm(await currentText(file).catch(() => ''));
+		const kept = keepInRange(base, now, start, end);
+		if (!kept.kept) {
+			return;
+		}
+		if (kept.left) {
+			this.baselines.set(file, kept.baseline);
+		} else {
+			this.forget(file);
+		}
+		this.save();
+		this.changed.fire();
 	}
 
 	/** Keep every change of the prompt: no file shows as an agent change any more. */
@@ -552,41 +691,119 @@ export class AgentChanges implements vscode.Disposable {
 		this.changed.fire();
 	}
 
-	/** Undo every change of the prompt. A stub until the edits part fills it. */
+	/**
+	 * Undo every change of the prompt: each tracked file goes back to its baseline through the same safe path as a card's
+	 * Undo. Files measured against a commit are skipped and named (Insilode never writes committed work back). Open editors
+	 * with unsaved edits are saved first, as Undo's own save would, so the disk and the text the hunks are read from agree.
+	 */
 	async undoAll(): Promise<{ ok: boolean; message?: string }> {
-		return { ok: false, message: 'Undo all is not built yet.' };
+		await this.loading;
+		await this.settling;
+		const files = [...this.baselines.keys()];
+		const open = vscode.workspace.textDocuments.filter(d => d.isDirty && d.uri.scheme === 'file' && files.includes(fileKey(d.uri.fsPath)));
+		await Promise.all(open.map(d => d.save()));
+		const rel = (f: string) => vscode.workspace.asRelativePath(f);
+		const undone: string[] = [];
+		const skipped: string[] = [];
+		const failed: string[] = [];
+		let why = '';
+		for (const f of files) {
+			if (this.committed.has(f)) {
+				skipped.push(f);
+				continue;
+			}
+			// From before the first line to past the last: every hunk of the file, including a removal above line 1.
+			const res = await this.undoHunks(f, 0, Number.MAX_SAFE_INTEGER, true).catch((e: unknown) => ({ ok: false, changed: false, message: String((e as Error)?.message ?? e) }));
+			if (!res.ok) {
+				failed.push(f);
+				why ||= res.message ?? '';
+			} else if (res.changed) {
+				undone.push(f);
+			}
+		}
+		const count = (n: number) => `${n} file${n === 1 ? '' : 's'}`;
+		const parts: string[] = [];
+		if (undone.length) {
+			parts.push(`Undid ${count(undone.length)}`);
+		}
+		if (skipped.length) {
+			parts.push(`skipped ${skipped.length} measured against a commit (${skipped.slice(0, 3).map(rel).join(', ')}${skipped.length > 3 ? ', ...' : ''})`);
+		}
+		if (failed.length) {
+			parts.push(`could not undo ${count(failed.length)} (${failed.slice(0, 3).map(rel).join(', ')}${failed.length > 3 ? ', ...' : ''})${why ? `: ${why}` : ''}`);
+		}
+		const message = parts.length ? parts.join('; ').replace(/^./, c => c.toUpperCase()) + '.' : 'Nothing left to undo.';
+		return { ok: !failed.length && (undone.length > 0 || !skipped.length), message };
 	}
 
 	/** Undo the agent's changes inside one card (method), leaving the rest of the file alone. */
 	async undo(file: string, start: number, end: number): Promise<{ ok: boolean; message?: string }> {
-		file = fileKey(file);
+		await this.settling; // a Keep of another card of this file decides which hunks are still shown
+		const { ok, message } = await this.undoHunks(fileKey(file), start, end, false);
+		return { ok, message };
+	}
+
+	/** Whether the agent made this file (its baseline is empty) and nobody has edited it since its last write. */
+	private async untouchedCreation(file: string): Promise<boolean> {
+		if (this.baselines.get(file) !== '' || !this.turns.some(t => t.created.has(file))) {
+			return false;
+		}
+		const lastWrite = [...this.turns].reverse().find(t => t.after.has(file))?.after.get(file);
+		return lastWrite !== undefined && lastWrite === norm(await currentText(file).catch(() => ''));
+	}
+
+	/** The line ending a restored file gets: the setting, else the platform's. */
+	private defaultEol(uri: vscode.Uri) {
+		const setting = vscode.workspace.getConfiguration('files', uri).get<string>('eol');
+		return setting === '\r\n' || setting === '\n' ? setting : process.platform === 'win32' ? '\r\n' : '\n';
+	}
+
+	/**
+	 * Puts back the hunks of `file` inside the lines `start`..`end`. `changed`: something was written. `wholeFile` (Undo all)
+	 * also lets a file the agent created and nobody touched go away again, instead of staying as an empty file.
+	 */
+	private async undoHunks(file: string, start: number, end: number, wholeFile: boolean): Promise<{ ok: boolean; message?: string; changed: boolean }> {
 		// Checked here, not only by the canvas hiding the button: the baseline is committed work, and Undo would write it back.
 		if (this.committed.has(file)) {
-			return { ok: false, message: `This change is measured against ${this.committed.get(file)} and includes committed work; Insilode does not undo commits.` };
+			return { ok: false, changed: false, message: `This change is measured against ${this.committed.get(file)} and includes committed work; Insilode does not undo commits.` };
 		}
 		// The same test the card's diff uses, so Undo restores exactly the hunks the card shows.
 		const hunks = (await this.hunks(file)).filter(h => rangeTouches(rangeOfHunk(h), start, end));
 		if (!hunks.length) {
-			return { ok: true };
+			return { ok: true, changed: false };
 		}
-		const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
-		const eol = doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+		const uri = vscode.Uri.file(file);
 		const edit = new vscode.WorkspaceEdit();
-		for (const h of hunks) {
-			// A pure deletion is an empty range at the line after the gap: its old lines go back in above that line.
-			const e = undoEdit(h);
-			edit.replace(doc.uri, new vscode.Range(e.from, 0, e.to, 0), e.lines.map(l => l + eol).join(''));
+		let doc: vscode.TextDocument | undefined;
+		if (wholeFile && await this.untouchedCreation(file)) {
+			edit.deleteFile(uri, { ignoreIfNotExists: true });
+		} else {
+			doc = await vscode.workspace.openTextDocument(uri).then(d => d, () => undefined);
+		}
+		if (!doc && !edit.size) {
+			// The file is gone (a command or the agent deleted it): it comes back as its baseline says.
+			edit.createFile(uri, { overwrite: true, contents: Buffer.from(this.baselines.get(file)!.replace(/\n/g, this.defaultEol(uri)), 'utf8') });
+		}
+		if (doc) {
+			const eol = doc.eol === vscode.EndOfLine.CRLF ? '\r\n' : '\n';
+			for (const h of hunks) {
+				// A pure deletion is an empty range at the line after the gap: its old lines go back in above that line.
+				const e = undoEdit(h);
+				edit.replace(doc.uri, new vscode.Range(e.from, 0, e.to, 0), e.lines.map(l => l + eol).join(''));
+			}
 		}
 		if (!await vscode.workspace.applyEdit(edit)) {
-			return { ok: false, message: 'Could not undo the change.' };
+			return { ok: false, changed: false, message: 'Could not undo the change.' };
 		}
-		await doc.save();
+		if (doc) {
+			await doc.save();
+		}
 		if (!(await this.hunks(file)).length) {
 			this.forget(file);
 		}
 		this.save();
 		this.changed.fire();
-		return { ok: true };
+		return { ok: true, changed: true };
 	}
 
 	dispose() {
