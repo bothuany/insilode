@@ -2,6 +2,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { cleanup, load } from './bundle.mjs'
+import { graphOf } from './types-helpers.mjs'
 
 let gen
 before(async () => { gen = await load('src/board/fromCode/index.ts') })
@@ -90,4 +91,27 @@ test('Board from Code: a long list is capped', () => {
 test('Board from Code: an error is shown whole, on one line', () => {
 	const message = 'No state board was drawn: no enum has clear transitions.\n- The type graph is empty.\n\n  - Try again.'
 	assert.equal(gen.boardFromCodeMessage(message), 'No state board was drawn: no enum has clear transitions. - The type graph is empty. - Try again.')
+})
+
+test('partial index: a skip reason that already says the index is building is not repeated', () => {
+	const skipped = 'The type graph is empty: the code index is still building, or the workspace has no types. Try again in a moment.'
+	assert.deepEqual(gen.partialIndexNotes({ kind: 'architecture', indexReady: false, skipped }), [])
+	assert.equal(gen.partialIndexNotes({ kind: 'architecture', indexReady: false, skipped: 'No module named "x".' }).length, 1)
+})
+
+test('Board from Code: the picks are built from a real index (type graph and schema readers)', async () => {
+	const graph = await graphOf('java-shop')
+	const source = gen.scopeSourceFrom({ schemas: [{ table: 'orders', entity: 'OrderEntity' }, { table: 'Customer', entity: 'Customer' }], graph, indexReady: true })
+	assert.ok(source.enums.some(e => e.name === 'Status'), 'a real enum of the fixture')
+	assert.ok(source.tables.some(t => t.name === 'orders' && t.detail === 'OrderEntity'), 'a schema table with its entity')
+	assert.equal(source.tables.find(t => t.name === 'Customer').detail, undefined, 'an entity named like its table says nothing twice')
+	assert.ok(source.tables.some(t => t.name === 'OrderEntity' && t.detail === 'entity'), 'an entity type of the graph')
+	assert.ok(source.modules.length >= 1)
+	assert.equal(source.indexReady, true)
+	assert.ok(gen.scopeChoices('state', source).some(c => c.label === 'Status' && c.scope.enum === 'Status'))
+	assert.ok(gen.scopeChoices('architecture', source).some(c => c.scope.module === source.modules[0]))
+	assert.ok(gen.scopeChoices('er', source).some(c => c.label === 'orders'))
+	// No graph yet: the picks still offer the whole project.
+	const empty = gen.scopeSourceFrom({ schemas: [], graph: undefined, indexReady: false })
+	assert.deepEqual(gen.scopeChoices('state', empty).map(c => c.label), ['Whole project'])
 })

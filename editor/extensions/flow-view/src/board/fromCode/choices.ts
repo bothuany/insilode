@@ -18,6 +18,27 @@ export interface ScopeSource {
 	indexReady: boolean;
 }
 
+/** What the index gives the command: schema readers' output and the type graph, as far as the picks need them. */
+export interface IndexForChoices {
+	schemas: { table: string; entity?: string }[];
+	graph?: { types: { name: string; kind: string; role: string; module: string }[] };
+	indexReady: boolean;
+}
+
+/** The lists the scope picks are built from: tables (schema tables, then entity types), enums and modules of the type graph. */
+export function scopeSourceFrom({ schemas, graph, indexReady }: IndexForChoices): ScopeSource {
+	const types = graph?.types ?? [];
+	return {
+		tables: [
+			...schemas.map(s => ({ name: s.table, detail: s.entity && s.entity !== s.table ? s.entity : undefined })),
+			...types.filter(t => t.role === 'entity').map(t => ({ name: t.name, detail: 'entity' })),
+		],
+		enums: types.filter(t => t.kind === 'enum').map(t => ({ name: t.name, detail: t.module })),
+		modules: [...new Set(types.map(t => t.module))],
+		indexReady,
+	};
+}
+
 export interface KindChoice {
 	label: string;
 	description: string;

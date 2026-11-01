@@ -140,5 +140,5 @@ The command **Board from Code…** asks for the kind and then offers the tables,
 | Endpoints view toolbar | The DTO diagram and the architecture diagram icons |
 | Editor context menu | **Show Type in DTO Diagram** (a selection or the word at the cursor) |
 | Explorer context menu | **Show Type in DTO Diagram** on a file: the type the file is named for |
-| Home | The Boards row opens **Show Board…** |
+| Home | The Home page lists what Insilode can do, boards included |
 

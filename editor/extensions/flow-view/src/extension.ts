@@ -13,7 +13,7 @@ import { entryDisplay } from './entryLabel';
 import { Endpoints, entryName, type Entry, type Source } from './backends';
 import { flowToBoard } from './board/fromFlow';
 import { nodesLinkedTo, parsePlan, statusAfterEdit } from './board/plan';
-import { boardFromCodeMessage, kindChoices, scopeChoices, type ScopeSource } from './board/fromCode';
+import { boardFromCodeMessage, kindChoices, scopeChoices, scopeSourceFrom, type ScopeSource } from './board/fromCode';
 import { BoardStore, MAX_BOARDS } from './board/store';
 import { MarkdownBoardViewer } from './board/viewer';
 import { registerTypeViews } from './typeviews';
@@ -392,16 +392,7 @@ function wireClaudeCode({ context, log, panel, changes }: Flow) {
 async function scopeSource({ poly, log }: Pick<Flow, 'poly' | 'log'>): Promise<ScopeSource> {
 	const schemas = poly.isReady ? await poly.schemas().catch(() => []) : [];
 	const graph = await TypeService.get(log).getGraph().catch(() => undefined);
-	const types = graph?.types ?? [];
-	return {
-		tables: [
-			...schemas.map(s => ({ name: s.table, detail: s.entity && s.entity !== s.table ? s.entity : undefined })),
-			...types.filter(t => t.role === 'entity').map(t => ({ name: t.name, detail: 'entity' })),
-		],
-		enums: types.filter(t => t.kind === 'enum').map(t => ({ name: t.name, detail: t.module })),
-		modules: [...new Set(types.map(t => t.module))],
-		indexReady: poly.isReady,
-	};
+	return scopeSourceFrom({ schemas, graph, indexReady: poly.isReady });
 }
 
 /**

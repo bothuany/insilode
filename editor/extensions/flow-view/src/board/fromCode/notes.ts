@@ -21,15 +21,17 @@ export interface PartialIndexInput {
 	indexReady: boolean;
 	/** The board that was generated, when there is one: dotted edges marked as guesses are read from its legend. */
 	board?: Pick<GenBoard, 'legend'>;
+	/** Why no board was drawn, when that is the case: a reason that already names the building index is not repeated. */
+	skipped?: string;
 }
 
 /**
  * The notes to append to a generated board's answer: one when the index is still building (what may be missing and to try again),
  * one when some relations are guesses. Empty when the board was read from a finished index without guessing.
  */
-export function partialIndexNotes({ kind, indexReady, board }: PartialIndexInput): string[] {
+export function partialIndexNotes({ kind, indexReady, board, skipped }: PartialIndexInput): string[] {
 	const notes: string[] = [];
-	if (!indexReady) {
+	if (!indexReady && !/still building/i.test(skipped ?? '')) {
 		notes.push(`The code index is still building: ${MISSING[kind]} may be missing. Try again in a moment.`);
 	}
 	if (board?.legend?.some(l => l.key === 'guess')) {

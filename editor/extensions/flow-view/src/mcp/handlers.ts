@@ -1414,7 +1414,7 @@ export class AgentTools {
 			}));
 			out = stateFromEnum({ graph, readSource: f => cache.get(f) }, { enum: typeof scope.enum === 'string' ? scope.enum : undefined });
 		}
-		out.notes.push(...partialIndexNotes({ kind, indexReady: this.d.poly.isReady, board: out.board }), ...warnings);
+		out.notes.push(...partialIndexNotes({ kind, indexReady: this.d.poly.isReady, board: out.board, skipped: out.skipped }), ...warnings);
 		return out;
 	}
 

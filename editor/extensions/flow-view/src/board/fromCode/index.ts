@@ -70,5 +70,5 @@ export { architectureFromGraph } from './architecture';
 export { stateFromEnum } from './state';
 export { annotate } from './annotate';
 export { partialIndexNotes, type PartialIndexInput } from './notes';
-export { boardFromCodeMessage, kindChoices, scopeChoices, MAX_CHOICES, type KindChoice, type ScopeChoice, type ScopeSource } from './choices';
+export { boardFromCodeMessage, kindChoices, scopeChoices, scopeSourceFrom, MAX_CHOICES, type IndexForChoices, type KindChoice, type ScopeChoice, type ScopeSource } from './choices';
 export type { GenBoard, GenEdge, GenGroup, GenNode, Generated } from './board';
