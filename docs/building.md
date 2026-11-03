@@ -12,17 +12,29 @@ Insilode is installed from the files on the [Releases](https://github.com/bothua
 
 ### Windows
 
-Download `Insilode-Setup-<version>-x64.exe` and run it. It installs for the current user (no admin rights) into `%LOCALAPPDATA%\Programs\Insilode`, adds a Start menu entry and, if you leave the options ticked, the `insilode` command on your PATH and "Open with Insilode" on folders in Explorer. Insilode updates itself (Restart to Update in the title bar), or you run a newer Setup over the old install; 0.4.3 and older cannot update themselves, so run the Setup once by hand over those. Uninstalling is Windows Settings, Apps.
+The quickest way is one command in PowerShell. It downloads the latest installer, checks it against `SHA256SUMS.txt` and runs it silently, without the SmartScreen prompt below (SmartScreen checks files a browser downloaded, and this download is not one of them):
+
+```powershell
+irm https://insilode.dev/install.ps1 | iex
+```
+
+Or download `Insilode-Setup-<version>-x64.exe` and run it. It installs for the current user (no admin rights) into `%LOCALAPPDATA%\Programs\Insilode`, adds a Start menu entry and, if you leave the options ticked, the `insilode` command on your PATH and "Open with Insilode" on folders in Explorer. Insilode updates itself (Restart to Update in the title bar), or you run a newer Setup over the old install; 0.4.3 and older cannot update themselves, so run the Setup once by hand over those. Uninstalling is Windows Settings, Apps.
 
 - Install into a short path (the default, `%LOCALAPPDATA%\Programs\Insilode`, is fine). The longest file in Insilode is about 155 characters below the install folder, and Windows stops at 260 in total, so an install folder that is itself 100 characters deep fails with "MoveFile failed; code 3".
-- The installer is not code-signed yet, so Windows SmartScreen shows "Windows protected your PC" the first time: choose *More info*, then *Run anyway*.
+- The installer is not code-signed yet, so a Setup downloaded in a browser makes Windows SmartScreen show "Windows protected your PC" the first time: choose *More info*, then *Run anyway*. The command above skips this. Smart App Control, where it is turned on, blocks unsigned programs either way.
 - Later: `winget install bothuany.Insilode` (not submitted yet).
 
 ### macOS
 
-Download `Insilode-<version>-darwin-arm64.dmg` (Apple silicon) or `Insilode-<version>-darwin-x64.dmg` (Intel), open it and drag Insilode to Applications. The `.zip` files hold the same app. For the `insilode` command, choose *Shell Command: Install 'insilode' command in PATH* from the Command Palette.
+The quickest way is one command in Terminal. It downloads the latest app for your Mac's processor, checks it against `SHA256SUMS.txt` and puts it in Applications, and Insilode then opens without the Gatekeeper prompt below (Gatekeeper checks files a browser downloaded, and this download is not one of them). Run it again to update.
 
-- **Insilode is not signed with an Apple Developer ID yet**, so macOS blocks the first launch. Open it once, then go to *System Settings > Privacy & Security* and choose *Open Anyway* (then confirm with your password). If macOS says Insilode "is damaged and can't be opened", clear the download quarantine instead: `xattr -dr com.apple.quarantine /Applications/Insilode.app`.
+```bash
+curl -fsSL https://insilode.dev/install.sh | sh
+```
+
+Or download `Insilode-<version>-darwin-arm64.dmg` (Apple silicon) or `Insilode-<version>-darwin-x64.dmg` (Intel), open it and drag Insilode to Applications. The `.zip` files hold the same app. For the `insilode` command, choose *Shell Command: Install 'insilode' command in PATH* from the Command Palette.
+
+- **Insilode is not signed with an Apple Developer ID yet**, so macOS blocks the first launch of an app downloaded in a browser ("Insilode" Not Opened). The command above skips this. Otherwise open it once, then go to *System Settings > Privacy & Security* and choose *Open Anyway* (then confirm with your password). If macOS says Insilode "is damaged and can't be opened", clear the download quarantine instead: `xattr -dr com.apple.quarantine /Applications/Insilode.app`.
 - Later: `brew install --cask bothuany/tap/insilode` (the tap does not exist yet). The cask also puts `insilode` on your PATH, and `brew upgrade` will keep it current.
 
 ### Linux
