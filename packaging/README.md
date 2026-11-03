@@ -108,6 +108,11 @@ What Setup does to an Axle install (kept `AppId`), and what the app copies on it
   --wait` + `stapler staple` in `scripts/package.mjs` in place of the ad hoc step.
 - **Linux:** the `.deb` itself is not signed, which is normal. An APT repository signs its index instead (`apt/README.md`).
 
+Until then, the site serves terminal installers that avoid both prompts: `site/public/install.sh` (macOS, `curl | sh`) and
+`site/public/install.ps1` (Windows, `irm | iex`). Gatekeeper and SmartScreen check only files carrying the quarantine mark
+a browser adds (`com.apple.quarantine`, the `Zone.Identifier` stream), and curl and Invoke-WebRequest add none. Both check the
+download against `SHA256SUMS.txt` first (`test/update/install.test.mjs`).
+
 ## App identity
 
 `product.json` (in `editor/patches/flow-core.patch`) gives Insilode its own names, so the packages install beside a
