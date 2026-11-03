@@ -20,7 +20,8 @@ const VERSION = '9.8.7'
 
 const GIT_BASH = 'C:\\Program Files\\Git\\bin\\bash.exe'
 const bash = process.platform !== 'win32' ? (spawnSync('bash', ['--version']).status === 0 ? 'bash' : '') : existsSync(GIT_BASH) ? GIT_BASH : ''
-const pwsh = spawnSync('pwsh', ['-NoProfile', '-Command', '1']).status === 0 ? 'pwsh' : ''
+// install.ps1 refuses to run anywhere but Windows (a Linux runner has pwsh too), so its tests run on Windows only.
+const pwsh = process.platform === 'win32' && spawnSync('pwsh', ['-NoProfile', '-Command', '1']).status === 0 ? 'pwsh' : ''
 
 const sha256 = text => createHash('sha256').update(text).digest('hex')
 
@@ -113,7 +114,7 @@ async function installPs1(base) {
 	}
 }
 
-test('install.ps1 keeps a setup that matches SHA256SUMS.txt, without the Mark of the Web SmartScreen checks', { skip: pwsh ? false : 'needs pwsh' }, async () => {
+test('install.ps1 keeps a setup that matches SHA256SUMS.txt, without the Mark of the Web SmartScreen checks', { skip: pwsh ? false : 'needs pwsh on Windows' }, async () => {
 	const server = await release({ [setup]: 'the setup' })
 	try {
 		const result = await installPs1(server.base)
@@ -130,7 +131,7 @@ test('install.ps1 keeps a setup that matches SHA256SUMS.txt, without the Mark of
 	}
 })
 
-test('install.ps1 stops before running anything when the setup does not match SHA256SUMS.txt', { skip: pwsh ? false : 'needs pwsh' }, async () => {
+test('install.ps1 stops before running anything when the setup does not match SHA256SUMS.txt', { skip: pwsh ? false : 'needs pwsh on Windows' }, async () => {
 	const server = await release({ [setup]: 'the setup' }, { [setup]: sha256('another file') })
 	try {
 		const result = await installPs1(server.base)
