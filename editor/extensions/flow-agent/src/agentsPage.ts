@@ -33,6 +33,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 button:focus-visible, input:focus-visible, textarea:focus-visible, .card:focus-visible, .lrow:focus-visible { outline: 1.5px solid var(--focus); outline-offset: -1.5px; }
 #app { display: flex; flex-direction: column; height: 100%; }
+#app[hidden] { display: none; }
 .ico { flex: none; width: 15px; height: 15px; display: block; }
 .ico.claude { color: var(--claude); } .ico.codex { color: var(--codex); } .ico.custom { color: var(--custom); }
 .mark { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 11.5px; }
@@ -283,7 +284,12 @@ const dTop = h('div'), dConv = h('div'), dReply = h('div', { class: 'sec reply h
 add(detail, dTop, dConv, dReply, dRest);
 const boardEl = h('div'), keptEl = h('div');
 add(main, boardEl, keptEl);
+// Hidden until the first rows arrive: drawn empty first, the whole page would jump when they come (a layout shift), and the
+// "No agents running" prompt would flash for agents that are running. Without a host it shows itself after a moment.
 const root = h('div', { id: 'app' }, head, tools, h('div', { class: 'split' }, main, detail));
+root.hidden = true;
+const reveal = () => { root.hidden = false; };
+setTimeout(reveal, 2000);
 document.body.appendChild(root);
 
 const search = h('input', { class: 'search', type: 'search', placeholder: 'Search agents  ( / )', 'aria-label': 'Search agents' });
@@ -610,6 +616,7 @@ window.addEventListener('message', e => {
 		data = Object.assign({ rows: [], kept: [], customs: [] }, m);
 		skew = typeof m.now === 'number' ? m.now - Date.now() : 0;
 		paint();
+		reveal();
 		if (sel) { askTail(sel, false); }
 		if (openMenu) { setMenu(true); }
 	} else if (m.type === 'tail') {

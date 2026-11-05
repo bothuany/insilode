@@ -61,13 +61,14 @@ function boot({ vscodeApi = true } = {}) {
 	}
 	let onMessage
 	let tick
+	const timers = []
 	const win = { addEventListener: (t, f) => { if (t === 'message') { onMessage = f } }, parent: { postMessage: (m, o) => parentPosted.push([JSON.parse(JSON.stringify(m)), o]) } }
 	win.window = win
-	const ctx = { window: win, document, setInterval: f => { tick = f }, setTimeout: () => 0, Math, Object, isFinite, Date, String, Number, Map, Set, Array, JSON }
+	const ctx = { window: win, document, setInterval: f => { tick = f }, setTimeout: (f, ms) => { timers.push({ f, ms }); return timers.length }, Math, Object, isFinite, Date, String, Number, Map, Set, Array, JSON }
 	if (vscodeApi) { ctx.acquireVsCodeApi = () => ({ postMessage: m => posted.push(JSON.parse(JSON.stringify(m))) }) }
 	vm.runInNewContext(scriptOf(), ctx)
 	const page = {
-		body, posted, parentPosted, tick: () => tick(),
+		body, posted, parentPosted, timers, tick: () => tick(),
 		send: m => onMessage({ data: m }),
 		data: (rows, extra = {}) => page.send({ type: 'data', now: Date.now(), avatar: 'pixel', rows, kept: [], customs: [], ...extra }),
 		key: (key, extra = {}) => { const e = { type: 'keydown', key, target: body, ctrlKey: false, metaKey: false, altKey: false, preventDefault() {}, ...extra }; for (const f of docListeners.keydown || []) { f(e) } },
@@ -95,6 +96,18 @@ test('the page has a locked-down CSP and loads nothing from outside', () => {
 	assert.doesNotMatch(html, /\b(?:src|href)\s*=\s*["']?https?:/i)
 	assert.doesNotMatch(html, /@import|url\(\s*["']?https?:/i)
 	assert.doesNotMatch(html, /require\(|\bimport\s+[\w{]/)
+})
+
+test('the page stays hidden until its first rows, so nothing jumps when they arrive; without a host it shows itself', () => {
+	const app = p => p.body.find(n => n.attrs && n.attrs.id === 'app')[0]
+	const p = boot()
+	assert.equal(app(p).hidden, true)
+	p.data([])
+	assert.equal(app(p).hidden, false)
+	const lone = boot({ vscodeApi: false })
+	assert.equal(app(lone).hidden, true)
+	for (const t of lone.timers) { t.f() }
+	assert.equal(app(lone).hidden, false)
 })
 
 test('the inline script parses and posts ready', () => {
