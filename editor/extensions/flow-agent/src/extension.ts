@@ -8,6 +8,7 @@ import { AgentHost, type AgentKind } from './acp';
 import { agentLook } from './agentLook';
 import { installAgentExtensions } from './agentExtensions';
 import { Agents } from './agents';
+import { AgentsPanel, OPEN_AGENTS_PAGE } from './agentsPanel';
 import { AskRouter } from './ask';
 import { DesktopStatus } from './desktop';
 import { AgentsDock } from './dock';
@@ -56,12 +57,15 @@ export function activate(context: vscode.ExtensionContext) {
 	agents.start().catch(e => log.error(`Agents: start failed: ${(e as Error).message}`));
 	const worktrees = new WorktreeRows(agents);
 	const dock = new AgentsDock(agents, worktrees);
+	const page = new AgentsPanel(agents, worktrees);
 	const router = new AskRouter(context, agents);
 	context.subscriptions.push(
 		agents,
 		router,
 		worktrees,
 		dock,
+		page,
+		vscode.commands.registerCommand(OPEN_AGENTS_PAGE, () => page.open()),
 		new AttentionNotifier(agents),
 		new PrEvents(agents, context.globalState),
 		new DesktopStatus(agents, log),
