@@ -1,4 +1,4 @@
-# Canvas board: a free drawing engine for agents (design v2, approved; phase 0 done)
+# Canvas board: a free drawing engine for agents (design v2, approved; phases 0-5 built, probe pending)
 
 v2 folds in a design review (19 findings). What changed is marked **(v2)**.
 
@@ -20,6 +20,20 @@ Learned, and folded into the design below:
   `frameData`.
 - **Text measurement** by a glyph table works in both builds; the first golden-style assertions pass.
 - Not verified yet: the webview's answer to `render` in the running app (web-mode probe in phase 5).
+
+## Phases 1-5 outcome (2026-11-05)
+
+Built in one session, with tests: the five widgets (`board-canvas/widgets/{table,json,chart,matrix,code}.ts`, each with `size()` and `paint()`, a golden SVG in `flow-view/test/canvas-expected` and a check that its primitives stay inside its box), the 42 icons, `path`, port-addressed arrows, scenes (`show`/`open`/`lit`, `stepsSignature`), moves (hash per frame, dropped and reported when stale), `CanvasView` in the webview, the `move`/`note`/`resetMoves` messages, the overrides in workspaceState (`src/board/overrides.ts`), `draw_board`/`update_board` with `elements`, `read_board`, the schemas, `diagram_guide` and docs/boards.md.
+
+Decisions made on the way, differing from or filling in the text above:
+- **`spec.ts` stays pure.** It carries the canvas types by `import type` only (`BoardSpec.elements`, `purpose`, `layout`, `columns`, `BoardStep.show/open/lit`). The two copies differ in the path of that one import, so a test compares them with the path normalised. Parsing a canvas board, its steps and the patching live in `flow-view/src/board/canvas.ts` (no `vscode`, unit-tested), and `parseBoardWithNotes` refuses kind canvas with a pointer to it.
+- **Painting is shared, the host draws too.** `paintCanvas` takes a palette and a scene; the webview resolves its theme tokens into one, the host uses the shared dark or light one for the lint, the boxes and the SVG it falls back to. `primitives.ts` sits below widgets and paint so widgets do not import layout.
+- **Arrows name ports** (`{ el, port }`): the end is the row of that port, an input entered on the left, the output left on the right.
+- **Moves.** The webview posts only `{ id, x, y }`; the host computes the frame hash (`moveHash`) from the tab's own spec. A moved element grows the picture; negative places are clamped to 0. `resetMoves` is a third message (the plan named move and note).
+- **View-only collapse** is a `flip` option of the layout (a double click on a frame header); a scene's `open` still wins.
+- **Limits** beyond the plan's: 12 table columns, 40 table rows kept, 200 points per series, 6 series, 200 KB of JSON value, 600 characters per note, 300 moves and 100 notes per board, 40 boards remembered.
+- **Not done:** the lint "arrow touching a box edge" (the router keeps 8px clear, so it cannot happen); a PNG of a board that is not open in a tab (the host's SVG is the fallback); "open as canvas" of a structured board (stays Later).
+- **Not verified yet:** the running app. The web-mode probe (drag, notes, steps, the render round trip in a real webview, light and dark themes) is phase 5's remaining part and is done in the main session.
 
 ## Goal
 
