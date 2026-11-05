@@ -1,24 +1,154 @@
 /*---------------------------------------------------------------------------------------------
  *  Insilode: the Agents page, a full-editor webview behind the title bar's Agents button (it replaces VS Code's own
- *  "Open in Agents" window button). Stub of the contract: the panel itself is built in its own change.
+ *  "Open in Agents" window button). One panel per window: the host sends it the rows (agentRows.ts, the dock's own) and
+ *  carries out what it asks for. The page is not trusted: every message goes through agentsAction.
  *--------------------------------------------------------------------------------------------*/
 
+import * as path from 'path';
 import * as vscode from 'vscode';
+import { buildRows, skeletonStages } from './agentRows';
 import type { Agents } from './agents';
+import type { AgentsPageData, AgentsPageMessage, AgentsPageTail } from './agentsData';
+import { agentsAction } from './agentsMessage';
+import { agentsHtml } from './agentsPage';
+import { readAvatar } from './desktopModel';
+import { renameFromPalette } from './paletteActions';
+import { savedAgents } from './pick';
+import { startOrResume } from './resume';
+import { readTail } from './transcriptTail';
 import type { WorktreeRows } from './worktreeActions';
 
 export const OPEN_AGENTS_PAGE = 'flow.agents.openPage';
 
 export class AgentsPanel implements vscode.Disposable {
+	private panel: vscode.WebviewPanel | undefined;
+	private timer: NodeJS.Timeout | undefined;
+	/** A repaint waits for flow-view's answers; one that a newer repaint overtook while waiting is dropped, so the older data never lands last. */
+	private paint = 0;
+	private listeners: vscode.Disposable[] = [];
+
 	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows) {}
 
 	/** Opens the page, or brings the open one to the front. */
 	open(): void {
-		void this.agents;
-		void this.worktrees;
+		if (this.panel) {
+			this.panel.reveal();
+			return;
+		}
+		const panel = vscode.window.createWebviewPanel('flow.agentsPage', 'Agents', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true });
+		this.panel = panel;
+		panel.iconPath = new vscode.ThemeIcon('sparkle') as unknown as vscode.WebviewPanel['iconPath'];
+		panel.webview.html = agentsHtml();
+		const repaint = () => this.post();
+		this.listeners = [
+			panel.webview.onDidReceiveMessage(raw => this.onMessage(raw)),
+			this.agents.onDidChange(repaint),
+			...(this.worktrees ? [this.worktrees.onDidChange(repaint)] : []),
+			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst') || e.affectsConfiguration('flow.agents.custom')) && this.post()),
+			panel.onDidDispose(() => this.release(panel)),
+		];
 	}
 
 	dispose(): void {
-		// nothing yet
+		const panel = this.panel;
+		this.release(panel);
+		panel?.dispose();
+	}
+
+	/** Forgets the panel and everything listening for it; safe to run twice. */
+	private release(panel: vscode.WebviewPanel | undefined) {
+		if (panel !== this.panel) {
+			return;
+		}
+		this.panel = undefined;
+		clearTimeout(this.timer);
+		this.listeners.forEach(d => d.dispose());
+		this.listeners = [];
+	}
+
+	private send(m: AgentsPageMessage) {
+		void this.panel?.webview.postMessage(m);
+	}
+
+	private onMessage(raw: unknown) {
+		const m = agentsAction(raw);
+		switch (m?.type) {
+			case 'ready': return this.post();
+			case 'new': return void vscode.commands.executeCommand('flow.agents.start', m.cli);
+			case 'show': return this.agents.show(m.id);
+			case 'flow': return this.agents.openImpactFlow(m.id, m.index);
+			case 'pr': return this.agents.openPr(m.id);
+			case 'xray': return this.agents.xray(m.id);
+			// Through the worktree rows: an agent's worktree must not drop out of sight with its row.
+			case 'forget': return void (this.worktrees ? this.worktrees.forget(m.id) : this.agents.forget(m.id));
+			case 'compact': return this.agents.compact(m.id);
+			// The prompt is built here from the host's own record of the turn: the page only names the row.
+			case 'explain': return this.agents.explain(m.id, savedAgents());
+			case 'rename': return void renameFromPalette(this.agents, m.id);
+			case 'swap': return void vscode.commands.executeCommand('flow.agents.swap', m.id);
+			case 'wt': return void this.worktrees?.act(m.id, m.action);
+			// One fixed command per pair, so the page never names a command id.
+			case 'start': return void this.start(m.cli, m.how);
+			case 'pick': return void vscode.commands.executeCommand('flow.agents.new');
+			case 'sk': return void this.agents.setSkeletonOn(m.id, m.on);
+			case 'tail': return void this.tail(m.id);
+			case 'reply':
+				if (!this.agents.typeInto(m.id, m.text, true, savedAgents(), false)) {
+					this.send({ type: 'replyFailed', id: m.id });
+				}
+				return;
+			// By index into the list the host sent: the page never names a command.
+			case 'custom': {
+				const custom = savedAgents()[m.index];
+				return custom ? void this.agents.spawn('custom', undefined, custom) : undefined;
+			}
+			case 'kept': return void vscode.commands.executeCommand('flow.agents.keptWorktrees');
+		}
+	}
+
+	/** "In a worktree" and "Resume a session…" of a start button's menu. */
+	private start(cli: 'claude' | 'codex', how: 'worktree' | 'resume') {
+		if (how === 'worktree') {
+			return cli === 'claude' ? vscode.commands.executeCommand('flow.agents.newClaudeWorktree') : vscode.commands.executeCommand('flow.agents.newCodexWorktree');
+		}
+		return cli === 'claude' ? vscode.commands.executeCommand('flow.agents.resume') : startOrResume(this.agents, 'codex', false);
+	}
+
+	private async tail(id: string) {
+		const s = this.agents.sessions.get(id);
+		const reply = (entries: AgentsPageTail['entries'], note?: string) => this.send({ type: 'tail', id, entries, ...(note ? { note } : {}) });
+		if (!s || !s.transcript || (s.cli !== 'claude' && s.cli !== 'codex')) {
+			return reply([], s?.cli === 'custom' ? 'A custom agent keeps no transcript Insilode can read.' : 'No conversation to show yet.');
+		}
+		try {
+			const entries = await readTail(s.transcript, s.cli, 40);
+			reply(entries, entries.length ? undefined : 'No conversation to show yet.');
+		} catch {
+			reply([], 'The conversation could not be read.');
+		}
+	}
+
+	/** Coalesces bursts of hook events into one repaint. */
+	private post() {
+		clearTimeout(this.timer);
+		this.timer = setTimeout(async () => {
+			const mine = ++this.paint;
+			const stages = await skeletonStages(this.agents);
+			if (mine !== this.paint || !this.panel) {
+				return;
+			}
+			const customs = savedAgents();
+			const data: AgentsPageData = {
+				type: 'data',
+				now: Date.now(),
+				avatar: readAvatar(vscode.workspace.getConfiguration('flow.agents').get('avatar')),
+				rows: buildRows(this.agents, this.worktrees, stages, customs),
+				// Folder names only: the full paths stay with the host.
+				kept: this.agents.keptWorktrees.map(k => ({ agent: k.agent, branch: k.branch, base: k.base, folder: path.basename(k.path) })),
+				limits: this.agents.latestLimits,
+				customs: customs.map(a => a.name),
+			};
+			this.send(data);
+		}, 60);
 	}
 }

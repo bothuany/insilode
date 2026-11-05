@@ -6,9 +6,8 @@
 
 import * as vscode from 'vscode';
 import type { Agents } from './agents';
-import { attentionKind, rank } from './attention';
+import { buildRows, skeletonStages } from './agentRows';
 import { readAvatar } from './desktopModel';
-import { conflictText } from './conflicts';
 import { dockAction } from './dockMessage';
 import { dockHtml } from './dockPage';
 import { renameFromPalette } from './paletteActions';
@@ -85,19 +84,6 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 		return cli === 'claude' ? vscode.commands.executeCommand('flow.agents.resume') : startOrResume(this.agents, 'codex', false);
 	}
 
-	/**
-	 * Where an agent is in skeleton first, asked of flow-view (which owns the stage). Nothing when flow-view is not running, does not
-	 * know the session or answers anything but a stage: the row then shows no indicator.
-	 */
-	private async stageOf(id: string): Promise<{ stage: string; skipped: boolean } | undefined> {
-		try {
-			const r = await Promise.resolve(vscode.commands.executeCommand<{ stage?: unknown; skipped?: unknown } | undefined>('flow.skeleton.stage', id));
-			return r && typeof r.stage === 'string' ? { stage: r.stage, skipped: r.skipped === true } : undefined;
-		} catch {
-			return undefined;
-		}
-	}
-
 	/** Coalesces bursts of hook events into one repaint. */
 	private post() {
 		const n = this.agents.needsYou;
@@ -107,18 +93,11 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 		clearTimeout(this.timer);
 		this.timer = setTimeout(async () => {
 			const mine = ++this.paint;
-			const conflicts = this.agents.conflicts();
-			// One question per agent that can be in skeleton first, asked together so a repaint waits for the slowest once.
-			const stages = new Map(await Promise.all([...this.agents.sessions.values()].filter(s => s.state !== 'ended' && s.cli !== 'custom').map(async s => [s.id, await this.stageOf(s.id)] as const)));
+			const stages = await skeletonStages(this.agents);
 			if (mine !== this.paint) {
 				return;
 			}
-			const list = rank([...this.agents.sessions.values()])
-				.map(s => ({ ...s, attention: attentionKind(s), done: s.todos.filter(t => t.status === 'completed').length, current: s.todos.find(t => t.status === 'in_progress')?.text, explain: this.agents.canExplain(s), impact: s.impact && { files: s.impact.files, more: s.impact.more, flows: s.impact.flows.map(f => ({ label: f.label, via: f.via })), tables: s.impact.tables },
-					// Worktree and conflicts are explicit fields: the session's own record (paths, the base branch) stays here.
-					worktree: s.worktree ? this.worktrees?.view(s) : undefined,
-					skeletonOn: this.agents.skeletonOn(s.id), skeletonAvailable: s.state !== 'ended' && s.cli !== 'custom', skeletonStage: stages.get(s.id),
-					clash: s.state === 'ended' ? undefined : conflicts.get(s.id)?.map(c => ({ text: conflictText(c), same: c.sameCheckout, files: c.files.slice(0, 12) })) }));
+			const list = buildRows(this.agents, this.worktrees, stages, savedAgents());
 			const avatar = readAvatar(vscode.workspace.getConfiguration('flow.agents').get('avatar'));
 			void this.view?.webview.postMessage({ type: 'data', list, now: Date.now(), avatar });
 		}, 60);
