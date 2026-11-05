@@ -331,7 +331,8 @@ function paintHead() {
 	const lim = data.limits && data.limits.windows ? data.limits.windows.map(w => {
 		const p = Math.max(0, Math.min(100, Math.round(w.usedPercent)));
 		return h('span', { class: 'lim' + (p >= 90 ? ' full' : p >= 70 ? ' warn' : ''), title: (data.limits.harness || 'Plan') + ' ' + w.label + ' limit: ' + p + '% used' },
-			w.label, h('span', { class: 'bar' }, h('i', { style: 'width:' + p + '%' })), p + '%', w.resetsAt ? 'resets in ' + until(w.resetsAt - now()) : '');
+			// Each part its own element: two text nodes side by side would form one flex item, and the gap would not part them.
+			w.label, h('span', { class: 'bar' }, h('i', { style: 'width:' + p + '%' })), h('span', null, p + '%'), w.resetsAt ? h('span', null, 'resets in ' + until(w.resetsAt - now())) : null);
 	}) : [];
 	fill(head, [
 		h('div', { class: 'counts' }, count(g.needs, 'Needs you', '--blocked'), count(g.working, 'Working', '--working'), count(g.done, 'Done', '--done')),

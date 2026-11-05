@@ -50,7 +50,7 @@ function rows(data: DemoData, now: number) {
       done: 1,
       current: 'Add an express option to Shipment',
       usage: { used: 23_000, size: 200_000, percent: 12, model: 'claude-sonnet-5-5' },
-      cost: { session: { tokens: { ...NO_TOKENS, input: 9_000, output: 4_000, cacheRead: 10_000 }, usd: 0.41 }, scope: 'this session', usdSource: 'Claude Code status line' },
+      cost: { session: { tokens: { ...NO_TOKENS, input: 9_000, output: 4_000, cacheRead: 10_000 }, usd: 0.41 }, scope: 'main agent (subagents not included)', usdSource: 'Claude Code status line' },
     },
     {
       ...base,
@@ -68,7 +68,7 @@ function rows(data: DemoData, now: number) {
       ],
       done: 2,
       usage: { used: 84_000, size: 200_000, percent: 42, model: 'claude-opus-5-5' },
-      cost: { session: { tokens: { ...NO_TOKENS, input: 31_000, output: 12_000, cacheRead: 41_000 }, usd: 1.87 }, prompt: { tokens: { ...NO_TOKENS, input: 31_000, output: 12_000, cacheRead: 41_000 }, usd: 1.87 }, scope: 'this session', usdSource: 'Claude Code status line' },
+      cost: { session: { tokens: { ...NO_TOKENS, input: 31_000, output: 12_000, cacheRead: 41_000 }, usd: 1.87 }, prompt: { tokens: { ...NO_TOKENS, input: 31_000, output: 12_000, cacheRead: 41_000 }, usd: 1.87 }, scope: 'main agent (subagents not included)', usdSource: 'Claude Code status line' },
       impact,
       explain: true,
       pr: {
