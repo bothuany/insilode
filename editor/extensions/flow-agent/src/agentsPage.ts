@@ -60,7 +60,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, .card:focus-v
 .btn[aria-pressed="true"] { background: color-mix(in srgb, var(--working) 22%, transparent); border-color: var(--working); }
 .btn:disabled { opacity: .5; cursor: default; }
 .search { flex: 1 1 160px; min-width: 120px; max-width: 320px; height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--input); }
-.sel { height: 28px; border: 1px solid var(--line); border-radius: 7px; background: var(--input); padding: 0 6px; }
+.clisel { height: 28px; border: 1px solid var(--line); border-radius: 7px; background: var(--input); padding: 0 6px; }
 .grow { flex: 1; }
 .newwrap { position: relative; display: inline-flex; gap: 6px; }
 .menu { position: absolute; top: 100%; left: 0; margin-top: 3px; z-index: 20; min-width: 230px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--vscode-menu-background, var(--bg)); color: var(--vscode-menu-foreground, var(--text)); box-shadow: 0 6px 18px rgb(0 0 0 / .35); }
@@ -311,7 +311,7 @@ function setMenu(on) {
 }
 const chip = (label, key, tip) => { const b = h('button', { type: 'button', class: 'btn small', 'aria-pressed': 'false', title: tip, onclick: () => { filter[key] = !filter[key]; paint(); } }, label); b.fkey = key; return b; };
 const chips = [chip('Unread', 'unread', 'Only agents with something you have not looked at'), chip('Worktree', 'wt', 'Only agents in a worktree of their own'), chip('Show ended', 'ended', 'Show agents whose CLI has exited')];
-const cliSel = h('select', { class: 'sel', 'aria-label': 'Filter by CLI', onchange: () => { filter.cli = cliSel.value; paint(); } },
+const cliSel = h('select', { class: 'clisel', 'aria-label': 'Filter by CLI', onchange: () => { filter.cli = cliSel.value; paint(); } },
 	h('option', { value: 'all' }, 'All CLIs'), h('option', { value: 'claude' }, 'Claude'), h('option', { value: 'codex' }, 'Codex'), h('option', { value: 'custom' }, 'Custom'));
 const viewBtn = (v, label) => { const b = h('button', { type: 'button', class: 'btn small', 'aria-pressed': 'false', onclick: () => { view = v; paint(); } }, label); b.view = v; return b; };
 const viewBtns = [viewBtn('board', 'Board'), viewBtn('list', 'List')];
