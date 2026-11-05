@@ -1,11 +1,14 @@
 // The caption bubble. Its text and the notes pinned to the step are Markdown (Markdown.tsx), rendered as React elements: no
 // HTML ever reaches the page. The bubble has a largest size and scrolls inside it, and ends in a box to ask about the step.
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import type { TourStep } from '../types'
 import { Arrow } from './Arrow'
 import { Markdown } from './Markdown'
 import { BAR_RESERVE, CAPTION_W } from './geometry'
-import { stepMark } from './player'
+import { KEY_HINT } from './legend'
+import { markSummary } from './marks'
+import { ASK_HINT, stepMark } from './player'
+import './legend.css'
 
 export interface StepAsk {
   /** Sends the question; false when there is nothing to send. */
@@ -13,7 +16,27 @@ export interface StepAsk {
   waiting: boolean
 }
 
-export function Caption({ step, place, asking, maxH, ask, onSize }: { step: TourStep; place: { left: number; top: number; side: string } | 'centre'; asking?: string; maxH?: number; ask?: StepAsk; onSize?: (h: number) => void }) {
+/** What the player adds under the caption: a hands-on step's prompt and button, the follow-up chips after the last step. */
+export interface CaptionSlots {
+  wait?: ReactNode
+  followUps?: ReactNode
+}
+
+export function Caption({ step, place, asking, askHint, notice, keyHint, maxH, ask, slots, onSize }: {
+  step: TourStep
+  place: { left: number; top: number; side: string } | 'centre'
+  asking?: string
+  /** Waiting long for an answer: says Space goes on without one. */
+  askHint?: boolean
+  /** Why the tour did not move (a step that waits is not done): announced in this live region. */
+  notice?: string
+  /** The first caption of a tour shows the key line. */
+  keyHint?: boolean
+  maxH?: number
+  ask?: StepAsk
+  slots?: CaptionSlots
+  onSize?: (h: number) => void
+}) {
   const [open, setOpen] = useState(false)
   const [height, setHeight] = useState(150)
   const [question, setQuestion] = useState('')
@@ -61,6 +84,8 @@ export function Caption({ step, place, asking, maxH, ask, onSize }: { step: Tour
   }
   return (
     <div ref={root} className={`tour-caption${step.state === 'missing' ? ' missing' : ''}`} data-side={place === 'centre' ? 'centre' : place.side} style={style} role="status" aria-live="polite">
+      {/* The pen marks are drawn in an aria-hidden layer: this is what a screen reader hears of them. */}
+      <span className="tour-sr">{markSummary(step.marks)}</span>
       <div className="tour-caption-head">
         <Arrow size={11} className="tour-caption-arrow" />
         <b>{step.title}</b>
@@ -76,6 +101,7 @@ export function Caption({ step, place, asking, maxH, ask, onSize }: { step: Tour
           </button>
         )}
         {asking && <p className="tour-asking">asking {asking}…</p>}
+        {asking && askHint && <p className="tour-asking tour-ask-hint">{ASK_HINT}</p>}
         {step.state === 'missing' && <p className="tour-warn">Can't find this code any more.</p>}
         {step.drift && step.state !== 'missing' && <p className="tour-warn">The code changed since this tour was made.</p>}
         {step.notes?.map((n, i) => (
@@ -85,6 +111,10 @@ export function Caption({ step, place, asking, maxH, ask, onSize }: { step: Tour
             <span className="tour-from">{n.by === 'agent' ? 'from the agent' : 'your note'}</span>
           </div>
         ))}
+        {slots?.wait}
+        {notice && <p className="tour-notice">{notice}</p>}
+        {slots?.followUps}
+        {keyHint && <p className="tour-keyhint">{KEY_HINT}</p>}
       </div>
       {ask && (
         <form

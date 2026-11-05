@@ -1072,6 +1072,25 @@ figcaption {
   white-space: nowrap;
 }
 
+.dl-terminal {
+  margin: 56px 0 0;
+  max-width: 720px;
+}
+
+.dl-terminal h3 {
+  margin-bottom: 8px;
+}
+
+.dl-terminal p {
+  margin: 16px 0 0;
+  color: var(--ink-2);
+}
+
+.download .dl-terminal pre {
+  margin: 8px 0 0;
+  padding: 14px 18px;
+}
+
 /* ---- footer ------------------------------------------------------------------------------------------------------------------ */
 
 .footer {
@@ -1367,7 +1386,8 @@ figcaption {
   margin-top: 8px;
 }
 
-.doc-body pre {
+.doc-body pre,
+.dl-terminal pre {
   margin: 20px 0 0;
   background: var(--window);
   color: #d7dce5;
@@ -1378,7 +1398,8 @@ figcaption {
   line-height: 1.6;
 }
 
-.doc-body pre code {
+.doc-body pre code,
+.dl-terminal pre code {
   font-size: inherit;
   background: none;
   padding: 0;

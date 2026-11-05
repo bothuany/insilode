@@ -141,7 +141,7 @@ export async function turnImpact(files: string[], d: { analyzer: Analyzer; poly:
 				break;
 			}
 			try {
-				const { items } = await d.providerFor(t).impact(t);
+				const items = (await d.providerFor(t).impact(t)).items.map(i => i.label);
 				for (const item of items) {
 					const e = entryForItem(item, entries);
 					if (e) {

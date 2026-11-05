@@ -1,0 +1,8 @@
+.tour-followups { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.tour-followup-label { font-size: 11px; opacity: 0.65; letter-spacing: 0.02em; }
+.tour-followup-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.tour-followup { font: inherit; font-size: 12px; text-align: left; padding: 4px 10px; border-radius: 999px; border: 1px solid var(--fl-line); background: transparent; color: inherit; cursor: pointer; transition: border-color 0.12s; max-width: 100%; }
+.tour-followup:hover:not(:disabled) { border-color: var(--tour-ink); }
+.tour-followup:focus-visible { outline: 1.5px solid var(--tour-ink); outline-offset: 1px; }
+.tour-followup:disabled { opacity: 0.5; cursor: default; }
+@media (prefers-reduced-motion: reduce) { .tour-followup { transition: none; } }

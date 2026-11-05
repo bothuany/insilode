@@ -8,6 +8,8 @@ export function loadCounter() {
   return {
     /** Starts a load and returns its number. */
     start: () => ++n,
+    /** The number of the newest load: a retry of one part of it (the callers, the impact) belongs to it. */
+    current: () => n,
     isCurrent: (mine: number) => mine === n,
     /** Runs `apply` only while load `mine` is still the newest one. */
     whileCurrent: (mine: number) => (apply: () => void) => {

@@ -144,7 +144,7 @@ test('the change set counts the endpoints a table reaches, in its chip and for t
 	provider.use({ label: 'Changes since main', files: [file('Order.java')] })
 	await provider.graph()
 	const { items } = await provider.impact()
-	assert.deepEqual(items.sort(), ['GET /orders Order.list', 'GET /reports/revenue Order.revenue', 'POST /orders Order.create'].sort())
+	assert.deepEqual(items.map(i => i.label).sort(), ['GET /orders Order.list', 'GET /reports/revenue Order.revenue', 'POST /orders Order.create'].sort())
 	const trace = await provider.latest()
 	assert.deepEqual(impact.tableEndpoints(trace.impact).map(f => `${f.label} ${f.via[0]}`), ['GET /orders table orders', 'GET /reports/revenue table orders', 'POST /orders table orders'])
 })

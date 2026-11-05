@@ -1,6 +1,6 @@
 // The board's React Flow node types: a UML-style class box, a collapsed group (one summary node) and an expanded
 // group's container. They are memoized and take everything from `data`; clicks go through ActionsCtx.
-import { createContext, memo, useContext, type CSSProperties } from 'react'
+import { createContext, memo, useContext, useState, type CSSProperties } from 'react'
 import type { Node, NodeProps } from '@xyflow/react'
 import type { BoardMember, BoardNode } from './spec'
 import { DETAIL_H, detailOf, GROUP_HEAD, HEADER_H, MARK_SIZE, type VGroup, type VNode } from './model'
@@ -61,6 +61,8 @@ const Kinds = ({ kinds }: { kinds?: Record<string, number> }) => (
 
 export const CardNode = memo(function CardNode({ data }: NodeProps<CardNodeT>) {
   const a = useContext(ActionsCtx)
+  // The note glyph opens the note over the card's header (it is only a tooltip otherwise, which a keyboard or a screen reader never gets).
+  const [noteOpen, setNoteOpen] = useState(false)
   const { v } = data
   const n = v.node!
   const kind = n.kind ?? 'class'
@@ -95,8 +97,15 @@ export const CardNode = memo(function CardNode({ data }: NodeProps<CardNodeT>) {
       >
         {n.check && <span className={`bc-check c-${n.check}`}>{n.warn ? '⚠ ' : ''}{n.check}</span>}
         {!n.check && n.change && <span className={`bc-check ch-${n.change}`}>{n.change}</span>}
-        {!n.check && !n.change && n.note && <span className="bc-note" title={n.note}>✎</span>}
-        {n.zoom && data.zoomable && <span className="bc-zoom" title="Zoom in: open the board below this box" onClick={e => { e.stopPropagation(); a.zoom(n.zoom!) }}>⤓</span>}
+        {!n.check && !n.change && n.note && (
+          <button type="button" className="bc-note" aria-label="Show note" aria-expanded={noteOpen} title={n.note} onKeyDown={e => { if (e.key === 'Escape' && noteOpen) { e.stopPropagation(); setNoteOpen(false) } }} onClick={e => { e.stopPropagation(); setNoteOpen(o => !o) }}>✎</button>
+        )}
+        {n.zoom && data.zoomable && (
+          <button type="button" className="bc-zoom" aria-label={`Zoom into ${n.label}`} title="Zoom in: open the board below this box" onClick={e => { e.stopPropagation(); a.zoom(n.zoom!) }}>⤓</button>
+        )}
+        {noteOpen && n.note && (
+          <div className="bc-notetext" role="note" onClick={e => e.stopPropagation()}>{n.note}</div>
+        )}
         {st && <div className="bc-st">«{st}»</div>}
         <div className="bc-name">{n.label}</div>
         {detail && <div className="bc-detail">{detail}</div>}

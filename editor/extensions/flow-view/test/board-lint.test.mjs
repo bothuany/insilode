@@ -37,6 +37,28 @@ test('board-notes: nothing is dropped silently', () => {
 	assert.match(text, /group `g`: kind `zone`/)
 })
 
+test('board-steps: a step written with `description` and a `focus` list (as Codex did) still says and lights what was meant', () => {
+	const { spec: b, notes } = parse({
+		title: 't', nodes: [node('a'), node('b'), node('c')], edges: [{ from: 'a', to: 'b' }],
+		steps: [
+			{ title: 'One', description: 'Why a and b.', focus: ['a', 'b'] },
+			{ title: 'Two', description: 'Why c.', focus: ['c'] },
+			{ title: 'Three', caption: 'Nothing named.' },
+		],
+	})
+	assert.deepEqual(b.steps.map(s => [s.caption, s.nodes, s.focus]), [['Why a and b.', ['a', 'b'], undefined], ['Why c.', ['c'], undefined], ['Nothing named.', [], undefined]])
+	const text = notes.join('\n')
+	assert.equal(text.match(/`description` was read as the caption/g).length, 1)
+	assert.equal(text.match(/a `focus` list was read as `nodes`/g).length, 1)
+	assert.match(text, /step #3 lights up nothing/)
+	assert.doesNotMatch(text, /step #1 lights up nothing/)
+})
+
+test('board-steps: a step with `caption` and `nodes` gives no note', () => {
+	const { notes } = parse({ title: 't', nodes: [node('a'), node('b')], edges: [{ from: 'a', to: 'b' }], steps: [{ title: 'One', caption: 'c', nodes: ['a'] }, { title: 'Two', edges: [['a', 'b']] }, { title: 'Three', focus: 'a' }] })
+	assert.deepEqual(notes, [])
+})
+
 test('board-notes: many of one kind are counted, not listed', () => {
 	const nodes = Array.from({ length: 9 }, (_, i) => node(`n${i}`, { kind: 'nope' }))
 	const { notes } = parse({ title: 't', nodes })

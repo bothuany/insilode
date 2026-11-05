@@ -10,10 +10,16 @@
 export const WORKTREE_ACTIONS = ['open', 'diff', 'merge', 'remove'] as const;
 export type WorktreeAction = typeof WORKTREE_ACTIONS[number];
 
+/** The other ways to start an agent, from the menu beside its button: in a worktree of its own, or resuming an earlier session. */
+export const START_HOWS = ['worktree', 'resume'] as const;
+export type StartHow = typeof START_HOWS[number];
+
 export type DockAction =
 	| { type: 'ready' }
 	/** Only the two built-in agents start from the page: your own commands go through "Start an Agent…". */
 	| { type: 'new'; cli: 'claude' | 'codex' }
+	/** The chevron menu: the same two agents, started a fixed way. The page never names a command id; dock.ts maps the pair to one. */
+	| { type: 'start'; cli: 'claude' | 'codex'; how: StartHow }
 	| { type: 'show' | 'pr' | 'xray' | 'forget' | 'compact' | 'rename' | 'explain' | 'swap'; id: string }
 	/** An index into the impact list the host sent: the page never names a flow itself. */
 	| { type: 'flow'; id: string; index: number }
@@ -39,6 +45,8 @@ export function dockAction(raw: unknown): DockAction | undefined {
 			return { type: m.type };
 		case 'new':
 			return m.cli === 'claude' || m.cli === 'codex' ? { type: 'new', cli: m.cli } : undefined;
+		case 'start':
+			return (m.cli === 'claude' || m.cli === 'codex') && START_HOWS.includes(m.how as StartHow) ? { type: 'start', cli: m.cli, how: m.how as StartHow } : undefined;
 		case 'flow':
 			return id !== undefined && typeof m.index === 'number' && Number.isInteger(m.index) && m.index >= 0 ? { type: 'flow', id, index: m.index } : undefined;
 		case 'sk':

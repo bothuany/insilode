@@ -1,0 +1,9 @@
+/* Keep and Undo on a review card (agentEdit/AgentEditActions.tsx). The buttons are the canvas's own .btn; these only add what
+   an off button, a badge and the screen-reader text need. */
+.ae-btn[aria-disabled="true"] { opacity: .4; cursor: default; }
+.ae-btn[aria-disabled="true"]:hover { background: transparent; color: var(--fl-muted); }
+.ae-btn.solid[aria-disabled="true"]:hover { background: var(--vscode-button-background, #e5e5e5); color: var(--vscode-button-foreground, #141414); }
+.ae-btn:focus-visible { outline: 1.5px solid var(--fl-signal); outline-offset: 1px; }
+.ae-badge { padding: 1px 7px; border-radius: 9px; border: 1px solid var(--fl-line-strong, var(--fl-line)); color: var(--fl-muted); font-size: 10.5px; white-space: nowrap; }
+.ae-sep { width: 1px; height: 14px; margin: 0 2px; background: var(--fl-line); flex: none; }
+.ae-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }

@@ -40,19 +40,20 @@ test('the page asks for one agent\'s Skeleton on or off, and nothing else', () =
 
 test('the row shows only the Skeleton button: pressed or not, explained in its tooltip, keyboard reachable', () => {
 	const script = /<script>([\s\S]*)<\/script>/.exec(page)[1]
-	const list = { innerHTML: '', querySelectorAll: () => [] }
-	const document = { getElementById: () => list, querySelectorAll: () => [] }
+	const list = { innerHTML: '', querySelectorAll: () => [], addEventListener() { } }
+	const document = { getElementById: () => list, querySelectorAll: () => [], addEventListener() { } }
 	let onMessage
 	const window = { addEventListener: (_type, f) => { onMessage = f } }
 	vm.runInNewContext(script, { window, document, acquireVsCodeApi: () => ({ postMessage() { } }), setInterval() { }, Math, Object, isFinite, Date, String, Number, Map })
 	const row = { id: 'a1', cli: 'claude', name: 'Claude', state: 'done', since: Date.now(), todos: [], unread: false, done: 0, skeletonAvailable: true }
 	onMessage({ data: { type: 'data', list: [{ ...row, skeletonOn: false }, { ...row, id: 'c', cli: 'custom', skeletonAvailable: false }], now: Date.now(), avatar: 'pixel' } })
-	assert.match(list.innerHTML, /<span class="act" role="button" tabindex="0" aria-pressed="false" data-sk="on" data-tip="Skeleton first for this agent.[^"]*Off: click to turn it on." aria-description="[^"]*">Skeleton<\/span>/)
-	assert.equal(list.innerHTML.match(/data-sk=/g).length, 1, 'a custom agent has no button')
+	assert.match(list.innerHTML, /<button type="button" class="act" aria-pressed="false" data-act="sk" data-on="on" data-tip="Skeleton first for this agent.[^"]*Off: click to turn it on." aria-description="[^"]*">Skeleton<\/button>/)
+	assert.equal(list.innerHTML.match(/data-act="sk"/g).length, 1, 'a custom agent has no button')
 	onMessage({ data: { type: 'data', list: [{ ...row, skeletonOn: true }], now: Date.now(), avatar: 'pixel' } })
-	assert.match(list.innerHTML, /aria-pressed="true" data-sk="off"[^>]*On: click to turn it off.[^>]*>Skeleton<\/span>/)
+	assert.match(list.innerHTML, /aria-pressed="true" data-act="sk" data-on="off"[^>]*On: click to turn it off.[^>]*>Skeleton<\/button>/)
 	assert.equal(/Write the skeleton|Hand over|Just do it|Plan vs code|data-skw/.test(list.innerHTML), false, 'nothing else on the row')
-	assert.match(page, /e\.key === 'Enter' \|\| e\.key === ' '/, 'Enter and Space press it')
+	// A real button: Enter and Space press it with no key handler of the page's own (it was a span inside the row's button before).
+	assert.doesNotMatch(list.innerHTML, /role="button"/)
 })
 
 test('the reminders stay short, name the tool, and say how chat replies map to steps', () => {

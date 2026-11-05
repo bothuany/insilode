@@ -202,6 +202,21 @@
         "icon": "$(history)"
       },
       {
+        "command": "flow.agents.rename",
+        "title": "Rename an Agent…",
+        "category": "Insilode"
+      },
+      {
+        "command": "flow.agents.swap",
+        "title": "Continue an Agent in the Other CLI…",
+        "category": "Insilode"
+      },
+      {
+        "command": "flow.agents.remove",
+        "title": "Remove an Agent…",
+        "category": "Insilode"
+      },
+      {
         "command": "flow.agents.chooseAskTarget",
         "title": "Change Agent for Questions…",
         "category": "Insilode",
@@ -281,7 +296,7 @@
         "flow.agents.mcp": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Give agents started from Insilode the `insilode` tools (open files, the git diff and flows in the editor, find entry points, symbols, definitions and references, read diagnostics and flows as text, draw diagrams and plans). They are added to the agent with `--mcp-config`, next to your own MCP servers; they cannot write files or run commands. Takes effect for agents started afterwards."
+          "markdownDescription": "Give agents started from Insilode the `insilode` tools (open files, the git diff and flows in the editor, find entry points, symbols, definitions and references, read diagnostics and flows as text, draw diagrams and plans). Claude Code gets them with `--mcp-config` and Codex from Insilode's own Codex profile (`$CODEX_HOME/insilode.config.toml`, `codex -p insilode`), next to your own MCP servers; they cannot write files or run commands. Takes effect for agents started afterwards."
         },
         "flow.agents.shim": {
           "type": "boolean",
@@ -586,6 +601,19 @@
           "default": false,
           "markdownDescription": "Start each new Claude Code and Codex agent in a git worktree of its own: a checkout under `.insilode/worktrees/<name>` on a new branch `insilode/<name>`, cut from the branch you are on. Agents working in parallel then never write over each other's files; the agent's row shows the branch, how far it is ahead of and behind its base, and buttons to open it, show its changes in flow, merge it back and remove it. Insilode git-ignores `.insilode/worktrees/` in the repository's `.git/info/exclude`. A committed `.insilode/worktree.json` sets each new worktree up (files to copy such as `.env`, commands to run such as `npm ci`, as argument lists) in a trusted workspace. Off: agents work in this checkout (\"Other…\" in the Agents dock still offers a worktree)."
         },
+        "flow.agents.worktreeBase": {
+          "type": "string",
+          "enum": [
+            "current",
+            "origin-default"
+          ],
+          "enumDescriptions": [
+            "Cut each new worktree from the branch you are on.",
+            "Cut each new worktree from origin's default branch (origin/main, origin/master…), so it starts from what is shared, not from your unpushed work."
+          ],
+          "default": "current",
+          "markdownDescription": "Which commit a new agent worktree starts from (`flow.agents.worktree`). `origin-default` needs an `origin` remote with a known default branch; without one the worktree is cut from the current branch."
+        },
         "flow.agents.installAgentExtensions": {
           "type": "boolean",
           "default": true,
@@ -594,7 +622,7 @@
         "flow.agents.codexHooks": {
           "type": "boolean",
           "default": true,
-          "description": "Show Codex's status (working, needs you, done) and its edits on the canvas. Insilode writes read-only hooks to its own Codex profile ($CODEX_HOME/insilode.config.toml) and starts Codex with `-p insilode`; your config.toml is not changed. Codex asks you once to trust these hooks (/hooks)."
+          "description": "Show Codex's status (working, needs you, done) and its edits on the canvas. Insilode writes read-only hooks to its own Codex profile ($CODEX_HOME/insilode.config.toml, which also gives Codex the `insilode` tools: flow.agents.mcp) and starts Codex with `-p insilode`; your config.toml is not changed. Codex asks you once to trust these hooks (/hooks)."
         }
       }
     },

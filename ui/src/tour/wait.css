@@ -1,0 +1,12 @@
+/* ---- hands-on steps: the prompt, its button and what happened, under the caption's text ---- */
+.tour-wait { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-top: 9px; padding: 6px 0 1px 10px; box-shadow: inset 2px 0 0 var(--tour-ink); }
+.tour-wait[data-done] { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--tour-ink) 35%, transparent); }
+.tour-wait-hint { flex: 1 1 100%; margin: 0; color: var(--fl-text); }
+.tour-wait-go { height: 24px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tour-wait-go:disabled { opacity: .55; cursor: default; }
+.tour-wait-skip { color: var(--fl-muted); }
+.tour-wait-skip:hover { color: var(--fl-text); }
+/* Empty most of the time: it takes no room until it says something, yet stays in the page so a screen reader hears it change. */
+.tour-wait-status { flex: 1 1 auto; margin: 0; min-width: 0; color: var(--fl-muted); font-size: 11.5px; overflow-wrap: anywhere; }
+.tour-wait-status:empty { flex: 0 0 0; }
+.tour-wait[data-done] .tour-wait-status::before { content: '\2713\00a0'; color: var(--tour-ink); }

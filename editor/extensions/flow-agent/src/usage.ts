@@ -18,7 +18,7 @@
  *  their own). No vscode, so all of it is tested on its own.
  *--------------------------------------------------------------------------------------------*/
 
-import { existsSync, readFileSync } from 'fs';
+import { accessSync, constants, existsSync, readFileSync } from 'fs';
 import * as path from 'path';
 
 /** How full one agent's context window is. `size` is absent when the agent did not say. */
@@ -252,16 +252,28 @@ export function hasOwnStatusLine(configDir: string, folders: string[]): boolean 
 	});
 }
 
-/** A program on PATH (`node`), or undefined. No process is started to find it. */
+/**
+ * A program on PATH (`node`), or undefined. No process is started to find it. Off Windows a file that is not executable
+ * does not count, so a stray `node` without the execute bit falls through to the next PATH entry (or to no result).
+ */
 export function findOnPath(name: string, envPath = process.env.PATH ?? '', platform: NodeJS.Platform = process.platform): string | undefined {
 	const file = platform === 'win32' ? `${name}.exe` : name;
 	for (const dir of envPath.split(platform === 'win32' ? ';' : ':')) {
 		const p = dir && path.join(dir.replace(/^"|"$/g, ''), file);
-		if (p && existsSync(p)) {
+		if (p && existsSync(p) && (platform === 'win32' || executable(p))) {
 			return p;
 		}
 	}
 	return undefined;
+}
+
+function executable(file: string): boolean {
+	try {
+		accessSync(file, constants.X_OK);
+		return true;
+	} catch {
+		return false;
+	}
 }
 
 /**

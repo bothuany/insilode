@@ -101,9 +101,15 @@ export class LspProvider implements FlowProvider {
 			path.add(this.id(item));
 			const calls = await vscode.commands.executeCommand<vscode.CallHierarchyOutgoingCall[]>('vscode.provideOutgoingCalls', item) ?? [];
 			const seen = new Set<string>();
-			for (const call of calls.sort((a, b) => callLine(a) - callLine(b)).slice(0, MAX_CHILDREN)) {
+			const ordered = calls.sort((a, b) => callLine(a) - callLine(b)).slice(0, MAX_CHILDREN);
+			for (const [at, call] of ordered.entries()) {
 				if (seen.has(this.id(call.to))) {
 					continue;
+				}
+				if (count >= MAX_NODES) {
+					// The size limit: this card says how many of its calls were not drawn, so a cut flow never looks whole.
+					node.truncated = new Set(ordered.slice(at).map(c => this.id(c.to)).filter(id => !seen.has(id))).size;
+					break;
 				}
 				seen.add(this.id(call.to));
 				// Library calls become leaves; only follow into our own code.
@@ -137,7 +143,7 @@ export class LspProvider implements FlowProvider {
 			}
 			frontier = next;
 		}
-		return { label: 'root caller', items: [...roots].sort() };
+		return { label: 'root caller', items: [...roots].sort().map(label => ({ label, file: null, line: 0 })) };
 	}
 
 	async callers(t: FlowTarget): Promise<FlowNode | null> {

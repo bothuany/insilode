@@ -1,0 +1,19 @@
+/* The pen marks of a tour step (src/tour/MarkLayer.tsx): drawn in flow coordinates in the step's ink, under the cursor. */
+.tour-pen { position: absolute; left: 0; top: 0; z-index: 1900; overflow: visible; pointer-events: none; }
+.tour-pen .pen-stroke { fill: none; stroke: var(--tour-ink, currentColor); stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 0 1.5px rgb(0 0 0 / .35)); }
+.tour-pen .pen-fill { fill: var(--tour-ink, currentColor); stroke: none; }
+.tour-pen .pen-badge { fill: color-mix(in srgb, var(--tour-ink, #000) 18%, #000); font: 700 11px var(--fl-ui, sans-serif); }
+.tour-pen .pen-pill { fill: var(--vscode-editorWidget-background, var(--fl-card, #fff)); stroke: var(--tour-ink, currentColor); stroke-width: 1.5; }
+.tour-pen .pen-pill-text { fill: var(--fl-text, currentColor); font: 11px var(--fl-mono, monospace); }
+
+/* The ink reveal: a stroke is drawn along its length (pathLength is 1), a glyph pops in, the arrowhead and label follow the curve. */
+.tour-pen .pen-draw { stroke-dasharray: 1; stroke-dashoffset: 0; animation: tour-pen-draw .45s ease-out both; }
+.tour-pen .pen-pop { transform-box: fill-box; transform-origin: center; animation: tour-pen-pop .3s cubic-bezier(.3, 1.5, .5, 1) both; }
+.tour-pen .pen-late { animation: tour-pen-fade .2s ease-out .35s both; }
+.tour-pen.reduced .pen-draw, .tour-pen.reduced .pen-pop, .tour-pen.reduced .pen-late { animation: none; }
+@keyframes tour-pen-draw { from { stroke-dashoffset: 1; } to { stroke-dashoffset: 0; } }
+@keyframes tour-pen-pop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: scale(1); } }
+@keyframes tour-pen-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) {
+  .tour-pen .pen-draw, .tour-pen .pen-pop, .tour-pen .pen-late { animation: none; }
+}

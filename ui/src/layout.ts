@@ -10,13 +10,29 @@ const PAD = 16
 const GAP = 90
 const VGAP = 18
 
-export const KIND_COLOR: Record<Kind, string> = {
-  controller: '#ffb454',
-  handler: '#b88cff',
-  method: '#8b93a1',
-  db: '#4fd6d0',
-  ambiguous: '#ff6b7d',
-  external: '#5c6370',
+/**
+ * The accent of each kind of card and edge. Edge labels are text in this colour, so a light theme gets a darker set: the pale
+ * dark-theme amber is 1.7:1 on white. Both sets are at least 4.5:1 on their editor background (ui/test/colors.test.mjs).
+ */
+export const KIND_PALETTE: { dark: Record<Kind, string>; light: Record<Kind, string> } = {
+  dark: { controller: '#ffb454', handler: '#b88cff', method: '#8b93a1', db: '#4fd6d0', ambiguous: '#ff6b7d', external: '#838b9a' },
+  light: { controller: '#9a5b00', handler: '#7a3fd1', method: '#5c6470', db: '#0e7b76', ambiguous: '#b3261e', external: '#5a6270' },
+}
+
+const KINDS = Object.keys(KIND_PALETTE.dark) as Kind[]
+const kindVars = (set: Record<Kind, string>) => KINDS.map(k => `--kind-${k}: ${set[k]};`).join(' ')
+
+/** What KIND_COLOR names: the dark set by default, the light one under the light theme classes VS Code puts on <body>. */
+export const KIND_CSS = `:root { ${kindVars(KIND_PALETTE.dark)} }\nbody.vscode-light, body.vscode-high-contrast-light { ${kindVars(KIND_PALETTE.light)} }`
+
+// A variable, so the colour follows the theme without a layout pass; the rules above are added to the page once, here, because
+// this page's own stylesheet is not where the canvas keeps its other colours.
+export const KIND_COLOR = Object.fromEntries(KINDS.map(k => [k, `var(--kind-${k})`])) as Record<Kind, string>
+if (typeof document !== 'undefined' && !document.getElementById('kind-colors')) {
+  const style = document.createElement('style')
+  style.id = 'kind-colors'
+  style.textContent = KIND_CSS
+  document.head.appendChild(style)
 }
 
 export interface CodeLine {

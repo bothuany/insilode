@@ -7,7 +7,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { agentExtensionStep } from './agentExtensionsCore';
+import { agentExtensionStep, installNotice, INSTALL_NOTICE_KEY } from './agentExtensionsCore';
 
 /** Claude Code (Anthropic) and Codex (OpenAI), as Open VSX names them. */
 export const AGENT_EXTENSIONS = ['anthropic.claude-code', 'openai.chatgpt'];
@@ -20,6 +20,8 @@ export async function installAgentExtensions(context: vscode.ExtensionContext, l
 		return;
 	}
 	const handled = new Set(context.globalState.get<string[]>(HANDLED, []));
+	/** What this run really installed: an extension found installed or not on Open VSX is no news. */
+	const installed: string[] = [];
 	for (const id of AGENT_EXTENSIONS) {
 		if (handled.has(id)) {
 			continue;
@@ -32,6 +34,7 @@ export async function installAgentExtensions(context: vscode.ExtensionContext, l
 			await vscode.commands.executeCommand('workbench.extensions.installExtension', id);
 			log.info(`Agents: installed ${id} from Open VSX`);
 			handled.add(id);
+			installed.push(id);
 		} catch (e) {
 			const step = agentExtensionStep(e);
 			log.warn(`Agents: ${id} was not installed (${(e as Error)?.message ?? e}); ${step === 'stop' ? 'this Insilode has no extension gallery' : step === 'skip' ? 'it is not on Open VSX' : 'trying again at the next start'}`);
@@ -43,4 +46,15 @@ export async function installAgentExtensions(context: vscode.ExtensionContext, l
 		}
 	}
 	await context.globalState.update(HANDLED, [...handled]);
+	// The install stays silent while it runs; afterwards one notice says what happened and how to stop it. The mark is
+	// set before the notice is shown, so a window that closes with it open does not show it again.
+	const notice = installNotice(installed, context.globalState.get<boolean>(INSTALL_NOTICE_KEY, false));
+	if (notice) {
+		await context.globalState.update(INSTALL_NOTICE_KEY, true);
+		void vscode.window.showInformationMessage(notice, 'Open Setting').then(pick => {
+			if (pick === 'Open Setting') {
+				void vscode.commands.executeCommand('workbench.action.openSettings', 'flow.agents.installAgentExtensions');
+			}
+		});
+	}
 }

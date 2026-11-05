@@ -1,17 +1,17 @@
 # Import from VS Code
 
-Switching from VS Code (or VS Code Insiders, or Cursor) takes one step: Insilode brings over your settings, keyboard shortcuts, snippets, colour and icon theme and extensions, and merges them into what Insilode already has. It is the built-in extension `flow-import` (`editor/extensions/flow-import`).
+Switching from VS Code (or VS Code Insiders, VSCodium, Cursor or Windsurf) takes one step: Insilode brings over your settings, keyboard shortcuts, snippets, colour and icon theme and extensions, and merges them into what Insilode already has. It is the built-in extension `flow-import` (`editor/extensions/flow-import`).
 
 ## How to start it
 
-- **On the first start.** When Insilode has no user settings yet and finds VS Code, VS Code Insiders or Cursor for your user, it shows one notification: *Coming from VS Code? Bring your settings, keyboard shortcuts, snippets, theme and extensions into Insilode.* with **Import from VS Code** and **Start fresh**. It is a notification in the corner, not a dialog: it never takes the focus, and it is shown once (closing it or choosing Start fresh is final; the command below still works). Someone who already has settings in Insilode, including everyone coming from Axle (whose settings are copied over on the first start), is not asked.
+- **On the first start.** When Insilode has no user settings yet and finds VS Code, VS Code Insiders, VSCodium, Cursor or Windsurf for your user, it shows one notification: *Coming from VS Code? Bring your settings, keyboard shortcuts, snippets, theme and extensions into Insilode.* with **Import from VS Code**, **Not now** and **Never**. It is a notification in the corner, not a dialog: it never takes the focus. Only an explicit answer ends the offer: **Never**, or an import that ran to its end. **Not now**, closing the notification with the X, closing the list of editors (below) and an import you cancelled or that stopped on an error all leave it open, and it comes back at the next start. The command below always works. Someone who already has settings in Insilode, including everyone coming from Axle (whose settings are copied over on the first start), is not asked. When more than one editor is found the notification says *another editor* and **Import…** opens a list of them (name, folder, and the date of its `settings.json`, or "No settings.json (extensions only)"); the one you choose is what gets imported, never silently the first.
 - **Any time.** The command **Insilode: Import from VS Code…** in the Command Palette.
 
-When more than one editor is installed, the command first asks which one to import from (VS Code, VS Code Insiders, Cursor; the first-start notification offers the first of these that is installed). Then a list shows what that editor has, every item ticked, with counts:
+When more than one editor is installed, the command first asks which one to import from (VS Code, VS Code Insiders, VSCodium, Cursor, Windsurf, with the same list as the first-start offer). Then a list shows what that editor has, every item ticked, with counts:
 
 | Item | What is imported |
 |---|---|
-| Settings | The keys of `settings.json`, except the theme keys and the ones listed under "Never imported" |
+| Settings | The keys of `settings.json`, except the theme keys, the ones listed under "Never imported" and the ones "Held back for review" |
 | Keyboard shortcuts | The entries of `keybindings.json` |
 | Snippets | Every `*.json` and `*.code-snippets` file in `User/snippets` (global and language snippets) |
 | Colour and icon theme | `workbench.colorTheme`, `workbench.iconTheme`, `workbench.productIconTheme`, the `workbench.preferred*ColorTheme` keys, `workbench.colorCustomizations`, `editor.tokenColorCustomizations`, `editor.semanticTokenColorCustomizations` |
@@ -25,9 +25,9 @@ Nothing in the other editor is changed. Insilode reads:
 
 | | User folder (settings, keybindings, snippets) | Extension list |
 |---|---|---|
-| Windows | `%APPDATA%\Code\User`, `%APPDATA%\Code - Insiders\User`, `%APPDATA%\Cursor\User` | `%USERPROFILE%\.vscode\extensions`, `.vscode-insiders\extensions`, `.cursor\extensions` |
-| macOS | `~/Library/Application Support/Code/User` (and `Code - Insiders`, `Cursor`) | `~/.vscode/extensions` (and `~/.vscode-insiders`, `~/.cursor`) |
-| Linux | `~/.config/Code/User` (or `$XDG_CONFIG_HOME/Code/User`; and `Code - Insiders`, `Cursor`) | `~/.vscode/extensions` (and `~/.vscode-insiders`, `~/.cursor`) |
+| Windows | `%APPDATA%\Code\User`, `%APPDATA%\Code - Insiders\User`, `%APPDATA%\VSCodium\User`, `%APPDATA%\Cursor\User`, `%APPDATA%\Windsurf\User` | `%USERPROFILE%\.vscode\extensions`, `.vscode-insiders\extensions`, `.vscode-oss\extensions`, `.cursor\extensions`, `.windsurf\extensions` |
+| macOS | `~/Library/Application Support/Code/User` (and `Code - Insiders`, `VSCodium`, `Cursor`, `Windsurf`) | `~/.vscode/extensions` (and `~/.vscode-insiders`, `~/.vscode-oss`, `~/.cursor`, `~/.windsurf`) |
+| Linux | `~/.config/Code/User` (or `$XDG_CONFIG_HOME/Code/User`; and `Code - Insiders`, `VSCodium`, `Cursor`, `Windsurf`) | `~/.vscode/extensions` (and `~/.vscode-insiders`, `~/.vscode-oss`, `~/.cursor`, `~/.windsurf`) |
 
 The extension list is the editor's own `extensions.json` in that folder; an extension it uninstalled but has not deleted yet (listed in `.obsolete`) is not imported, and an older install without `extensions.json` is read from its folder names (`publisher.name-1.2.3`). Only the settings of the other editor's default profile are read.
 
@@ -51,6 +51,26 @@ These stay Insilode's whatever the other editor says:
 - Microsoft account and sync services: `settingsSync.*`, `sync.*`, `workbench.cloudChanges.*` (and the experimental keys), `microsoft-authentication.*`, `remote.tunnels.access.*`.
 - Experiments and services Insilode does not use: `workbench.enableExperiments`, `workbench.settings.enableNaturalLanguageSearch`, `extensions.gallery.*`.
 - The update service: `update.*` (Insilode updates itself from its own releases).
+
+### Held back for review
+
+A copied settings file must not be able to change what runs on your machine or loosen its security without you knowing. These settings are not written by the import; they are listed instead (`src/merge.ts`, one rule table, `isHeldBack`):
+
+| Held back | Rule |
+|---|---|
+| Security | every `security.*` key (`security.workspace.trust.*`, `security.allowedUNCHosts`, ...) |
+| Executable paths | keys ending in `.path` or `.executablePath` (`git.path`, `php.validate.executablePath`, ...), and keys ending in `.command` or `.commandPath` |
+| Terminal shells | `terminal.integrated.shell.windows`, `.osx`, `.linux`; every `terminal.integrated.profiles.*` map (a profile carries a path and arguments, so the whole map is held); `terminal.integrated.defaultProfile.*` only when its value is a path (a profile name such as `PowerShell` is imported) |
+| Script or program values | a string value ending in `.exe`, `.sh`, `.cmd`, `.bat` or `.ps1` under a key that is not on the small allowlist (theme names, `editor.fontFamily`, `files.defaultLanguage`) |
+
+Near misses are imported: `editor.fontFamily`, `files.exclude`, `files.associations` (the file names are keys, not a value that is run), `workbench.colorTheme`, `terminal.integrated.fontSize`. `search.path` is imported too: it is a folder to search, not a program, so it is the one name exempt from the `.path` rule. Settings inside a language block (`"[python]": { ... }`) follow the same rules, and a name ending in `Path` that is not `.path` (`python.formatting.blackPath`) is not matched by the table. A held back key you already have in Insilode is never touched and not offered: your value stays.
+
+After the import, when something was held back, a notification says *Imported N settings; M held back for review* with two buttons. Nothing held back is imported without one of them:
+
+- **Review** opens a list (checkboxes) showing each setting's key, its value and why it was held back. The ones you check are written through the same settings writer (comments and layout kept, the file backed up first); nothing else is. A key you set in Insilode while the list was open is not overwritten.
+- **Import anyway** asks for a confirmation in a modal dialog that names the first few keys, then writes all of them.
+
+Closing the notification imports nothing. The held back keys are listed in the report either way.
 
 ## Backup and report
 
@@ -77,7 +97,7 @@ One import runs at a time: starting the command while one is running (for instan
 
 ## For developers
 
-- `src/sources.ts`: finding the editors and reading what they have (no `vscode`; the platform and folders are passed in). `src/merge.ts`: the merge rules, text in and text out. `src/extension.ts`: the notification, the command, the backup, the extension installs.
-- Tests: `cd editor/extensions/flow-import && npm test` runs both modules against fixture homes in `test/fixtures` laid out as Windows, macOS and Linux keep them (an `XDG_CONFIG_HOME` case, an install without `extensions.json`, duplicates and `.obsolete`), and `test/extension.test.mjs` runs the command itself against a stand-in for `vscode` (`test/vscode-fake.cjs`): a locked `settings.json` (EBUSY, EPERM), two imports at once, theme names in another case, disabled extensions and a translated "not found".
+- `src/sources.ts`: finding the editors, the first-start offer's answer rule (`offerAnswered`) and the source pick items (`sourcePickItems`), and reading what they have (no `vscode`; the platform and folders are passed in). `src/merge.ts`: the merge rules and the hold-back table (`HELD_BACK_RULES`, `isHeldBack`, `heldToImport`), text in and text out. `src/extension.ts`: the notification, the command, the backup, the extension installs.
+- Tests: `cd editor/extensions/flow-import && npm test` runs both modules against fixture homes in `test/fixtures` laid out as Windows, macOS and Linux keep them (an `XDG_CONFIG_HOME` case, an install without `extensions.json`, duplicates and `.obsolete`), and `test/holdback.test.mjs` tables every hold-back class and near miss, `test/held-extension.test.mjs` runs Review, Import anyway and the offer, and `test/extension.test.mjs` runs the command itself against a stand-in for `vscode` (`test/vscode-fake.cjs`): a locked `settings.json` (EBUSY, EPERM), two imports at once, theme names in another case, disabled extensions and a translated "not found".
 - The desktop path end to end, with real installs from Open VSX: `npm run docker:e2e -- --probe test/e2e-desktop/probes/import-from-vscode.mjs` (three extensions installed, Pylance reported as not on Open VSX, the publisher trust dialogs answered as a person would).
 - `INSILODE_IMPORT_HOME=<folder>` makes the extension read that folder as the home folder (with `AppData/Roaming`, `Library/Application Support` or `.config` below it, by OS), so a probe imports a fixture, never your own VS Code. Set it on the process that runs the extension host, e.g. `INSILODE_IMPORT_HOME=... npm run web`.

@@ -26,10 +26,12 @@ import { parsePatch, patchFiles, patchText } from './patch';
 import { PrWatcher, type PrState } from './prState';
 import { shimScript } from './shim';
 import { canExplain, explainPrompt } from './explain';
-import { hookScript } from './hookScript';
+import { claudeHookCommand, hookRunner, hookScript, type HookRunner } from './hookScript';
+import { ShellEditSweep } from './shellEdits';
 import { SKELETON_GATE, SKELETON_PROMPT_GATE } from './skeleton';
 import { canType, notReady, oneLine, slashRefusal, slashText, type AgentCli, type AgentState, type CustomCli, type SessionInfo, type SlashKind, type SlashResult } from './askTarget';
 import { applyUsage, claudeTranscriptUsage, codexRolloutUsage, endUsage, findOnPath, hasOwnStatusLine, LimitsSender, parseClaudeStatus, statusScript, type ContextUsage, type UsageLimits } from './usage';
+import { SETUP_FILE, setupOfferKey, setupTemplate, shouldOfferSetup } from './worktreeSetup';
 import { createWorktree, sameDir, validBranch, worktreeSlug, type Worktree } from './worktrees';
 
 // Declared with the ask rules, which must not import this file (it needs vscode); every other file takes them from here.
@@ -134,6 +136,12 @@ interface HookPayload {
 	agent_id?: string;
 	/** The session's permission mode, on the events that carry it (default, plan, acceptEdits, auto, dontAsk, bypassPermissions). */
 	permission_mode?: string;
+}
+
+/** Looked up once per window: PATH is searched on the first hook that is written, not for every start. */
+let hookRunnerCache: HookRunner | undefined;
+function hookRunnerForWindow(): HookRunner {
+	return hookRunnerCache ??= hookRunner(findOnPath('node'), process.execPath, !!process.versions.electron);
 }
 
 const AGENT = 'Claude Code (terminal)';
@@ -260,8 +268,16 @@ function transcriptPath(id: string, cwd: string | undefined) {
 	return path.join(projectDir(cwd), `${id}.jsonl`);
 }
 
+/** The `insilode` MCP server's script in the flow-view extension, when this installation has it. */
+function insilodeMcpScript(): string | undefined {
+	const view = vscode.extensions.getExtension('flow.flow-view');
+	const script = view && path.join(view.extensionPath, 'out', 'insilode-mcp.js');
+	return script && existsSync(script) ? script : undefined;
+}
+
 export class Agents implements vscode.Disposable {
 	readonly sessions = new Map<string, AgentSession>();
+	private readonly notedOnce = new Set<string>();
 	private readonly terminals = new Map<string, vscode.Terminal>();
 	/** Sessions a hook has reported from: their CLI is up and past its own start screens, so typing reaches its prompt. */
 	private readonly heard = new Set<string>();
@@ -293,10 +309,15 @@ export class Agents implements vscode.Disposable {
 	/** Set once start() has run: spawn waits on it so an agent never starts before the hook settings exist. */
 	private ready: Promise<void> | undefined;
 	private settingsOk = false;
-	/** Whether Codex can take Insilode's profile (`-p insilode`): settled on the first Codex start of this window. */
-	private codexHooks: Promise<boolean> | undefined;
+	/**
+	 * Whether Codex can take Insilode's profile (`-p insilode`): settled on the first Codex start of this window, and again
+	 * when the settings that shape the profile (`key`) change, so they take effect for the next agent.
+	 */
+	private codexProfileReady: { key: string; ready: Promise<{ hooks: boolean } | undefined> } | undefined;
 	/** Files an agent edited since its last prompt, for the turn-end impact. */
 	private readonly touched = new Map<string, Set<string>>();
+	/** Files a shell command changed during a turn (shellEdits.ts). */
+	private readonly shellEdits = new ShellEditSweep();
 	/** Sessions whose plan was drawn from PreToolUse this turn, so PostToolUse does not draw it twice. */
 	private readonly planDrawn = new Set<string>();
 	/** Why each session needs you, and its failure streak. */
@@ -427,10 +448,11 @@ export class Agents implements vscode.Disposable {
 		// A tiny Node script, run with the editor's own Node: the same on macOS, Linux and Windows.
 		const script = path.join(this.dir, 'flow-hook.js');
 		await fs.writeFile(script, hookScript(portFile, tokenFile));
-		// On the desktop `process.execPath` is the Insilode executable itself: without ELECTRON_RUN_AS_NODE it would open
-		// an editor window for the script on every hook event. Claude Code runs hooks through bash, which takes the prefix.
-		const asNode = process.versions.electron ? 'ELECTRON_RUN_AS_NODE=1 ' : '';
-		const command = `${asNode}"${process.execPath}" "${script}"`;
+		// A plain `node` starts several times quicker than the editor in Node mode, and a hook runs on every event. Only
+		// when there is none does it fall back to the editor's own binary: `process.execPath` is then the Insilode
+		// executable, which opens an editor window for the script without ELECTRON_RUN_AS_NODE (hookRunner, hookScript.ts).
+		const runner = hookRunnerForWindow();
+		const command = claudeHookCommand(runner, script);
 		const hook = { type: 'command', command, timeout: 5 };
 		const hooks: Record<string, unknown[]> = {};
 		for (const e of HOOK_EVENTS) {
@@ -439,34 +461,38 @@ export class Agents implements vscode.Disposable {
 		}
 		await fs.writeFile(this.settingsFile, JSON.stringify({ hooks }, null, 2), { mode: 0o600 });
 		// The status line is the one place Claude Code tells the real context window and the plan's 5-hour and weekly
-		// limits. Claude runs it on every refresh, so it should start fast: a plain `node` on PATH starts several times
-		// quicker than the editor in Node mode, which stays the fallback. It runs through the same shell as the hooks.
+		// limits. Claude runs it on every refresh, so it starts fast too: the same runner as the hooks, through the same shell.
 		const statusFile = path.join(this.dir, 'flow-status.js');
 		await fs.writeFile(statusFile, statusScript(portFile, tokenFile, this.dir));
-		const node = findOnPath('node');
-		const statusCommand = node ? `"${node}" "${statusFile}"` : `${asNode}"${process.execPath}" "${statusFile}"`;
+		const statusCommand = claudeHookCommand(runner, statusFile);
 		const statusLine = { type: 'command', command: statusCommand, padding: 0 };
 		await fs.writeFile(this.statusSettingsFile, JSON.stringify({ hooks, statusLine }, null, 2), { mode: 0o600 });
 	}
 
 	/**
-	 * Codex's hooks, in Insilode's own Codex profile (see codexHooks.ts). One script for every window, outside the
-	 * per-workspace folder, so the profile's text (and the trust Codex keeps for it) is the same everywhere.
-	 * Written only when it changed: rewriting the same bytes is harmless, but a changed file asks for trust again.
+	 * Codex's hooks and the `insilode` tools, in Insilode's own Codex profile (see codexHooks.ts). One hook script for every
+	 * window, outside the per-workspace folder, so the profile's text (and the trust Codex keeps for it) is the same
+	 * everywhere. Written only when it changed: rewriting the same bytes is harmless, but a changed file asks for trust again.
 	 */
-	private async writeCodexProfile() {
-		const shared = path.join(this.context.globalStorageUri.fsPath, 'agents');
-		await fs.mkdir(shared, { recursive: true });
-		const script = path.join(shared, 'codex-hook.js');
-		if (await fs.readFile(script, 'utf8').catch(() => '') !== CODEX_HOOK_SCRIPT) {
-			await fs.writeFile(script, CODEX_HOOK_SCRIPT);
+	private async writeCodexProfile(hooks: boolean, mcpScript: string | undefined) {
+		const electron = !!process.versions.electron;
+		let command: string | undefined;
+		if (hooks) {
+			const shared = path.join(this.context.globalStorageUri.fsPath, 'agents');
+			await fs.mkdir(shared, { recursive: true });
+			const script = path.join(shared, 'codex-hook.js');
+			if (await fs.readFile(script, 'utf8').catch(() => '') !== CODEX_HOOK_SCRIPT) {
+				await fs.writeFile(script, CODEX_HOOK_SCRIPT);
+			}
+			const runner = hookRunnerForWindow();
+			command = codexHookCommand(process.platform, runner.exe, script, runner.electron);
 		}
 		const file = codexProfileFile();
-		const text = codexProfile(codexHookCommand(process.platform, process.execPath, script, !!process.versions.electron));
+		const text = codexProfile(command, mcpScript ? { execPath: process.execPath, script: mcpScript, electron } : undefined);
 		if (await fs.readFile(file, 'utf8').catch(() => '') !== text) {
 			await fs.mkdir(path.dirname(file), { recursive: true });
 			await fs.writeFile(file, text);
-			this.log.info(`Agents: wrote the Codex profile ${file}; Codex asks once to trust its hooks (/hooks)`);
+			this.log.info(`Agents: wrote the Codex profile ${file}${hooks ? '; Codex asks once to trust its hooks (/hooks)' : ''}`);
 		}
 		// The profile of the same name before the rename (`codex -p axle`): ours only if it still says so.
 		const legacy = path.join(path.dirname(file), 'axle.config.toml');
@@ -475,17 +501,62 @@ export class Agents implements vscode.Disposable {
 		}
 	}
 
+	/** What worktreeBase decided about a start point (no origin, a failed fetch), told once per window per message. */
+	private noteOnce(message: string) {
+		if (!this.notedOnce.has(message)) {
+			this.notedOnce.add(message);
+			void vscode.window.showInformationMessage(`Insilode: ${message}.`);
+		}
+	}
+
+	/**
+	 * The first worktree of a repository that has no .insilode/worktree.json offers one, without a modal: copying `.env`
+	 * and installing dependencies is what turns a bare checkout into one an agent can work in. Asked once per repository
+	 * (workspaceState): Not now and Never both end it, and an existing file means no offer.
+	 */
+	private async offerWorktreeSetup(root: string) {
+		try {
+			const file = path.join(root, SETUP_FILE);
+			const key = setupOfferKey(root);
+			if (!shouldOfferSetup(existsSync(file), this.context.workspaceState.get(key))) {
+				return;
+			}
+			await this.context.workspaceState.update(key, 'offered');
+			const add = 'Add .insilode/worktree.json';
+			const pick = await vscode.window.showInformationMessage('Insilode: this repository has no .insilode/worktree.json, which copies files like .env and runs your install command in each new agent worktree.', add, 'Not now', 'Never for this repository');
+			if (pick === 'Never for this repository') {
+				await this.context.workspaceState.update(key, 'never');
+			} else if (pick === add) {
+				const names = await fs.readdir(root).catch(() => [] as string[]);
+				await fs.mkdir(path.dirname(file), { recursive: true });
+				// 'wx': a file that appeared meanwhile is never overwritten.
+				await fs.writeFile(file, setupTemplate(names), { flag: 'wx' });
+				await vscode.window.showTextDocument(vscode.Uri.file(file));
+			}
+		} catch (e) {
+			this.log.warn(`Agents: the worktree setup offer failed: ${(e as Error).message}`);
+		}
+	}
+
 	/**
 	 * Codex gets `-p insilode` only once the profile is written and this `codex` takes it: an older Codex reads `-p` as a
 	 * [profiles] name and would not start at all. `codex -p insilode mcp list` loads the profile without starting a
 	 * session (a profile it cannot read fails it). Asked on the first Codex start, never at activation, so nothing
 	 * is written to ~/.codex for someone who never runs Codex from Insilode. Any failure means plain `codex`.
+	 * Undefined then, else whether the profile holds the hooks (the `insilode` tools need no trust, the hooks do).
 	 */
-	private codexTakesHooks(): Promise<boolean> {
-		if (!this.server || !vscode.workspace.getConfiguration('flow.agents').get<boolean>('codexHooks', true)) {
-			return Promise.resolve(false);
+	private codexProfileFor(): Promise<{ hooks: boolean } | undefined> {
+		const settings = vscode.workspace.getConfiguration('flow.agents');
+		const hooks = !!this.server && settings.get<boolean>('codexHooks', true);
+		const mcpScript = settings.get<boolean>('mcp', true) ? insilodeMcpScript() : undefined;
+		if (!hooks && !mcpScript) {
+			return Promise.resolve(undefined);
 		}
-		return this.codexHooks ??= this.writeCodexProfile().then(() => new Promise<boolean>(resolve => {
+		const key = JSON.stringify([hooks, mcpScript]);
+		if (this.codexProfileReady?.key === key) {
+			return this.codexProfileReady.ready;
+		}
+		const ready = this.writeCodexProfile(hooks, mcpScript).then(() => new Promise<{ hooks: boolean } | undefined>(resolve => {
 			// No `shell: true`: `codex` is looked up on PATH here. npm installs it on Windows as codex.cmd, which execFile
 			// cannot start without cmd.exe, so the shim's script runs under Node instead (the node.exe beside it, a `node`
 			// on PATH, or this editor in Node mode). A batch wrapper of the user's own runs under cmd.exe with this one
@@ -501,26 +572,28 @@ export class Agents implements vscode.Disposable {
 				},
 			});
 			if (!launch) {
-				this.log.warn('Agents: Codex runs without status: no `codex` program found on PATH');
-				resolve(false);
+				this.log.warn('Agents: Codex runs without status or the insilode tools: no `codex` program found on PATH');
+				resolve(undefined);
 				return;
 			}
 			const run = codexCommand(launch, ['-p', CODEX_PROFILE, 'mcp', 'list'], 'script' in launch && !launch.node ? findOnPath('node') : undefined, process.execPath, !!process.versions.electron, process.env.ComSpec || 'cmd.exe');
 			if (!run) {
-				this.log.warn(`Agents: Codex runs without status: ${'batch' in launch ? launch.batch : 'codex'} cannot be started safely`);
-				resolve(false);
+				this.log.warn(`Agents: Codex runs without status or the insilode tools: ${'batch' in launch ? launch.batch : 'codex'} cannot be started safely`);
+				resolve(undefined);
 				return;
 			}
 			execFile(run.file, run.argv, { timeout: 8000, windowsHide: true, windowsVerbatimArguments: run.verbatim, env: agentProcessEnv(run.electronAsNode ? { ELECTRON_RUN_AS_NODE: '1' } : {}) }, (err, _out, stderr) => {
 				if (err) {
-					this.log.warn(`Agents: Codex runs without status: \`codex -p ${CODEX_PROFILE}\` failed (${String(stderr || err.message).trim().split('\n')[0]})`);
+					this.log.warn(`Agents: Codex runs without status or the insilode tools: \`codex -p ${CODEX_PROFILE}\` failed (${String(stderr || err.message).trim().split('\n')[0]})`);
 				}
-				resolve(!err);
+				resolve(err ? undefined : { hooks });
 			});
 		}), e => {
-			this.log.warn(`Agents: Codex runs without status: no Codex profile (${(e as Error).message})`);
-			return false;
+			this.log.warn(`Agents: Codex runs without status or the insilode tools: no Codex profile (${(e as Error).message})`);
+			return undefined;
 		});
+		this.codexProfileReady = { key, ready };
+		return ready;
 	}
 
 	/** Terminals outlive a window reload; find ours again by their process (they may reattach after we start). */
@@ -622,9 +695,8 @@ export class Agents implements vscode.Disposable {
 			return undefined;
 		}
 		try {
-			const view = vscode.extensions.getExtension('flow.flow-view');
-			const script = view && path.join(view.extensionPath, 'out', 'insilode-mcp.js');
-			if (!script || !existsSync(script)) {
+			const script = insilodeMcpScript();
+			if (!script) {
 				return undefined;
 			}
 			// Like the hooks: on the desktop process.execPath is the editor, which runs a script only as Node.
@@ -673,7 +745,9 @@ export class Agents implements vscode.Disposable {
 		if (!resume && folder && (place ?? (vscode.workspace.getConfiguration('flow.agents').get<boolean>('worktree', false) ? 'worktree' : 'here')) === 'worktree') {
 			try {
 				const slug = worktreeSlug(cli === 'custom' ? custom?.name ?? 'agent' : cli, randomBytes(2).toString('hex'));
-				worktree = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Insilode: creating a worktree for the agent' }, () => createWorktree(folder, slug));
+				const startFrom = vscode.workspace.getConfiguration('flow.agents').get<string>('worktreeBase', 'current') === 'origin-default' ? 'origin-default' : 'current';
+				worktree = await vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: 'Insilode: creating a worktree for the agent' }, () => createWorktree(folder, slug, { base: startFrom, onNote: note => this.noteOnce(note) }));
+				void this.offerWorktreeSetup(worktree.root);
 			} catch (e) {
 				// Never fall back to the shared checkout without saying so: the user asked for a checkout of the agent's own.
 				void vscode.window.showErrorMessage(`Insilode: could not create a worktree for the agent: ${(e as Error).message}`);
@@ -681,12 +755,15 @@ export class Agents implements vscode.Disposable {
 			}
 		}
 		const cwd = agentCwd(worktree?.path ?? folder);
+		// Codex reads the `insilode` server from Insilode's profile, which names the variables it takes from this terminal
+		// (CODEX_MCP_ENV). The tools find this window by its folder, so a worktree agent gets the main folder.
+		const codex = cli === 'codex' ? await this.codexProfileFor() : undefined;
 		const terminal = vscode.window.createTerminal({
 			name,
 			cwd,
 			iconPath: new vscode.ThemeIcon(cli === 'claude' ? 'sparkle' : cli === 'codex' ? 'hubot' : 'terminal'),
 			color: new vscode.ThemeColor(cli === 'claude' ? 'terminal.ansiYellow' : cli === 'codex' ? 'terminal.ansiCyan' : 'terminal.ansiMagenta'),
-			env: { ...inheritedAgentEnv(), FLOW_AGENT_SESSION: id, FLOW_HOOK_DIR: this.dir },
+			env: { ...inheritedAgentEnv(), FLOW_AGENT_SESSION: id, FLOW_HOOK_DIR: this.dir, ...(codex ? { INSILODE_SESSION: id, ...(folder ? { INSILODE_WORKSPACE: folder } : {}) } : {}) },
 			isTransient: false,
 		});
 		// Double quotes work in bash, zsh, PowerShell and cmd alike.
@@ -694,8 +771,8 @@ export class Agents implements vscode.Disposable {
 		// --mcp-config takes any number of files, so it goes last; it adds to the user's own MCP servers (no --strict-mcp-config).
 		// The `insilode` tools find this window by its folder, so a worktree agent gets the main folder's config.
 		const mcp = cli === 'claude' ? await this.mcpConfig(folder, id) : undefined;
-		const codexHooks = cli === 'codex' && await this.codexTakesHooks();
-		const profile = codexHooks ? ` -p ${CODEX_PROFILE}` : '';
+		const codexHooks = !!codex?.hooks;
+		const profile = codex ? ` -p ${CODEX_PROFILE}` : '';
 		const command = cli === 'claude'
 			? `claude ${resume ? '--resume' : '--session-id'} ${id}${this.server && this.settingsOk ? ` --settings ${quote(this.claudeSettings())}` : ''}${mcp ? ` --mcp-config ${quote(mcp)}` : ''}`
 			// Codex chose its session id; until a hook told us, `codex resume` without one opens its own picker.
@@ -1152,6 +1229,7 @@ export class Agents implements vscode.Disposable {
 				this.touched.delete(s.id);
 				this.turns.delete(s.id);
 				this.planDrawn.delete(s.id);
+				void this.shellEdits.begin(s.id, s.worktree?.path ?? p.cwd).catch(() => undefined);
 				gazeTurn(s.id);
 				set('working', 'Thinking');
 				void this.markPrompt(s);
@@ -1223,7 +1301,8 @@ export class Agents implements vscode.Disposable {
 				this.settleAsked(s, 'denied');
 				set('done', undefined);
 				void this.readUsage(s);
-				void this.turnImpact(s);
+				// What a shell command changed counts as touched before the turn's impact is worked out.
+				void this.sweepShellEdits(s, p.cwd).finally(() => this.turnImpact(s));
 				break;
 			case 'StopFailure':
 				// The turn ended on an error: nothing is running, and the row says why (s.need).
@@ -1287,6 +1366,17 @@ export class Agents implements vscode.Disposable {
 		const set = this.touched.get(s.id) ?? new Set<string>();
 		files.forEach(f => set.size < MAX_TOUCHED && set.add(f));
 		this.touched.set(s.id, set);
+	}
+
+	/** The turn is over: files a shell command changed, that no edit tool named, are reported to flow-view and counted as touched. */
+	private async sweepShellEdits(s: AgentSession, cwd: string | undefined) {
+		const files = await this.shellEdits.end(s.id, s.worktree?.path ?? cwd, this.touched.get(s.id) ?? new Set<string>()).catch(() => [] as string[]);
+		if (!files.length) {
+			return;
+		}
+		await Promise.resolve(vscode.commands.executeCommand('flow.agent.commandEdited', files)).catch(() => undefined);
+		this.touch(s, files);
+		this.recordEdits(s, files);
 	}
 
 	/** The turn is over: which flows did the edited files reach? Shown on the agent's row; clicking one opens it. */

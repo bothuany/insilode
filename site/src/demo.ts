@@ -1,16 +1,13 @@
 // What scripts/playground-data.mjs writes (public/data/demo.json) and what the page and the fake host read.
 // The cards and entry points are the protocol types: the same ones flow-view sends the canvas.
-import type { EntryPoint, FlowNode, Tour } from '../../protocol/flow'
+import type { EntryPoint, FlowNode, ImpactResult, Tour } from '../../protocol/flow'
 
 export interface Entry extends EntryPoint {
   source: 'poly'
 }
 
-/** What the canvas shows under "Affects N endpoints". */
-export interface Impact {
-  label: string
-  items: string[]
-}
+/** What the canvas shows under "Affects N endpoints": the same rows flow-view sends. */
+export type Impact = ImpactResult
 
 /** One prompt to an agent that changed code (the canvas' timeline). */
 export interface TurnSummary {

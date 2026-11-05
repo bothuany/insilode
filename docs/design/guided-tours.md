@@ -1,6 +1,6 @@
 # AI-assisted code reading: guided tours, the agent's gaze, point-and-ask
 
-Status: design plan, nothing built yet. Written 2026-10-19 against `main` at 4a8959a. The playground part was read from `origin/HEAD` (70b29bc), which the local `main` does not have yet.
+Status: the player, the `tour` tools, ask during a tour, point-and-ask and the gaze are built, and so are Save, the key legend and the tour's screen-reader support (3.5, 5); anchors and hash, Markdown export and CodeTour interop (phase 5) are not. Written 2026-10-19 against `main` at 4a8959a. The playground part was read from `origin/HEAD` (70b29bc), which the local `main` does not have yet.
 
 ## The problem
 
@@ -276,11 +276,21 @@ The bar replaces today's `.tour` toolbar:
 | `→` `]` | next | as today |
 | `←` `[` | back | as today |
 | `Space` | pause / resume | only when focus is on the canvas, not the card editor or the ask box |
-| `/` or `?` | focus the ask box | |
-| `Esc` | in the ask box: blur; otherwise: exit the tour | as today |
+| `/` | focus the ask box | an agent's tour only (a review of changes has no author to ask) |
+| `?` | open the key legend | with lines selected, `?` is point-and-ask's |
+| `Esc` | in the ask box: blur; with the step list or the legend open: close it; otherwise: exit the tour | the first `Esc` closes the pop-up and the tour stays |
 | `1`–`9` | jump to step | |
 
 All keys keep today's `editingRef` guard: while a card is being edited in Monaco, the tour ignores keys and pauses itself. The step list ("3 / 7" is a button) opens a small list of step titles with state icons (ok, moved, missing, drift).
+
+**Built (the rest of the bar):**
+
+- **Key legend.** A `?` button in the bar, and the `?` key, open a small dialog (`role="dialog"`, "Tour keys") that lists the keys above. The list is not written twice: `ui/src/tour/legend.ts` holds one table that the key handler in `TourPlayer.tsx` reads (`keyAction`) and the legend prints, and a test checks that every listed key does what its row says. The dialog closes with `Esc` and on a click outside, and focus returns to the `?` button. The first caption of a tour also shows one line, "Right arrow: next · ?: all keys · Esc: exit", which is gone from the second step on.
+- **The step list and `Esc`.** A click outside the list closes it, `Esc` closes it before it exits the tour, and focus returns to the "3 / 7" button (the state is a small pure reducer in `player.ts`).
+- **A blocked Next is said.** When Next, a number key or a step in the list is refused because a hands-on step is not done, the caption's status region says "Finish this step first" and focus moves to that step's button (Continue, the command's button, or Skip). The Next button is `aria-disabled` with the same text as its title, so it can still be reached and pressed.
+- **Marks for a screen reader.** The pen marks are drawn in an `aria-hidden` layer. The caption's live region holds a visually hidden summary of them from `markSummary` (`ui/src/tour/marks.ts`): "Marked on this card: ring lines 12 to 14; check beside line 20; arrow to Foo.bar labelled calls", in the order the caption brings them in, cut at 240 characters with "and N more".
+- **Waiting for an answer.** After 20 seconds in the "asking" state the caption adds "Press Space to continue without an answer", and Space resumes (the ask box is let go of when a question is sent, so Space reaches the tour). The timing is a pure function of the two times (`askHintDue`), and the hint goes away on a resume or another step.
+- **Save.** An agent's or a gaze tour has a Save button in the bar. It sends `{ type: 'tourSave', id }`, and only the tour the host is playing is saved (see 5). A tour that already came from a file has no button, and neither does the canvas's own review of changes, which the host does not hold.
 
 **Pacing:** by default the user steps through by hand. ⏵ Autoplay is a toggle, and it dwells `clamp(words × 0.3 s, 3 s, 12 s)` per step. It pauses on any interaction and is off under reduced-motion. The default is open question Q1.
 
@@ -332,6 +342,7 @@ Location: `.insilode/tours/<id>.tour.json`. It is written **only** by the window
 }
 ```
 
+- **Saving, as built** (`editor/extensions/flow-view/src/tourSave.ts`). Save writes `.insilode/tours/<id>.tour.json` under the first workspace folder that holds the tour's files (the first folder when none does), creating the folders. The id is cleaned to ASCII letters, digits, `-` and `_` (no separators, no dots, no names Windows reserves), and the file's own `id` is the cleaned one. Saving the same tour again replaces its file; a file whose own id is another one, or that is not a tour, is never overwritten: the new tour gets `-2`, `-3` and so on. The content is what `parseTourFile` accepts, spelled as a hand-written file spells it: paths relative to the first folder (a file of another folder in full), `method`, `line`, `lines`, `marks`, `wait` of kind click or continue, `start` (1-based) and `followUps`. A command wait is saved as a plain step, and the reader's notes, `agent`, the origin and `drift` are not saved. A step that was `moved` is saved at its new place and a `missing` one at the line it was last seen, so playing the file reports the drift. Before writing, the content is read back with `parseTourFile`; a tour that would not load is not written. The result is a notification with an Open button that opens the written file (and only that path), or the reason it failed: no folder open, not writable. `anchor`, `hash` and `notes` below are phase 5 and not written yet.
 - The file reuses the `tour` step schema and adds `anchor`, `hash` and `notes`. That way a saved tour can be **pasted back into `tour`** by an agent, and `tour` accepts the extra fields when they come from a file. The anchors are what make replay work after edits (1.3).
 - **No `commands`, no URIs, no HTML.** CodeTour has step `commands` and arbitrary `uri` steps. These are deliberately absent, and unknown fields are dropped on load.
 - **Replay:** use the command "Insilode: Play Tour…" (a quick pick over `.insilode/tours`), or a "▶ Tours" chip on the canvas when the current flow has saved tours that touch it.

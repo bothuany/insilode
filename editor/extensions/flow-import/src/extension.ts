@@ -11,11 +11,11 @@ import * as vscode from 'vscode';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { findSources, listExtensions, ownExtensionDirs, readSource, type Env, type Platform, type Source, type SourceContent } from './sources';
-import { applicableTheme, hasSettings, isFileNotFound, isNoGallery, isNotFound, mergeSnippets, planKeybindings, planSettings, themeSettingsId, writeKeybindings, writeSettings, type ThemeKind } from './merge';
+import { findSources, listExtensions, offerAnswered, ownExtensionDirs, readSource, sourcePickItems, type Env, type OfferAnswer, type Platform, type Source, type SourceContent } from './sources';
+import { applicableTheme, hasSettings, heldToImport, isFileNotFound, isNoGallery, isNotFound, mergeSnippets, planKeybindings, planSettings, themeSettingsId, writeKeybindings, writeSettings, type HeldBack, type ThemeKind } from './merge';
 
 const COMMAND = 'flow.importFromVSCode';
-/** Set once the first-start offer was shown (or not needed), so it never comes back. */
+/** Set once the first-start offer was answered (Import that worked, or Never) or is not needed, so it never comes back. */
 const OFFERED = 'flowImport.offered';
 
 let log: vscode.LogOutputChannel;
@@ -87,14 +87,16 @@ function runsRemotely(context: vscode.ExtensionContext): boolean {
 /** The import that is running now: a second one (the first-start offer and the command at once) would add everything twice. */
 let running: Promise<void> | undefined;
 
-async function runExclusive(context: vscode.ExtensionContext, preset?: Source): Promise<void> {
+/** Whether the import ran to its end (it was not refused, cancelled in the lists, or stopped by an error). */
+async function runExclusive(context: vscode.ExtensionContext, preset?: Source): Promise<boolean> {
 	if (running) {
 		void vscode.window.showInformationMessage('An import from VS Code is already running. Wait for it to finish.');
-		return;
+		return false;
 	}
-	running = runImport(context, preset);
+	const run = runImport(context, preset);
+	running = run.then(() => undefined);
 	try {
-		await running;
+		return await run;
 	} finally {
 		running = undefined;
 	}
@@ -115,25 +117,33 @@ async function offerOnFirstStart(context: vscode.ExtensionContext) {
 	if (!sources.length) {
 		return;
 	}
-	// Read before the offer is marked as shown: a settings file that cannot be read now is asked about next time.
+	// Read before the offer is marked as answered: a settings file that cannot be read now is asked about next time.
 	const settings = await readText(vscode.Uri.joinPath(userDir(context), 'settings.json'));
-	await context.globalState.update(OFFERED, true);
 	// Someone who already set Insilode up (or came from Axle, whose settings were copied over) is not asked.
 	if (hasSettings(settings)) {
+		await context.globalState.update(OFFERED, true);
 		return;
 	}
-	const source = sources[0];
-	const name = source.product.name;
-	const importIt = `Import from ${name}`;
+	const several = sources.length > 1;
+	const name = several ? 'another editor' : sources[0].product.name;
+	const importIt = several ? 'Import…' : `Import from ${name}`;
 	// A notification, not a modal dialog or an editor tab: it waits in the corner and never takes the focus.
 	const pick = await vscode.window.showInformationMessage(
 		`Coming from ${name}? Bring your settings, keyboard shortcuts, snippets, theme and extensions into Insilode. What you have now is backed up first.`,
 		importIt,
-		'Start fresh',
+		'Not now',
+		'Never',
 	);
-	log.info(`First-start offer for ${name}: ${pick ?? 'dismissed'}.`);
-	if (pick === importIt) {
-		await runExclusive(context, source);
+	const answer: OfferAnswer = pick === importIt ? 'import' : pick === 'Not now' ? 'notNow' : pick === 'Never' ? 'never' : undefined;
+	log.info(`First-start offer for ${name}: ${pick ?? 'closed'}.`);
+	let imported = false;
+	if (answer === 'import') {
+		// With several editors the person chooses; closing that list is not an answer either.
+		const source = several ? await pickSource(sources) : sources[0];
+		imported = source ? await runExclusive(context, source) : false;
+	}
+	if (offerAnswered(answer, imported)) {
+		await context.globalState.update(OFFERED, true);
 	}
 }
 
@@ -163,16 +173,16 @@ async function pickSource(sources: Source[]): Promise<Source | undefined> {
 		return sources[0];
 	}
 	const pick = await vscode.window.showQuickPick(
-		sources.map(source => ({ label: source.product.name, description: source.userDir, source })),
+		sourcePickItems(sources),
 		{ title: 'Import from', placeHolder: 'Which editor do you want to import from?' },
 	);
 	return pick?.source;
 }
 
-async function runImport(context: vscode.ExtensionContext, preset?: Source) {
+async function runImport(context: vscode.ExtensionContext, preset?: Source): Promise<boolean> {
 	if (runsRemotely(context)) {
 		void vscode.window.showWarningMessage('Import from VS Code runs on this computer, but remote.extensionKind moved it to the remote machine, where it would write the server\'s settings. Remove flow.flow-import from remote.extensionKind and run it again.');
-		return;
+		return false;
 	}
 	const env = sourceEnv();
 	const source = preset ?? await pickSource(findSources(env));
@@ -180,13 +190,13 @@ async function runImport(context: vscode.ExtensionContext, preset?: Source) {
 		if (!preset && !findSources(env).length) {
 			void vscode.window.showInformationMessage('Insilode found no VS Code, VS Code Insiders or Cursor settings to import for this user.');
 		}
-		return;
+		return false;
 	}
 	const content = readSource(source);
 	const list = items(content);
 	if (!list.length) {
 		void vscode.window.showInformationMessage(`${source.product.name} has nothing to import: no settings, shortcuts, snippets or extensions in ${source.userDir}.`);
-		return;
+		return false;
 	}
 	const chosen = await vscode.window.showQuickPick(list, {
 		title: `Import from ${source.product.name}`,
@@ -195,7 +205,7 @@ async function runImport(context: vscode.ExtensionContext, preset?: Source) {
 		ignoreFocusOut: true,
 	});
 	if (!chosen?.length) {
-		return;
+		return false;
 	}
 	const ids = new Set(chosen.map(i => i.id));
 	const written: string[] = [];
@@ -209,7 +219,9 @@ async function runImport(context: vscode.ExtensionContext, preset?: Source) {
 		const message = (e as Error)?.message ?? String(e);
 		log.error(`Import from ${source.product.name} stopped: ${message}${written.length ? ` (already written: ${written.join(', ')})` : ''}`);
 		void vscode.window.showErrorMessage(`Import from ${source.product.name} stopped: ${message}. ${written.length ? `Already written: ${written.join(', ')}; the backup in import-backups holds them as they were.` : 'Nothing was changed.'}`);
+		return false;
 	}
+	return true;
 }
 
 interface Report {
@@ -239,6 +251,10 @@ async function doImport(context: vscode.ExtensionContext, source: Source, conten
 		writes.push({ rel: ['settings.json'], before: settingsBefore, after: writeSettings(settingsBefore, settingsPlan.add) });
 		report.summary.push(plural(settingsPlan.add.length, 'setting'));
 		report.lines.push(`Settings: ${settingsPlan.add.length} added (${settingsPlan.add.map(a => a.path.join('.')).join(', ')}).`);
+	}
+	const held = ids.has('settings') ? settingsPlan.held : [];
+	if (held.length) {
+		report.lines.push(`Settings held back for review (they run programs or change security): ${held.map(h => `${h.key} (${h.reason})`).join(', ')}.`);
 	}
 	if (ids.has('settings')) {
 		if (settingsPlan.kept.length) {
@@ -344,6 +360,59 @@ async function doImport(context: vscode.ExtensionContext, source: Source, conten
 			log.show(true);
 		}
 	});
+	if (held.length) {
+		void offerHeld(context, source, held, settingsPlan.add.length);
+	}
+}
+
+/** The first keys a confirmation names, so the person sees what "all" is without a wall of text. */
+const FIRST_KEYS = 5;
+
+/**
+ * Settings the import held back are written only here, after one of the two explicit answers: Review (the ones checked
+ * in a list) or Import anyway (all, after a modal confirmation that names the first few). Closing the notification
+ * imports nothing.
+ */
+async function offerHeld(context: vscode.ExtensionContext, source: Source, held: HeldBack[], imported: number): Promise<void> {
+	const pick = await vscode.window.showInformationMessage(`Imported ${imported} settings; ${held.length} held back for review`, 'Review', 'Import anyway');
+	let keys: string[] = [];
+	if (pick === 'Review') {
+		const chosen = await vscode.window.showQuickPick(
+			held.map(h => ({ label: h.key, description: JSON.stringify(h.value), detail: h.reason, key: h.key })),
+			{ title: 'Settings held back from the import', placeHolder: 'Check the ones to import. They run programs or change security, so import only what you know.', canPickMany: true, ignoreFocusOut: true },
+		);
+		keys = (chosen ?? []).map(c => c.key);
+	} else if (pick === 'Import anyway') {
+		const first = held.slice(0, FIRST_KEYS).map(h => h.key).join(', ');
+		const more = held.length > FIRST_KEYS ? ` and ${held.length - FIRST_KEYS} more` : '';
+		const sure = await vscode.window.showWarningMessage(
+			`Import ${held.length} held back settings?`,
+			{ modal: true, detail: `They can run programs or change security settings: ${first}${more}.` },
+			'Import',
+		);
+		keys = sure === 'Import' ? held.map(h => h.key) : [];
+	}
+	if (!keys.length) {
+		return;
+	}
+	try {
+		const file = vscode.Uri.joinPath(userDir(context), 'settings.json');
+		const before = await readText(file);
+		const entries = heldToImport(held, keys, before);
+		if (!entries.length) {
+			void vscode.window.showInformationMessage('Nothing was imported: you already have those settings in Insilode.');
+			return;
+		}
+		if (before !== undefined) {
+			await writeText(vscode.Uri.joinPath(userDir(context), 'import-backups', new Date().toISOString().replace(/[:.]/g, '-') + '-held', 'settings.json'), before);
+		}
+		await writeText(file, writeSettings(before, entries));
+		log.info(`Held back settings imported from ${source.product.name}: ${entries.map(e => e.path.join('.')).join(', ')}.`);
+		void vscode.window.showInformationMessage(`Imported ${entries.length} held back setting${entries.length === 1 ? '' : 's'}.`);
+	} catch (e) {
+		log.error(`Held back settings: ${(e as Error)?.message ?? String(e)}`);
+		void vscode.window.showErrorMessage(`The held back settings were not imported: ${(e as Error)?.message ?? String(e)}`);
+	}
 }
 
 /** A CancellationError (its name and message are both "Canceled"), as the publisher trust dialog throws on Cancel. */

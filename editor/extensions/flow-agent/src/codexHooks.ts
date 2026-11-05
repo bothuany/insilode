@@ -2,7 +2,8 @@
  *  Insilode: Codex's observe-only hooks. Claude Code takes them per run (--settings); Codex reads hooks
  *  only from its config layers, so Insilode writes its own profile, $CODEX_HOME/insilode.config.toml, and
  *  starts Codex with `-p insilode`: the user's config.toml is never touched, and a Codex started by hand
- *  never sees these hooks.
+ *  never sees these hooks. The same profile gives Codex the `insilode` MCP server, which Claude Code gets
+ *  per run (--mcp-config).
  *
  *  Codex runs a hook only after the user trusted it (/hooks), and records that trust against the
  *  hook's hash. So the profile must be byte-for-byte the same in every workspace and window: the
@@ -60,20 +61,48 @@ export function tomlString(s: string) {
 	return `"${s.replace(/[\\"]/g, c => `\\${c}`).replace(/[\u0000-\u001f\u007f]/g, c => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)}"`;
 }
 
-/** The profile Insilode writes. Deterministic: the same command gives the same bytes, so trust given once holds. */
-export function codexProfile(command: string, timeout = 5): string {
+/** The `insilode` MCP server as Codex starts it: flow-view's server script, run by `execPath` (as Node when it is the editor). */
+export interface CodexMcp {
+	execPath: string;
+	script: string;
+	electron: boolean;
+}
+
+/**
+ * The variables the `insilode` server needs from the agent's terminal: the folder whose window it talks to, the agent
+ * session its tours come from, and where the bridge and the agents' transcripts are when they are moved from their
+ * defaults. Codex starts an MCP server with only a few variables of its own (PATH, USERPROFILE, TEMP…) plus those named
+ * in `env_vars`, so the profile names them instead of holding their values: its text stays the same in every window.
+ */
+export const CODEX_MCP_ENV = ['INSILODE_WORKSPACE', 'INSILODE_SESSION', 'INSILODE_BRIDGE_DIR', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR'];
+
+/**
+ * The profile Insilode writes: the hooks (when `hookCommand` is given) and the `insilode` tools (when `mcp` is).
+ * Deterministic: the same input gives the same bytes, so trust given once holds.
+ */
+export function codexProfile(hookCommand: string | undefined, mcp?: CodexMcp, timeout = 5): string {
 	const lines = [
 		'# Written by Insilode. Used only when Insilode starts Codex (codex -p insilode): read-only hooks that tell',
-		'# Insilode\'s Agents dock what the agent is doing. They print nothing, so they never decide anything.',
-		'# Your own config.toml stays as it is. Delete this file to stop it; Insilode writes it again when',
-		'# it starts Codex.',
+		'# Insilode\'s Agents dock what the agent is doing (they print nothing, so they never decide anything), and',
+		'# the `insilode` tools that show files, flows and diagrams in the editor. Your own config.toml stays as it',
+		'# is. Delete this file to stop it; Insilode writes it again when it starts Codex.',
 	];
-	for (const [event, matcher] of CODEX_EVENTS) {
+	if (mcp) {
+		lines.push(
+			'',
+			'[mcp_servers.insilode]',
+			`command = ${tomlString(mcp.execPath)}`,
+			`args = [${tomlString(mcp.script)}]`,
+			...(mcp.electron ? ['env = { ELECTRON_RUN_AS_NODE = "1" }'] : []),
+			`env_vars = [${CODEX_MCP_ENV.map(tomlString).join(', ')}]`,
+		);
+	}
+	for (const [event, matcher] of hookCommand === undefined ? [] : CODEX_EVENTS) {
 		lines.push('', `[[hooks.${event}]]`);
 		if (matcher) {
 			lines.push(`matcher = ${tomlString(matcher)}`);
 		}
-		lines.push(`[[hooks.${event}.hooks]]`, 'type = "command"', `command = ${tomlString(command)}`, `timeout = ${timeout}`);
+		lines.push(`[[hooks.${event}.hooks]]`, 'type = "command"', `command = ${tomlString(hookCommand ?? '')}`, `timeout = ${timeout}`);
 	}
 	return lines.join('\n') + '\n';
 }

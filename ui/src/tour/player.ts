@@ -34,6 +34,8 @@ export type PlayerAction =
   | { type: 'note'; id: string; index: number; note: TourNote }
   /** The steps of the playing tour changed under it (the review of changes shrinks as cards are kept or undone). */
   | { type: 'steps'; steps: TourStep[] }
+  /** The agent edited the tour while the reader was paused (`tourSteps`): the whole new list; the reader stays on `index` without restarting. */
+  | { type: 'edit'; id: string; steps: TourStep[]; index: number }
 
 const clamp = (i: number, length: number) => Math.max(0, Math.min(Number.isFinite(i) ? Math.trunc(i) : 0, length - 1))
 
@@ -82,6 +84,10 @@ export function reduce(s: PlayerState, a: PlayerAction): PlayerState {
       if (!tour) return s
       if (!a.steps.length) return idle
       return { ...s, tour: { ...tour, steps: a.steps }, index: clamp(s.index, a.steps.length) }
+    case 'edit':
+      // Not a restart: the reader is paused or waiting for an answer, and stays so (`paused` and `asking` are kept).
+      if (!tour || tour.id !== a.id || !a.steps.length) return s
+      return { ...s, tour: { ...tour, steps: a.steps }, index: clamp(a.index, a.steps.length) }
   }
 }
 
@@ -94,6 +100,45 @@ export function stepMark(step: TourStep): { glyph: string; label: string } {
     case 'offflow': return { glyph: '⧉', label: 'Not on the drawn flow: shown as a side card' }
     default: return { glyph: '✓', label: 'Found' }
   }
+}
+
+// ---- waiting for an answer -----------------------------------------------------------------------------------------
+
+/** After this long without an answer the caption says the reader may go on without one. */
+export const ASK_HINT_MS = 20_000
+export const ASK_HINT = 'Press Space to continue without an answer'
+
+/** Whether the question asked at `askedAt` (ms since epoch; null when no question is open) has waited long enough for the hint. A function of two times, so it needs no timer to test. */
+export function askHintDue(askedAt: number | null, now: number): boolean {
+  return askedAt !== null && now - askedAt >= ASK_HINT_MS
+}
+
+// ---- the bar's two pop-ups: the step list and the key legend --------------------------------------------------------
+
+export interface Panels {
+  list: boolean
+  legend: boolean
+}
+
+export const noPanels: Panels = { list: false, legend: false }
+
+export type PanelAction = 'toggleList' | 'toggleLegend' | 'closeList' | 'closeLegend' | 'outside'
+
+/** Opening one closes the other (they sit in the same place above the bar); a click outside both closes both. */
+export function panelsReduce(p: Panels, a: PanelAction): Panels {
+  switch (a) {
+    case 'toggleList': return { list: !p.list, legend: false }
+    case 'toggleLegend': return { list: false, legend: !p.legend }
+    case 'closeList': return p.list ? { ...p, list: false } : p
+    case 'closeLegend': return p.legend ? { ...p, legend: false } : p
+    case 'outside': return p.list || p.legend ? noPanels : p
+  }
+}
+
+/** Escape: a pop-up that is open closes first and the tour stays (`handled`); with none open the tour exits. */
+export function panelsEscape(p: Panels): { panels: Panels; handled: boolean } {
+  if (!p.list && !p.legend) return { panels: p, handled: false }
+  return { panels: noPanels, handled: true }
 }
 
 /** "3 / 7" with no-break spaces: the counter is one word, so it never wraps between its numbers. */

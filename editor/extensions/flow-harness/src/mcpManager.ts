@@ -687,6 +687,7 @@ const STYLE = `
 
 const SCRIPT = /* js */ `
 const post = (type, id) => vscode.postMessage({ type, id });
+const seen = new Map();
 document.getElementById('add').onclick = () => post('add');
 document.getElementById('checkAll').onclick = () => post('checkAll');
 document.getElementById('refresh').onclick = () => post('refresh');
@@ -709,11 +710,11 @@ function row(s, cli, trusted) {
 				el('span', { class: 'chip' }, s.transport),
 				el('span', { class: 'chip ' + s.state, title: s.stateWhy }, s.state === 'pending' ? 'awaiting approval' : s.state)),
 			el('div', { class: 'actions' },
-				el('button', { onclick: () => post('check', s.id), disabled: s.busy || (runsRepoCode && !trusted), title: runsRepoCode && !trusted ? "Trust the folder to check the repository's servers" : 'Start it once (or contact its URL) and list its tools' }, s.busy ? 'Checking…' : 'Check'),
-				canEdit ? el('button', { onclick: () => post('edit', s.id) }, 'Edit…') : null,
-				canEdit ? el('button', { onclick: () => post('toggle', s.id) }, s.state === 'off' ? 'Turn on…' : 'Turn off…') : null,
-				canEdit ? el('button', { onclick: () => post('remove', s.id) }, 'Remove…') : null,
-				el('button', { onclick: () => post('open', s.id), title: s.file }, 'Open'))),
+				el('button', { 'data-k': s.id + ':check', 'aria-label': (s.busy ? 'Checking ' : 'Check ') + s.name, onclick: () => post('check', s.id), disabled: s.busy || (runsRepoCode && !trusted), title: runsRepoCode && !trusted ? "Trust the folder to check the repository's servers" : 'Start it once (or contact its URL) and list its tools' }, s.busy ? 'Checking…' : 'Check'),
+				canEdit ? el('button', { 'data-k': s.id + ':edit', 'aria-label': 'Edit ' + s.name, onclick: () => post('edit', s.id) }, 'Edit…') : null,
+				canEdit ? el('button', { 'data-k': s.id + ':toggle', 'aria-label': (s.state === 'off' ? 'Turn on ' : 'Turn off ') + s.name, onclick: () => post('toggle', s.id) }, s.state === 'off' ? 'Turn on…' : 'Turn off…') : null,
+				canEdit ? el('button', { 'data-k': s.id + ':remove', 'aria-label': 'Remove ' + s.name, onclick: () => post('remove', s.id) }, 'Remove…') : null,
+				el('button', { 'data-k': s.id + ':open', 'aria-label': 'Open the file of ' + s.name, onclick: () => post('open', s.id), title: s.file }, 'Open'))),
 		el('div', { class: 'mono kv' }, target),
 		el('div', { class: 'kv muted' },
 			el('span', {}, s.stateWhy),
@@ -732,6 +733,8 @@ function row(s, cli, trusted) {
 window.addEventListener('message', e => {
 	const d = e.data;
 	if (d.type !== 'data') return;
+	// The rows are drawn again on every update, so the button that had focus is a new element: put focus back on its twin (by server and action).
+	const had = document.activeElement && document.activeElement.dataset ? document.activeElement.dataset.k : undefined;
 	const probs = document.getElementById('problems');
 	probs.replaceChildren(...d.problems.map(p => el('div', { class: 'card issue error' }, p.file + ': ' + p.message)));
 	const list = document.getElementById('list');
@@ -741,6 +744,13 @@ window.addEventListener('message', e => {
 		return el('div', {}, el('h2', {}, title + ' (' + rows.length + ')'), el('p', { class: 'sub' }, note),
 			rows.length ? rows.map(s => row(s, d.cli, d.trusted)) : el('p', { class: 'muted' }, 'None configured.'));
 	}));
+	if (had) { const again = [...document.querySelectorAll('[data-k]')].find(b => b.dataset.k === had); if (again && !again.disabled) again.focus(); }
+	// A check that finished since the last update is said once (never the whole list on the first draw).
+	for (const s of d.servers) {
+		const at = s.check ? s.check.at : 0;
+		if (seen.has(s.id) && at && at !== seen.get(s.id)) announce(s.name + ': ' + (s.check.ok ? 'passed' : 'failed') + '. ' + s.check.status);
+		seen.set(s.id, at);
+	}
 	if (d.focus) {
 		const n = document.getElementById('s-' + d.focus);
 		if (n) { n.classList.add('focus'); n.scrollIntoView({ block: 'center' }); }

@@ -64,7 +64,7 @@ test('methods carry their span, and an edit in one names that one', async () => 
 test('only the route that reaches the changed method is affected', async () => {
 	const file = join(dir, 'app', 'service.js')
 	const methods = await index.request('methods', file)
-	const items = async ms => [...new Set((await Promise.all(ms.map(m => index.request('impact', m.id)))).flatMap(r => r.items))].sort()
+	const items = async ms => [...new Set((await Promise.all(ms.map(m => index.request('impact', m.id)))).flatMap(r => r.items.map(i => i.label)))].sort()
 	const ranges = c.rangesFromHunks(structuredPatch('a', 'b', SERVICE_BEFORE, SERVICE_AFTER, '', '', { context: 0 }).hunks)
 	const methodLevel = await items(c.methodsTouched(methods, ranges).methods)
 	const fileLevel = await items(methods)

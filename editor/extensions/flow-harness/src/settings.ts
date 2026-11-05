@@ -115,6 +115,8 @@ async function closeDiffs(keys: Set<string>) {
 export interface FileChange {
 	file: string;
 	change: (text: string) => string | undefined;
+	/** The file is deleted (when it exists) instead of rewritten; the diff shows it emptied. */
+	remove?: boolean;
 	/**
 	 * What the diff shows instead of the whole file: the part the change is about, with secrets hidden. A change to
 	 * ~/.claude.json must not put the rest of that file (the sign-in, every project's state) or a typed API key on screen.
@@ -130,6 +132,17 @@ export interface FileChange {
 export async function previewAndWriteFiles(title: string, changes: FileChange[], button = 'Write'): Promise<boolean> {
 	const planned: { c: FileChange; before: string; after: string; key: string }[] = [];
 	for (const c of changes) {
+		if (c.remove) {
+			// A file that is already gone has nothing to delete.
+			if (await fs.stat(c.file).then(() => true, () => false)) {
+				const current = await load(c.file);
+				if (current === undefined) {
+					return false;
+				}
+				planned.push({ c, before: current, after: '', key: `/${Date.now()}-${planned.length}/${path.basename(c.file)}` });
+			}
+			continue;
+		}
 		const before = await load(c.file);
 		const after = before === undefined ? undefined : c.change(before);
 		if (before === undefined || after === undefined) {
@@ -153,7 +166,7 @@ export async function previewAndWriteFiles(title: string, changes: FileChange[],
 		const left = shown ? vscode.Uri.from({ scheme: SCHEME, path: `${p.key}.before` }) : p.before ? vscode.Uri.file(p.c.file) : vscode.Uri.from({ scheme: SCHEME, path: `${p.key}.empty` });
 		await vscode.commands.executeCommand('vscode.diff', left, vscode.Uri.from({ scheme: SCHEME, path: p.key }), `${title}: ${vscode.workspace.asRelativePath(p.c.file)}`, { preview: planned.length === 1 });
 	}
-	const files = planned.map(p => `${p.before ? 'Changes' : 'Creates'} ${vscode.workspace.asRelativePath(p.c.file)}`).join('\n');
+	const files = planned.map(p => `${p.c.remove ? 'Deletes' : p.before ? 'Changes' : 'Creates'} ${vscode.workspace.asRelativePath(p.c.file)}`).join('\n');
 	const ok = await vscode.window.showInformationMessage(`${title}?`, { modal: true, detail: `${files}\n\nThe ${planned.length > 1 ? 'diffs are' : 'diff is'} open behind this dialog.` }, button);
 	const keys = new Set(planned.map(p => p.key));
 	planned.forEach(p => {
@@ -164,8 +177,12 @@ export async function previewAndWriteFiles(title: string, changes: FileChange[],
 	if (ok !== button) {
 		return false;
 	}
-	const finals: { file: string; text: string }[] = [];
+	const finals: { file: string; text: string; remove?: boolean }[] = [];
 	for (const p of planned) {
+		if (p.c.remove) {
+			finals.push({ file: p.c.file, text: '', remove: true });
+			continue;
+		}
 		const latest = await load(p.c.file);
 		const final = latest === undefined ? undefined : latest === p.before ? p.after : p.c.change(latest);
 		if (final === undefined) {
@@ -175,7 +192,11 @@ export async function previewAndWriteFiles(title: string, changes: FileChange[],
 	}
 	for (const f of finals) {
 		try {
-			await writeAtomic(f.file, f.text);
+			if (f.remove) {
+				await fs.rm(f.file, { force: true });
+			} else {
+				await writeAtomic(f.file, f.text);
+			}
 		} catch (e) {
 			void vscode.window.showErrorMessage(`Could not write ${f.file} (${(e as Error).message}).${finals.length > 1 ? ' The other files may have been written.' : ' Nothing was changed.'}`);
 			return false;

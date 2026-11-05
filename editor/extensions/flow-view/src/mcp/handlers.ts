@@ -15,14 +15,15 @@ import { innermost, type Analyzer } from '../analyzer';
 import { entryName, type Endpoints, type Entry, type Source } from '../backends';
 import { fillCode, isCanvasInput, lintOf, parseCanvasBoard, patchElements, renderCanvas, type ElementPatch } from '../board/canvas';
 import { formatLint, lintBoard } from '../board/lint';
+import { checkOverlap } from '../board/overlap';
 import { importMermaid } from '../board/mermaidImport';
 import { parseBoardWithNotes, type BoardHighlight, type BoardSpec } from '../board/spec';
 import { describeCandidate, matchSymbols, symbolQuery, type SymbolCandidate } from '../board/symbols';
-import { annotate, architectureFromGraph, checkScope, erFromTables, sequenceFromFlow, stateFromEnum, strings, type Generated } from '../board/fromCode';
+import { annotate, architectureFromGraph, checkScope, erFromTables, partialIndexNotes, sequenceFromFlow, stateFromEnum, strings, type FromCodeKind, type Generated } from '../board/fromCode';
 import { cleanBoardId, type BoardStore } from '../board/store';
 import type { ChangeSet, ChangeSetTrace } from '../changeSet';
 import { POLY_LANGUAGES, type PolyIndex } from '../poly/client';
-import type { FlowProvider, FlowTarget } from '../providers';
+import type { FlowProvider, FlowTarget, ImpactResult } from '../providers';
 import { changeMark, diffOpening, GitStatus, statusesByFile } from './changes';
 import { flowToText } from './flowtext';
 import { errorResult, type ToolResult } from './protocol';
@@ -39,7 +40,8 @@ import type { Tour, TourStep } from '../../../../../protocol/flow';
 import { readTextIn, realInside } from '../tour/files';
 import { methodsOf } from '../tourMethods';
 import { drawnOf, markOffFlow, type Method } from '../tour/resolve';
-import { parseTourArgs, stepFiles, type TourFlow } from '../tour/validate';
+import { planEdit } from '../tour/edit';
+import { parseTourArgs, parseTourSteps, stepFiles, type TourFlow } from '../tour/validate';
 import { SKELETON_STEPS, type SkeletonStep, type SkeletonTools } from '../skeleton/sessions';
 
 /** What the tools need from the rest of the extension. */
@@ -84,6 +86,10 @@ export interface TourPlayer {
 	play(tour: Tour, session?: string): Promise<void>;
 	state(): { id: string; steps: number; index: number | undefined; paused: boolean; asking: boolean; session?: string } | undefined;
 	go(index: number): Promise<void>;
+	/** The steps of the playing tour as the host holds them (notes included), for an edit to build on. */
+	steps(): TourStep[] | undefined;
+	/** Swaps the playing tour's steps for a new list and puts the reader on `index`, paused or waiting as they were. */
+	edit(steps: TourStep[], index: number, map: (i: number) => number): Promise<void>;
 	/** Pins an agent's answer to a step; a message says what is wrong, nothing when it was pinned. */
 	note(index: number, text: string): Promise<string | undefined>;
 	resume(): Promise<void>;
@@ -900,7 +906,7 @@ export class AgentTools {
 			const t = flowToText(callers, { depth: num(a.depth, 3, 6), rel: f => this.rel(f) }, 'callers');
 			out.push('', t.nodes > 1 ? 'Callers ("<- L<n>" is the line in the caller):' : 'No callers found in the index.', t.nodes > 1 ? t.text : '');
 		}
-		const items = (affected as { items: string[] }).items;
+		const items = (affected as ImpactResult).items.map(i => i.label);
 		out.push('', items.length ? `${items.length} ${(affected as { label: string }).label}${items.length > 1 ? 's' : ''} reach it:` : 'No entry point reaches it.', ...items.slice(0, 60).map(i => `- ${i}`));
 		return text(out.join('\n'));
 	}
@@ -1009,11 +1015,7 @@ export class AgentTools {
 
 	private async tour(a: Record<string, unknown>, ctx: CallContext): Promise<ToolResult> {
 		const roots = this.folders;
-		const methods = new Map<string, readonly Method[] | undefined>();
-		// The methods of every file the steps name, within a budget: a file that is not listed in time is placed by its line.
-		await within(Promise.all(stepFiles(a, roots).map(async f => {
-			methods.set(f, realInside(roots, f) ? await methodsOf(this.d, f).catch(() => undefined) : undefined);
-		})), 8000, 'listing the methods').catch(() => undefined);
+		const methods = await this.tourMethods(a, roots);
 		const look = ctx.session ? await this.d.describeAgent(ctx.session).catch(() => undefined) : undefined;
 		const { tour, flow, notes } = parseTourArgs(a, { roots, readText: readTextIn(roots), methodsIn: f => methods.get(f) }, look?.label ?? 'Agent tour');
 		// The cursor is the agent's: its name and colour from the dock. An agent Insilode did not start has a plain pointer.
@@ -1025,13 +1027,7 @@ export class AgentTools {
 		const [root, callers] = await Promise.all([within(provider.graph(target), 60_000, 'the flow'), within(provider.callers(target), 20_000, 'the callers').catch(() => null)]);
 		const off = markOffFlow(tour.steps, drawnOf(root, callers));
 		await this.d.tours.play(tour, ctx.session);
-		const lines = tour.steps.map((s, i) => {
-			const at = s.at;
-			const where = !at ? '(caption only)' : at.table ? `table ${at.table}` : at.file ? `${this.rel(at.file)}${at.startLine ? `:${at.startLine}${at.endLine > at.startLine ? `-${at.endLine}` : ''}` : ''}` : '';
-			const lit = s.highlights?.length ? `  (highlight ${s.highlights.map(h => (h[0] === h[1] ? h[0] : `${h[0]}-${h[1]}`)).join(', ')})` : '';
-			const note = [notes[i], off.get(i)].filter(Boolean).join('; ');
-			return `${i + 1} ${s.state.padEnd(7)} ${(at?.label || s.title).padEnd(24)} ${where}${lit}${note ? `  (${note})` : ''}`;
-		});
+		const lines = tour.steps.map((s, i) => this.tourLine(s, i, [notes[i], off.get(i)].filter(Boolean).join('; ')));
 		const bad = tour.steps.filter(s => s.state === 'missing').length;
 		return text([
 			`Tour "${tour.id}" (${tour.steps.length} steps) playing on ${label}. The user is on step ${tour.start + 1}.`,
@@ -1039,6 +1035,55 @@ export class AgentTools {
 			bad ? `${bad} step${bad === 1 ? ' was' : 's were'} not found and show${bad === 1 ? 's' : ''} greyed with the caption only: fix ${bad === 1 ? 'it' : 'them'} by calling tour again with the same id.` : '',
 			'The user steps through it. Their questions come back to you as a message; answer with tour_control.',
 		].filter(Boolean).join('\n'));
+	}
+
+	/** The methods of every file the steps name, within a budget: a file that is not listed in time is placed by its line. */
+	private async tourMethods(raw: unknown, roots: string[]): Promise<Map<string, readonly Method[] | undefined>> {
+		const methods = new Map<string, readonly Method[] | undefined>();
+		await within(Promise.all(stepFiles(raw, roots).map(async f => {
+			methods.set(f, realInside(roots, f) ? await methodsOf(this.d, f).catch(() => undefined) : undefined);
+		})), 8000, 'listing the methods').catch(() => undefined);
+		return methods;
+	}
+
+	/** One line of a tour answer: number, state, label, where, highlights and the agent's note. */
+	private tourLine(s: TourStep, i: number, note: string): string {
+		const at = s.at;
+		const where = !at ? '(caption only)' : at.table ? `table ${at.table}` : at.file ? `${this.rel(at.file)}${at.startLine ? `:${at.startLine}${at.endLine > at.startLine ? `-${at.endLine}` : ''}` : ''}` : '';
+		const lit = s.highlights?.length ? `  (highlight ${s.highlights.map(h => (h[0] === h[1] ? h[0] : `${h[0]}-${h[1]}`)).join(', ')})` : '';
+		return `${i + 1} ${s.state.padEnd(7)} ${(at?.label || s.title).padEnd(24)} ${where}${lit}${note ? `  (${note})` : ''}`;
+	}
+
+	/** tour_control edit: new steps replace or join the playing tour; the reader stays on their step. */
+	private async tourEdit(a: Record<string, unknown>, id: string): Promise<ToolResult> {
+		const roots = this.folders;
+		const methods = await this.tourMethods({ steps: a.steps }, roots);
+		const parsed = parseTourSteps(a.steps, { roots, readText: readTextIn(roots), methodsIn: f => methods.get(f) }, true, 10);
+		// Only the new steps are checked against the drawn flow: the rest were marked when the tour started.
+		const target = this.d.shownTarget();
+		let off = new Map<number, string>();
+		if (target) {
+			const provider = this.d.providerFor(target);
+			const [root, callers] = await Promise.all([within(provider.graph(target), 60_000, 'the flow'), within(provider.callers(target), 20_000, 'the callers').catch(() => null)]);
+			off = markOffFlow(parsed.steps, drawnOf(root, callers));
+		}
+		// The work above can take a minute, and the reader may have moved, resumed or closed the tour meanwhile: the plan is
+		// made from the state as it is now, and the paused-only rule is checked again.
+		const state = this.d.tours.state();
+		const current = this.d.tours.steps();
+		if (!state || state.id !== id || !current) {
+			throw new Error(`No tour "${id}" is playing any more; nothing was changed.`);
+		}
+		if (!state.paused && !state.asking) {
+			return text(`The user went on with the tour while the new steps were being placed (now on step ${(state.index ?? 0) + 1} of ${state.steps}). Nothing was changed: edit again when they pause or ask.`);
+		}
+		const plan = planEdit({ steps: current, index: state.index, replace: typeof a.replace === 'number' ? Math.floor(a.replace) : undefined, insert: typeof a.insert === 'number' ? Math.floor(a.insert) : undefined, add: parsed.steps });
+		if (plan.error) {
+			throw new Error(plan.error);
+		}
+		await this.d.tours.edit(plan.steps, plan.index, plan.map);
+		const lines = parsed.steps.map((s, i) => this.tourLine(s, plan.first + i, [parsed.notes[i], off.get(i)].filter(Boolean).join('; ')));
+		return text([`Edited tour "${id}": ${parsed.steps.length} new step${parsed.steps.length === 1 ? '' : 's'} at position ${plan.first + 1}; the reader stays on step ${plan.index + 1}.`, ...lines].join('\n'));
 	}
 
 	private async tourControl(a: Record<string, unknown>, ctx: CallContext): Promise<ToolResult> {
@@ -1068,8 +1113,14 @@ export class AgentTools {
 			}
 			return text(`Pinned your note to step ${index + 1} of ${state.steps}. ${state.asking ? 'Now call tour_control resume (and go first if another step answers the question better).' : where}`);
 		}
+		if (a.action === 'edit') {
+			if (!state.paused && !state.asking) {
+				return text(`${where} \`edit\` is for fixing the tour while the reader is paused or waiting for your answer; the user paces the tour. Nothing was changed.`);
+			}
+			return this.tourEdit(a, id);
+		}
 		if (a.action !== 'go') {
-			throw new Error('`action` must be go, note, resume or end.');
+			throw new Error('`action` must be go, note, edit, resume or end.');
 		}
 		const step = typeof a.step === 'number' ? Math.floor(a.step) : 0;
 		if (step < 1 || step > state.steps) {
@@ -1161,6 +1212,11 @@ export class AgentTools {
 		const id = await this.d.boards.set(spec, { id: wanted, origin: 'agent' });
 		const skeleton = await this.d.skeleton?.drawn(id, spec, ctx.session);
 		const lint = lintBoard(spec);
+		// What the layout would put on top of each other (callouts, labels). What still overlaps is a problem for the agent to fix,
+		// so it joins the lint; what Insilode already nudged apart is only news, shown after it.
+		const overlap = checkOverlap(spec);
+		const moved = overlap.filter(line => line.startsWith('moved '));
+		found.push(...overlap.filter(line => !line.startsWith('moved ')));
 		if (claimed) {
 			found.push(`id "${claimed}" is another agent's skeleton design, so this was drawn as a new board.`);
 		}
@@ -1171,6 +1227,7 @@ export class AgentTools {
 			`Board "${id}" ${replaced ? 'replaced' : 'drawn'} and shown to the user in Insilode: ${spec.kind}, ${spec.nodes.length} nodes, ${spec.edges.length} edges${layout}.`,
 			spec.kind === 'plan' ? `Tick steps off with update_board (id "${id}", nodeId one of: ${spec.nodes.slice(0, 20).map(n => n.id).join(', ')}).` : `Use id "${id}" again to replace it.`,
 			...formatLint(notes, found, lint),
+			...(moved.length ? [`Layout: ${moved.join('; ')}.`] : []),
 			...(skeleton ? ['', skeleton] : []),
 			...(png ? ['', 'The picture below is the board as Insilode shows it now.'] : a.image === false ? [] : ['', 'No picture: the board tab did not answer in time (it may still be opening); call again with the same id and board to get one.']),
 		].join('\n'));
@@ -1454,14 +1511,17 @@ export class AgentTools {
 		return { file: hit.location.uri.fsPath, method };
 	}
 
-	private async generate(kind: string, scope: Record<string, unknown>, a: Record<string, unknown>): Promise<Generated> {
+	private async generate(kind: FromCodeKind, scope: Record<string, unknown>, a: Record<string, unknown>): Promise<Generated> {
 		const depth = num(a.depth, 6, 8);
 		const maxNodes = typeof a.maxNodes === 'number' ? num(a.maxNodes, 20, 60) : undefined;
 		if (kind === 'sequence') {
 			const target = typeof scope.symbol === 'string' && !scope.id && !scope.file ? await this.symbolTarget(scope.symbol) : undefined;
 			const r = await this.resolve(target ?? scope);
 			const root = await within(this.d.providerFor(r.target).graph(r.target), 120_000, 'the flow');
-			return sequenceFromFlow(root, `Sequence: ${r.label}`, { depth, rel: f => this.rel(f), maxParticipants: maxNodes });
+			const drawn = sequenceFromFlow(root, `Sequence: ${r.label}`, { depth, rel: f => this.rel(f), maxParticipants: maxNodes });
+			// A flow the C# analyzer or a language server traced does not depend on the code index.
+			drawn.notes.push(...partialIndexNotes({ kind, indexReady: this.d.poly.isReady || r.target.kind !== 'poly', board: drawn.board }));
+			return drawn;
 		}
 		if (!this.d.types) {
 			throw new Error('The type graph is not available in this window.');
@@ -1472,9 +1532,6 @@ export class AgentTools {
 		if (kind === 'er') {
 			const schemas = this.d.poly.isReady ? await within(this.d.poly.schemas(), 30_000, 'the schema reader').catch(() => []) : [];
 			out = erFromTables({ schemas, graph, migrations: await this.migrations().catch(() => []) }, { tables: strings(scope.tables, 'scope.tables') }, { maxTables: maxNodes });
-			if (!this.d.poly.isReady) {
-				out.notes.push('The code index is still building: tables of Java, Python and JS/TS may be missing. Try again in a moment.');
-			}
 		} else if (kind === 'architecture') {
 			out = architectureFromGraph(graph, { module: typeof scope.module === 'string' ? scope.module : undefined }, { maxNodes });
 		} else {
@@ -1489,7 +1546,7 @@ export class AgentTools {
 			}));
 			out = stateFromEnum({ graph, readSource: f => cache.get(f) }, { enum: typeof scope.enum === 'string' ? scope.enum : undefined });
 		}
-		out.notes.push(...warnings);
+		out.notes.push(...partialIndexNotes({ kind, indexReady: this.d.poly.isReady, board: out.board, skipped: out.skipped }), ...warnings);
 		return out;
 	}
 
@@ -1572,9 +1629,10 @@ export class AgentTools {
 			throw new Error('Pass `nodeId` with `status`/`note`/`change`, an `updates` array of those, and/or `highlight`.');
 		}
 		const touched = await this.d.boards.update(id, { nodes, highlight });
-		return text(`Board "${id}": ${[
+		const crowded = checkOverlap(this.d.boards.get(id)?.spec);
+		return text([`Board "${id}": ${[
 			...touched.map(n => `node "${n.id}" is now ${n.status ?? 'unmarked'}${n.change ? ` (${n.change})` : ''}`),
 			...(highlight ? [highlight.length ? `highlighting ${highlight.length} route(s)` : 'highlight cleared'] : []),
-		].join('; ')}.`);
+		].join('; ')}.`, ...crowded].join('\n'));
 	}
 }

@@ -6,10 +6,11 @@ import { join } from 'node:path'
 import { cleanup, load } from './bundle.mjs'
 import { ROOT } from './helpers.mjs'
 
-let spec, tools, store, mermaid, markdown
+let spec, tools, prompts, store, mermaid, markdown
 before(async () => {
 	spec = await load('src/board/spec.ts')
 	tools = await load('src/mcp/tools.ts')
+	prompts = await load('src/mcp/prompts.ts')
 	store = await load('src/board/store.ts')
 	mermaid = await load('src/board/mermaid.ts')
 	markdown = await load('src/board/markdown.ts')
@@ -46,8 +47,10 @@ test('board-schema: the draw_board enums are the ones spec.ts accepts', () => {
 })
 
 test('board-validate: the example in the draw_board description is a valid board', () => {
-	const draw = tools.TOOLS.find(t => t.name === 'draw_board')
-	const example = JSON.parse(/Example: (\{.*\}\})\. For a plan/s.exec(draw.description)[1])
+	// The example moved out of the (short) tool description into the diagram_guide prompt the description points at.
+	const guide = prompts.getPrompt('diagram_guide', {}).messages[0].content.text
+	assert.match(tools.TOOLS.find(t => t.name === 'draw_board').description, /diagram_guide/)
+	const example = JSON.parse(/Example \(a flow board\):\s*(\{.*\}\})\s*\n/.exec(guide)[1])
 	assert.equal(example.id, 'order-flow')
 	const board = spec.parseBoard(example.board)
 	assert.equal(board.kind, 'flow')

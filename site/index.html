@@ -253,6 +253,16 @@
           <a class="btn btn-secondary" href="https://github.com/{{repo}}">Star on GitHub</a>
         </div>
         <div class="dl-list" data-download-list></div>
+        <!-- The builds are not code-signed yet, so a file downloaded in a browser meets Gatekeeper or SmartScreen on first launch.
+             These commands download without the quarantine mark those prompts look for (site/public/install.sh, install.ps1). -->
+        <div class="dl-terminal">
+          <h3>Or install from a terminal, without the security prompt</h3>
+          <p>macOS, in Terminal (run it again to update):</p>
+          <pre><code>curl -fsSL {{site}}/install.sh | sh</code></pre>
+          <p>Windows, in PowerShell:</p>
+          <pre><code>irm {{site}}/install.ps1 | iex</code></pre>
+          <p>Each checks the download against the release's <code>SHA256SUMS.txt</code> before it installs anything. <a href="./docs/install/">Install notes</a>.</p>
+        </div>
       </section>
     </main>
 

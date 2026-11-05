@@ -56,13 +56,13 @@ export function registerMcpCommands(context: vscode.ExtensionContext, log: vscod
 		const cmd = mcpAddCommand(script(), { pathNode: findOnPath('node'), execPath: process.execPath });
 		const already = await exists();
 		const detail = [
-			`This runs the Claude Code CLI once:`,
+			`Adds an MCP server named "insilode" to your Claude Code user configuration, by running:`,
 			``,
 			shownLine(cmd.args),
 			``,
-			`What changes: your Claude Code user configuration gets an MCP server named "insilode". From then on every \`claude\` session on this PC (in any terminal, not only Insilode's) can call ${TOOLS.map((t, i) => (i === 0 ? 'mcp__insilode__' : i === TOOLS.length - 1 ? 'and ' : '') + t.name).join(', ').replace(/, and /, ' and ')}.`,
+			`Every \`claude\` session on this PC, in any terminal, can then call ${TOOLS.map((t, i) => (i === 0 ? 'mcp__insilode__' : i === TOOLS.length - 1 ? 'and ' : '') + t.name).join(', ').replace(/, and /, ' and ')}.`,
 			``,
-			`What the tools can do: open files, the git diff and flows and draw diagrams in an Insilode window that has the same folder open, and read diagnostics, symbols and the call flows Insilode has indexed. They cannot write files or run commands, and refuse paths outside the open folder.`,
+			`They open files, the git diff and flows in an Insilode window with the same folder open, and read diagnostics, symbols and call flows. They cannot write files or run commands, and refuse paths outside the open folder.`,
 			cmd.electron ? `\nNode was not found on PATH, so Insilode's own runtime runs the server.` : '',
 			already ? `\nAn "insilode" server is already configured: Reconnect removes it first and adds it again.` : '',
 			`\nNothing else is touched. Undo any time with "Insilode: Disconnect Claude Code Tools (MCP)".`,

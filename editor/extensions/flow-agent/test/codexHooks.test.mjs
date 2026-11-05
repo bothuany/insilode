@@ -63,6 +63,24 @@ test('the profile is deterministic, so trust given once keeps holding', () => {
 	assert.notEqual(c.codexProfile('a'), c.codexProfile('b'))
 })
 
+test('the profile gives Codex the insilode server by name, its variables by name only, and holds no hooks when none are asked', () => {
+	const mcp = { execPath: 'C:\\Insilode\\Insilode.exe', script: 'C:\\Insilode\\flow-view\\out\\insilode-mcp.js', electron: true }
+	const toml = c.codexProfile(undefined, mcp)
+	const lines = toml.split('\n')
+	assert.ok(lines.includes('[mcp_servers.insilode]'))
+	assert.ok(lines.includes(`command = ${c.tomlString(mcp.execPath)}`))
+	assert.ok(lines.includes(`args = [${c.tomlString(mcp.script)}]`))
+	assert.ok(lines.includes('env = { ELECTRON_RUN_AS_NODE = "1" }'))
+	assert.ok(lines.includes(`env_vars = [${c.CODEX_MCP_ENV.map(c.tomlString).join(', ')}]`))
+	assert.ok(['INSILODE_WORKSPACE', 'INSILODE_SESSION', 'CODEX_HOME'].every(v => c.CODEX_MCP_ENV.includes(v)))
+	assert.ok(!toml.includes('[[hooks.'))
+	assert.ok(!c.codexProfile(undefined, { ...mcp, electron: false }).includes('ELECTRON_RUN_AS_NODE'))
+	assert.ok(!c.codexProfile('a').includes('mcp_servers'))
+	const both = c.codexProfile('a', mcp)
+	assert.equal(both, c.codexProfile('a', mcp))
+	assert.equal(both.split('\n').filter(l => l.startsWith('[[hooks.') && !l.endsWith('.hooks]]')).length, c.CODEX_EVENTS.length)
+})
+
 test('the hook script names no workspace: it is the same file for every window', () => {
 	assert.ok(c.CODEX_HOOK_SCRIPT.includes('process.env.FLOW_HOOK_DIR'))
 	assert.ok(!/[A-Z]:\\|\/home\/|\/Users\//.test(c.CODEX_HOOK_SCRIPT))

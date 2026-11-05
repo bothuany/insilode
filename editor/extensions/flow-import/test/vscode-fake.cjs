@@ -71,9 +71,9 @@ module.exports = {
 			(state.messages ??= []).push({ level: 'info', message })
 			return Promise.resolve(state.onInfo?.(message, items))
 		},
-		showWarningMessage(message) {
+		showWarningMessage(message, ...rest) {
 			(state.messages ??= []).push({ level: 'warning', message })
-			return Promise.resolve(undefined)
+			return Promise.resolve(state.onWarning?.(message, ...rest))
 		},
 		showErrorMessage(message) {
 			(state.messages ??= []).push({ level: 'error', message })

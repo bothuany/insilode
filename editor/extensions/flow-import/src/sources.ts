@@ -22,7 +22,7 @@ export interface Env {
 }
 
 export interface Product {
-	id: 'code' | 'insiders' | 'cursor';
+	id: 'code' | 'insiders' | 'vscodium' | 'cursor' | 'windsurf';
 	name: string;
 	/** The folder under the OS's application-data folder that holds `User`. */
 	dataFolder: string;
@@ -34,7 +34,9 @@ export interface Product {
 export const PRODUCTS: readonly Product[] = [
 	{ id: 'code', name: 'VS Code', dataFolder: 'Code', extensionsFolder: '.vscode' },
 	{ id: 'insiders', name: 'VS Code Insiders', dataFolder: 'Code - Insiders', extensionsFolder: '.vscode-insiders' },
+	{ id: 'vscodium', name: 'VSCodium', dataFolder: 'VSCodium', extensionsFolder: '.vscode-oss' },
 	{ id: 'cursor', name: 'Cursor', dataFolder: 'Cursor', extensionsFolder: '.cursor' },
+	{ id: 'windsurf', name: 'Windsurf', dataFolder: 'Windsurf', extensionsFolder: '.windsurf' },
 ];
 
 export interface Source {
@@ -62,6 +64,50 @@ export function findSources(env: Env): Source[] {
 		userDir: join(root, product.dataFolder, 'User'),
 		extensionsDir: join(env.home, product.extensionsFolder, 'extensions'),
 	})).filter(s => isDir(s.userDir) || isDir(s.extensionsDir));
+}
+
+export interface SourcePickItem {
+	label: string;
+	description: string;
+	detail: string;
+	source: Source;
+}
+
+/**
+ * The quick pick items for several editors: name, the User folder and when its settings.json last changed (the date, in
+ * UTC, so the text does not depend on the machine's time zone). `modified` reads a file's modification time in
+ * milliseconds, or undefined when there is no such file.
+ */
+export function sourcePickItems(sources: readonly Source[], modified: (path: string) => number | undefined = mtimeOf): SourcePickItem[] {
+	return sources.map(source => {
+		const at = modified(join(source.userDir, 'settings.json'));
+		return {
+			label: source.product.name,
+			description: source.userDir,
+			detail: at === undefined ? 'No settings.json (extensions only)' : `Settings last modified ${new Date(at).toISOString().slice(0, 10)}`,
+			source,
+		};
+	});
+}
+
+/** What the first-start offer was answered with: the button pressed, or undefined for a notification that was closed. */
+export type OfferAnswer = 'import' | 'notNow' | 'never' | undefined;
+
+/**
+ * Whether the offer is marked answered so it never comes back. Only an explicit answer counts: `Never`, and an import
+ * that succeeded. `Not now`, a closed notification (the X), a source pick that was dismissed and an import that did not
+ * run or stopped all leave it open, so the offer returns at the next start.
+ */
+export function offerAnswered(answer: OfferAnswer, importSucceeded: boolean): boolean {
+	return answer === 'never' || (answer === 'import' && importSucceeded);
+}
+
+function mtimeOf(path: string): number | undefined {
+	try {
+		return statSync(path).mtimeMs;
+	} catch {
+		return undefined;
+	}
 }
 
 export interface Snippet {

@@ -43,14 +43,29 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .chip[aria-pressed='true'] { background: var(--fl-line); border-color: transparent; color: var(--fl-text); }
 .chip:disabled { cursor: default; }
 .chip.ghosted { border-style: dashed; cursor: default; }
-/* Impact names entry points, so it wears the entry-point colour. */
+/* Impact names entry points, so it wears the entry-point colour; a list of callers only is neutral: it does not say an entry point is reached. */
 .chip.impact.hot { color: #ffb454; border-color: color-mix(in srgb, #ffb454 40%, transparent); }
 .chip.impact.hot::before { content: ''; display: inline-block; width: 0; height: 0; margin-right: 6px; border: 4px solid transparent; border-left: 6px solid currentColor; border-right: 0; vertical-align: -1px; }
+.chip.impact.none { border-style: dashed; cursor: default; }
+.chip.impact.err { color: var(--fl-del); border-color: color-mix(in srgb, var(--fl-del) 50%, transparent); }
+.chip.impact.err:hover { color: var(--fl-del); background: color-mix(in srgb, var(--fl-del) 10%, transparent); }
 .impact-wrap { position: relative; }
+.engine { flex: none; font-size: 11px; color: var(--fl-muted); padding: 1px 7px; border: 1px solid var(--fl-line-strong); border-radius: 9px; white-space: nowrap; }
+.engine.weaker { color: var(--fl-text); border-style: dashed; }
+.engine-hint { color: var(--fl-muted); }
 .impact-pop { position: absolute; z-index: 20; top: 30px; left: 0; min-width: 260px; max-width: 420px; padding: 10px 12px; border: 1px solid var(--fl-line-strong); border-radius: 8px; background: var(--vscode-editorHoverWidget-background, var(--fl-card)); box-shadow: var(--fl-lift); }
 .impact-pop p { margin: 0 0 6px; color: var(--fl-muted); }
 .impact-pop ul { margin: 0; padding: 0; list-style: none; max-height: 240px; overflow: auto; }
 .impact-pop li { font: 11.5px/20px var(--fl-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.impact-pop:focus { outline: none; }
+.impact-pop .impact-more { margin: 6px 0 0; font-size: 11px; }
+/* A row that names a place is a button that shows its flow; one without a place is plain text. */
+.impact-row { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 0 4px; margin: 0 -4px; border: 0; border-radius: 4px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.impact-row:hover { background: var(--fl-line); }
+.impact-row.plain { cursor: default; }
+.impact-row.plain:hover { background: transparent; }
+.impact-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.impact-where { margin-left: auto; flex: none; color: var(--fl-faint); font-size: 10.5px; }
 
 .icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--fl-muted); cursor: pointer; font-size: 14px; }
 .icon-btn:hover { background: var(--fl-line); color: var(--fl-text); }
@@ -100,8 +115,18 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .title { font: 12.5px/17px var(--fl-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .title .member { color: var(--fl-text); font-weight: 600; }
 .sub { font-size: 11px; color: var(--fl-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tools { display: flex; gap: 1px; opacity: 0; transition: opacity .1s; }
-.card:hover .tools, .card.selected .tools, .tools:focus-within { opacity: 1; }
+/* The tools stay faintly visible: a row at opacity 0 cannot be found by eye or by keyboard. */
+.tools { display: flex; gap: 1px; opacity: .35; transition: opacity .1s; }
+.card:hover .tools, .card.selected .tools, .card:focus-within .tools, .tools:focus-within { opacity: 1; }
+.card:focus-visible { outline: 1.5px solid var(--fl-signal); outline-offset: 2px; }
+/* The cut note comes first on the sub line, so a long file name never pushes it out of the card. */
+.sub.has-cut { display: flex; gap: 6px; }
+.sub .sub-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sub .cut { flex: none; font-weight: 600; color: var(--fl-text); text-decoration: underline dashed; text-underline-offset: 2px; }
+/* Trouble with the flow that is drawn (a failed refresh, failed callers): a strip over the canvas, the flow stays. */
+.wv-notes { position: absolute; z-index: 14; top: 8px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; width: max-content; max-width: calc(100% - 24px); }
+.wv-note { display: flex; align-items: center; gap: 10px; padding: 6px 10px; border: 1px solid color-mix(in srgb, var(--fl-del) 50%, transparent); border-radius: 8px; background: var(--vscode-editorWidget-background, var(--fl-card)); box-shadow: var(--fl-lift); color: var(--fl-text); }
+.wv-note span { min-width: 0; overflow-wrap: anywhere; }
 .tool { min-width: 24px; height: 22px; padding: 0 5px; border: 0; border-radius: 5px; background: transparent; color: var(--fl-muted); cursor: pointer; font: 11.5px var(--fl-mono); }
 .tool:hover { background: var(--fl-line); color: var(--fl-text); }
 

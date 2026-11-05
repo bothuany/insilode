@@ -80,7 +80,17 @@ function branch(name: string) {
 
 // ── Argument arrays: the only git command lines this feature runs ───────────────────────────────
 
-export const addArgs = (dir: string, newBranch: string, base: string) => ['worktree', 'add', '-b', branch(newBranch), dir, branch(base)];
+/**
+ * `noTrack` for a start point that is a remote-tracking branch (origin/main): git would otherwise make the new branch
+ * track it, and a later `git push` or `git pull` in the worktree would aim at the default branch.
+ */
+export const addArgs = (dir: string, newBranch: string, base: string, noTrack = false) => ['worktree', 'add', ...(noTrack ? ['--no-track'] : []), '-b', branch(newBranch), dir, branch(base)];
+export const originUrlArgs = () => ['config', '--get', 'remote.origin.url'];
+export const fetchOriginArgs = () => ['fetch', '--quiet', 'origin'];
+export const originHeadArgs = () => ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'];
+/** Whether a remote-tracking branch of origin exists (`name` is the part after `origin/`). */
+export const verifyOriginArgs = (name: string) => ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch(name)}^{commit}`];
+export const verifyLocalArgs = (name: string) => ['rev-parse', '--verify', '--quiet', `refs/heads/${branch(name)}^{commit}`];
 /** `--force` only after the user confirmed a second time that the uncommitted changes go. */
 export const removeArgs = (dir: string, force: boolean) => ['worktree', 'remove', ...(force ? ['--force'] : []), dir];
 /** Left is the base, right is the branch: git prints "<behind>\t<ahead>". */
@@ -215,6 +225,70 @@ export function git(cwd: string, args: string[], timeout = 30_000): Promise<GitR
 
 const firstLine = (r: GitResult) => (r.stderr || r.stdout).trim().split('\n')[0] || `git exited with ${r.code}`;
 
+const DETACHED = 'HEAD is detached: check out a branch first';
+
+/** Runs git like `git` does; a test passes a fake that answers from a table. */
+export type GitRunner = (cwd: string, args: string[], timeout?: number) => Promise<GitResult>;
+
+/** Where a new worktree starts: the branch you are on, or origin's default branch (flow.agents.worktreeBase). */
+export type WorktreeBase = 'current' | 'origin-default';
+
+/**
+ * The name of origin's default branch (`main`), or undefined when none can be found. origin/HEAD says it when the
+ * clone recorded it; without it (a repository made with `git init` and `git remote add`) main, then master. Every
+ * candidate is checked to exist as a remote-tracking branch, so a dangling origin/HEAD cannot name a start point git lacks.
+ */
+export async function originDefaultBranch(run: GitRunner, root: string): Promise<string | undefined> {
+	const head = await run(root, originHeadArgs());
+	const named = head.code === 0 ? head.stdout.trim().replace(/^origin\//, '') : '';
+	for (const name of [named, 'main', 'master']) {
+		if (name && validBranch(name) && (await run(root, verifyOriginArgs(name))).code === 0) {
+			return name;
+		}
+	}
+	return undefined;
+}
+
+/** What a new worktree is cut from (`start`), the branch it merges back into (`base`), and what the user should hear. */
+export interface BaseChoice {
+	start: string;
+	base: string;
+	notes: string[];
+}
+
+/**
+ * Picks the start point. `current` (and every case where origin's default cannot be found: no origin remote, no default
+ * branch) is the branch you are on, with a note saying why when origin was asked for. A failed fetch is no reason to stop:
+ * the last known origin ref is used and the note says so. `current` is empty on a detached HEAD, which only the
+ * origin-default mode can start from.
+ */
+export async function chooseBase(run: GitRunner, root: string, current: string, mode: WorktreeBase): Promise<BaseChoice> {
+	if (mode !== 'origin-default') {
+		return { start: current, base: current, notes: [] };
+	}
+	const notes: string[] = [];
+	const fallback = (why: string): BaseChoice => {
+		if (!current) {
+			throw new Error(`${why}, and ${DETACHED}`);
+		}
+		return { start: current, base: current, notes: [...notes, `${why}: the worktree starts from ${current}`] };
+	};
+	if ((await run(root, originUrlArgs())).code !== 0) {
+		return fallback('this repository has no origin remote');
+	}
+	const fetched = await run(root, fetchOriginArgs(), 45_000);
+	if (fetched.code !== 0) {
+		notes.push(`could not fetch origin (${firstLine(fetched)}): using the last known state of it`);
+	}
+	const name = await originDefaultBranch(run, root);
+	if (!name) {
+		return fallback('origin has no default branch Insilode can find (origin/HEAD, main or master)');
+	}
+	// Merging back needs a local branch of that name in the main checkout; without one, the branch you are on stays the base.
+	const local = (await run(root, verifyLocalArgs(name))).code === 0;
+	return { start: `origin/${name}`, base: local ? name : current || `origin/${name}`, notes };
+}
+
 /** The repository's top folder and its current branch, or a reason it has none (not a repo, a detached HEAD). */
 export async function repoInfo(cwd: string): Promise<{ root: string; branch: string } | string> {
 	const top = await git(cwd, topLevelArgs());
@@ -224,7 +298,7 @@ export async function repoInfo(cwd: string): Promise<{ root: string; branch: str
 	const head = await git(cwd, currentBranchArgs());
 	const name = head.stdout.trim();
 	if (head.code !== 0 || !name) {
-		return 'HEAD is detached: check out a branch first';
+		return DETACHED;
 	}
 	if (!validBranch(name)) {
 		return `the branch "${name}" has a name Insilode does not pass to git`;
@@ -257,9 +331,23 @@ export async function ensureExcluded(root: string): Promise<void> {
 	}
 }
 
-/** Creates a worktree for a new agent: ignores .insilode, then `git worktree add -b insilode/<slug> <dir> <base>`. */
-export async function createWorktree(cwd: string, slug: string): Promise<Worktree> {
-	const info = await repoInfo(cwd);
+export interface CreateOptions {
+	/** flow.agents.worktreeBase; `current` when left out. */
+	base?: WorktreeBase;
+	/** Told what the user should hear about the start point (no origin remote, a failed fetch), once per call. */
+	onNote?: (message: string) => void;
+	/** Git, for the questions about origin; a test passes a fake. */
+	run?: GitRunner;
+}
+
+/** Creates a worktree for a new agent: ignores .insilode, then `git worktree add -b insilode/<slug> <dir> <start>`. */
+export async function createWorktree(cwd: string, slug: string, options: CreateOptions = {}): Promise<Worktree> {
+	let info = await repoInfo(cwd);
+	if (info === DETACHED && options.base === 'origin-default') {
+		// Cut from origin's default branch, the checkout's own HEAD does not matter.
+		const top = await git(cwd, topLevelArgs());
+		info = { root: path.normalize(top.stdout.trim()), branch: '' };
+	}
 	if (typeof info === 'string') {
 		throw new Error(info);
 	}
@@ -275,11 +363,13 @@ export async function createWorktree(cwd: string, slug: string): Promise<Worktre
 	const newBranch = branchFor(slug);
 	await ensureExcluded(info.root);
 	await fs.mkdir(path.dirname(dir), { recursive: true });
-	const r = await git(info.root, addArgs(dir, newBranch, info.branch), 120_000);
+	const choice = await chooseBase(options.run ?? git, info.root, info.branch, options.base ?? 'current');
+	const r = await git(info.root, addArgs(dir, newBranch, choice.start, choice.start.startsWith('origin/')), 120_000);
 	if (r.code !== 0) {
 		throw new Error(firstLine(r));
 	}
-	const wt = { path: dir, branch: newBranch, base: info.branch, root: info.root };
+	choice.notes.forEach(n => options.onNote?.(n));
+	const wt = { path: dir, branch: newBranch, base: choice.base, root: info.root };
 	if (worktreeHooks.created) {
 		try {
 			await worktreeHooks.created(wt);

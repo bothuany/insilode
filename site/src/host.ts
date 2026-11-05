@@ -52,6 +52,9 @@ interface Answers {
   undo: { ok: boolean; message?: string }
   undoFrom: { ok: boolean; message?: string }
   keep: { ok: boolean }
+  keepCard: { ok: boolean }
+  keepAll: { ok: boolean }
+  undoAll: { ok: boolean; message?: string }
 }
 
 const READ_ONLY = `The demo does not write files: in the ${NAME} app a save is applied to your code.`
@@ -104,6 +107,19 @@ const handlers: { [Op in keyof Answers]: (m: Request) => Answers[Op] } = {
   },
   keep: () => {
     decide('keep')
+    return { ok: true }
+  },
+  // The demo's change is one prompt in one card, so the card, the prompt and the whole change are the same thing.
+  keepCard: () => {
+    decide('keep')
+    return { ok: true }
+  },
+  keepAll: () => {
+    decide('keep')
+    return { ok: true }
+  },
+  undoAll: () => {
+    decide('undo')
     return { ok: true }
   },
 }

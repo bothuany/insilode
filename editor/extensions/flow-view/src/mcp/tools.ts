@@ -1,7 +1,8 @@
 /*---------------------------------------------------------------------------------------------
  *  Insilode agent bridge: the tools the `insilode` MCP server offers a model (they show up as mcp__insilode__*).
- *  The descriptions are written for the model: they say when to reach for each tool. All tools only
- *  read, open or display; none writes a file or runs a command. Keep draw_board's schema in sync with
+ *  The descriptions are written for the model: they say when to reach for each tool, in a few sentences
+ *  (a test caps them at 600 characters); the rules and examples live in prompts.ts and the server instructions
+ *  in protocol.ts. No tool writes a file. Keep draw_board's schema in sync with
  *  ../board/spec.ts (a test compares the enums).
  *--------------------------------------------------------------------------------------------*/
 
@@ -33,6 +34,10 @@ const TARGET = {
 	line: int('1-based line inside the method (alternative to `method`).'),
 };
 
+/**
+ * readOnlyHint is true on every tool, and here "read-only" means one thing: the tool never writes a file. It may still change
+ * what Insilode shows (a board, a tour, the canvas, an opened diff). It does not mean the window stays as it was.
+ */
 const ro = (title: string, idempotent = true): ToolDef['annotations'] => ({ title, readOnlyHint: true, destructiveHint: false, idempotentHint: idempotent, openWorldHint: false });
 
 export const ELEMENT_TYPES = ['rect', 'ellipse', 'diamond', 'text', 'frame', 'path', 'arrow', 'table', 'json', 'chart', 'matrix', 'code'] as const;
@@ -266,6 +271,62 @@ export const BOARD_SCHEMA = {
 	required: ['title'],
 } as const;
 
+/** The pen marks of one tour step: drawn on the step's card as its caption is read, in source terms (the host resolves lines and targets). */
+const TOUR_MARKS = {
+	type: 'array', maxItems: 6,
+	description: "Pen marks drawn on this step's card, each appearing with the caption sentence it belongs to (`sentence`, default 1): ring (outline the `lines`) · underline (the words that matter) · strike (outdated or wrong code) · check / cross (right and wrong, beside the first line) · badge (the order number `n` beside the line) · connect (a curved arrow from this card to the code at `to`, with `label`: cause to effect). At most a few per step; a mark that cannot be placed is dropped and the answer says so.",
+	items: {
+		type: 'object',
+		properties: {
+			kind: { type: 'string', enum: ['ring', 'underline', 'strike', 'check', 'cross', 'badge', 'connect'] },
+			lines: { type: 'array', minItems: 1, maxItems: 2, items: { type: 'integer', minimum: 1 }, description: 'ring, underline, strike, check, cross, badge: [from, to] or [line], current-file 1-based, inside the code of the step.' },
+			n: { type: 'integer', minimum: 1, maximum: 99, description: 'badge: the number shown.' },
+			to: {
+				type: 'object',
+				description: 'connect: the code the arrow ends at, named like a step (file + method, with a line hint).',
+				properties: { file: str('Workspace file.'), method: str('Method or function.'), line: int('1-based line inside the method.') },
+				required: ['file'],
+				additionalProperties: false,
+			},
+			label: { type: 'string', maxLength: 40, description: 'connect: the words on the arrow.' },
+			sentence: { type: 'integer', minimum: 1, maximum: 6, description: 'Which sentence of the caption the mark appears with (default 1).' },
+		},
+		required: ['kind'],
+		additionalProperties: false,
+	},
+};
+
+/** A hands-on step: the tour waits for the reader to do something before it goes on. */
+const TOUR_WAIT = {
+	type: 'object',
+	description: "Makes this a hands-on step: the tour does not go on (Next is off) until the reader has done it. click: they click the step's card · command: a button with `prompt` runs `command` for them (only a few safe Insilode commands that open a view are allowed; anything else is refused and the answer says so) · continue: they press Continue after doing the work themselves. `prompt` is the button or hint text.",
+	properties: {
+		kind: { type: 'string', enum: ['click', 'command', 'continue'] },
+		command: str('command: the Insilode command id to run (see the allowed list in the error if it is refused).'),
+		prompt: { type: 'string', maxLength: 80, description: 'The button or hint text, e.g. "Open the test" or "Run it, then continue".' },
+	},
+	required: ['kind'],
+	additionalProperties: false,
+};
+
+/** One step of a tour: the same object in `tour` and in `tour_control` edit. */
+const TOUR_STEP = {
+	type: 'object',
+	properties: {
+		file: str('Workspace file of the code this step points at.'),
+		method: str('Method or function, e.g. "OrderService.Place". Preferred: survives edits.'),
+		line: int('1-based line inside the method (a hint when method is given).'),
+		lines: { type: 'array', maxItems: 3, description: 'Line ranges to highlight, current-file 1-based, e.g. [[42,47]].', items: { type: 'array', items: { type: 'integer', minimum: 1 }, minItems: 1, maxItems: 2 } },
+		table: str('A database card instead of code: the table name.'),
+		title: { type: 'string', maxLength: 80, description: 'Short label for the step list; defaults to the method.' },
+		caption: { type: 'string', maxLength: 600, description: 'What to say here: one or two sentences on WHY, not a restatement of the code. Never "simply" or "just"; do not end on a yes/no question. Short Markdown: `code`, **bold**, a list or a fenced block are shown formatted; HTML is not.' },
+		marks: TOUR_MARKS,
+		wait: TOUR_WAIT,
+	},
+	required: ['caption'],
+	additionalProperties: false,
+};
+
 export const TOOLS: ToolDef[] = [
 	{
 		name: 'open',
@@ -285,7 +346,7 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'open_diff',
-		description: "Show git changes in Insilode's diff view (a multi-file diff editor), so the user can REVIEW them. Use this when the user asks to open, show or review the diff or the changes in the IDE, including after you finished a piece of work (\"show what you did\"). By default the uncommitted changes against HEAD; `base` \"branch\" shows everything since the branch left main (committed or not), \"last_commit\" the last commit plus anything on top. It covers modified, staged, deleted and brand-new untracked files (no `git add -N` needed) and finds nested git repositories inside the workspace. Pass `files` (files or folders) to narrow it; without it every changed file of every repository is shown. Returns the list of files it opened.",
+		description: "Show git changes in Insilode's diff view so the user can REVIEW them. Use it when the user asks to open, show or review the diff or the changes in the IDE, including after you finished a piece of work (\"show what you did\"). By default the uncommitted changes against HEAD; `base` \"branch\" shows everything since the branch left main, \"last_commit\" the last commit plus anything on top. New untracked files and nested git repositories are included; `files` (files or folders) narrows it. Returns the list of files it opened.",
 		inputSchema: { type: 'object', properties: { files: { type: 'array', items: { type: 'string' }, description: 'Files or folders to show (absolute, or relative to the workspace folder). Omit for all changes.' }, base: { type: 'string', enum: ['uncommitted', 'branch', 'last_commit'], description: 'What to compare with: uncommitted (HEAD, default), branch (where this branch left main/master; on main itself, its upstream: the unpushed commits) or last_commit (HEAD~1). Use branch or last_commit when your work is already committed.' }, title: str('Title of the diff tab.'), flow: { type: 'boolean', description: "Also show the changes on Insilode's flow canvas, all on one canvas: every endpoint flow they reach, cut down to the changed methods, plus changed methods no endpoint reaches; each changed card shows added lines in green and removed lines in red. Use it when the user wants the diff or the work \"in flow\"." } }, additionalProperties: false },
 		annotations: ro('Open diff in Insilode'),
 	},
@@ -333,7 +394,7 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'impact',
-		description: 'What breaks if this changes. For a method: who calls it (callers, up to `depth` levels) and which entry points (endpoints, jobs) reach it; pass `file` plus `method` or `line`, or an `id` from find_entry_points. For a table: pass `table` (a table name) or `entity` (an entity or model class) to get the endpoints that write it and the endpoints that read it, each with the method and database card it goes through; a guessed link (raw SQL, a naming default) is marked ~table?. It follows ORM calls and string SQL only, and says what it did not check (dynamic SQL, views, other services, migrations). A migration file or an entity file alone (`file` without `method` or `line`) gives the same for the tables it changes: what the migration does to each table (adds, drops, renames), the endpoints that use it, and the code that may still use a column it drops. Use it before editing shared code, an entity, a migration or a column to know the blast radius.',
+		description: "What breaks if this changes: who calls a method (up to `depth` levels) and which entry points (endpoints, jobs) reach it. Pass `file` plus `method` or `line`, or an `id` from find_entry_points. With `table` or `entity`, or a migration or entity file alone, it gives the endpoints that write that table and the endpoints that read it instead. Use it before editing shared code, an entity, a migration or a column; it says what it did not check (dynamic SQL, views, other services, migrations).",
 		inputSchema: { type: 'object', properties: { ...TARGET, depth: int('Caller levels to include (default 3).'), table: str('A table name, e.g. "orders" (case and schema prefix ignored). Instead of a method.'), entity: str('An entity or model class name, e.g. "Order". Instead of a method.') }, additionalProperties: false },
 		annotations: ro('Change impact'),
 	},
@@ -345,7 +406,7 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'draw_board',
-		description: 'Draw a diagram that Insilode shows to the user next to the editor, like an artifact. Use it in plan mode to show the flow or architecture you designed, when explaining a design, or to lay out a multi-step plan the user can follow. The answer carries a LINT list (dropped items, unknown ids, orphans, too many nodes, crossings): fix what it names by calling again with the same `id`. Rules: one question per board, said in `title`, about 15-20 visible nodes at most (split, or collapse `groups`) · pick the kind by the question: how does it run -> sequence (order matters) or flow, what is it made of -> architecture or class, how is data stored -> er, what states can it be in -> state, what will we do -> plan, what changed -> `base` · ground nodes: take names from find_symbol or flow_text and give `symbol` (and `file`) for real code, leave it off for proposed things · label edges with verbs or payloads, not "calls" · group by layer or service, 2 levels at most · edge `kind` carries meaning (reads vs writes, extends vs uses) · number messages with `order` · then EXPLAIN it with `steps` (3-10, each lights some nodes and edges with a caption) instead of a paragraph in chat. Kinds: flow, plan (ordered steps with status), class, er (tables), sequence, architecture (with `level` context/container/component for C4), state. Give every node a unique id and a short label; link nodes to code with symbol or file (+ line); connect them with edges; no coordinates, layout is automatic. Passing the same `id` again replaces that board (the previous version is kept for "what changed"), so redraw instead of drawing a second copy. The `diagram_guide` prompt has the full advice. Example: {"id":"order-flow","board":{"kind":"flow","title":"Place order","nodes":[{"id":"api","label":"POST /orders","kind":"entry","file":"src/OrdersController.cs","line":24},{"id":"svc","label":"OrderService.Place","kind":"service"},{"id":"db","label":"orders","kind":"entity"}],"edges":[{"from":"api","to":"svc"},{"from":"svc","to":"db","kind":"writes","label":"insert"}]}}. For a plan use kind "plan" with step nodes in order joined by "next" edges, then tick them off with update_board while you work. For kind "canvas" (a free drawing: teach a concept such as text -> tokens -> embedding matrix, or explain real code and architecture) draw `elements` instead of nodes: frames that lay out their children, rects with typed inputs/outputs, arrows that carry a data type/shape badge, and widgets (table, json, chart, matrix, code); say `purpose` first, give every shown value an `origin`, show the story step by step with `steps[].show/lit`. The answer then carries the final box of every element, the lint, and a picture: look at it and fix what is crowded with update_board `elements`.',
+		description: "Draw a diagram that Insilode shows to the user next to the editor, like an artifact. Use it in plan mode to show the flow or architecture you designed, when explaining a design, or to lay out a multi-step plan the user can follow. Give every node a unique id and a short label, link real code with `symbol` or `file`, send no coordinates. The same `id` again replaces that board. The answer carries a LINT list: fix what it names by drawing again. Kind \"canvas\": free `elements`, answered with a picture. The `diagram_guide` prompt has the rules and an example.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -368,7 +429,7 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'board_from_code',
-		description: 'Generate a board FROM THE CODE and show it to the user, instead of drawing it with draw_board. Use it for the common diagrams, so no relation is invented: sequence (the calls of an endpoint or method in order, between classes; guessed hops are dotted and marked "?"), er (tables with columns, keys, relations and cardinality, from the entity and migration readers), architecture (modules or packages and their dependencies, C4 container level when there are several services), state (an enum and its transitions, only where the code assigns a value and checks the previous one; otherwise it says why it drew nothing). Nodes carry their symbol and file:line from the index, boards are capped in size and the result lists what was cut or guessed. You choose `kind` and `scope`; you may add `title`, `description` and `notes` ([{node, text}], node = id or symbol), never nodes or edges. Use draw_board for anything the code does not show (a plan, a proposed design). Scope per kind: sequence {id | file+method | file+line | symbol}; er {tables?: [names]}; architecture {module?}; state {enum?}. Passing the same `id` again replaces the board.',
+		description: "Generate a board FROM THE CODE and show it to the user, instead of drawing it with draw_board, so no relation is invented. `kind` is sequence (the calls of an endpoint or method), er (tables, columns, keys, relations), architecture (modules and their dependencies) or state (an enum and its transitions). You choose `kind` and `scope` and may add `title`, `description` and `notes`, never nodes or edges. Use draw_board for anything the code does not show (a plan, a proposed design). The `diagram_guide` prompt says more.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -403,7 +464,7 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'update_board',
-		description: 'Update a board you drew with draw_board without redrawing it: set the status of a node (todo, doing, done, skipped, blocked), its note and/or its change mark (added, removed, changed); pass several nodes at once in `updates`; or light a route with `highlight` (e.g. to answer "what about the cache?" by lighting the path to it). Use it to tick plan steps as you work so the user sees progress on the board. On a canvas board pass `elements` instead: patches [{"id": "a", "label": "new"}] merge into that element, {"id": "a", "remove": true} removes it (and the arrows that end there), an unknown id adds an element. The answer then carries the lint, the boxes and a picture again.',
+		description: 'Update a board you drew with draw_board without redrawing it: set the status of a node (todo, doing, done, skipped, blocked), its note and/or its change mark (added, removed, changed); pass several nodes at once in `updates`; or light a route with `highlight` (e.g. to answer "what about the cache?" by lighting the path to it). Use it to tick plan steps as you work so the user sees progress on the board. On a canvas board pass `elements` patches instead ({id, ...fields} merges, {id, remove: true} removes, a new id adds).',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -446,7 +507,7 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'tour',
-		description: "The way to EXPLAIN code to the user in Insilode: a narrated walkthrough on the flow canvas, where a cursor moves from card to card, dims the rest, highlights lines and shows your caption. Use it INSTEAD of a long text answer whenever the user asks how something works or to be walked through it (\"walk me through how an order is placed\", \"how does X work\", \"explain this flow\", \"show me\", \"anlat\", \"bana göster\", \"nasıl çalışıyor\"), after finishing work (\"explain what you changed\"), or to answer a question about code by SHOWING it; then keep your own message to one line. Get file:line from flow_text or find_symbol first. 3-12 steps, one idea each, in the order the code runs; captions say WHY and what to watch, not what the code says, in the user's language. Name each step's code by `file` + `method` (preferred: it survives edits) with a `line` hint, and `lines` for the few lines the caption talks about; a step with only a caption is an intro or an outro; `table` points at a database card. The tool returns at once with each step marked ok / moved / missing / offflow: fix a missing step by calling tour again with the same id. The user steps through it; questions they ask come back to you as a new message. Run the `tour_guide` prompt for the full advice.",
+		description: "Explain code to the user in Insilode as a narrated walkthrough on the flow canvas: a cursor moves from card to card, the rest dims, lines light up and your caption is shown. Use it when the user asks how something works, to be walked through it, or what you changed. Get file:line from flow_text or find_symbol first. Also write a 3 to 5 line summary of the answer in chat, so a reader without the canvas still gets it. Steps come back ok / moved / missing / offflow: fix missing ones by calling tour again with the same id. See the `tour_guide` prompt (`marks`, `wait`, `followUps`).",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -467,22 +528,10 @@ export const TOOLS: ToolDef[] = [
 				},
 				steps: {
 					type: 'array', minItems: 1, maxItems: 30,
-					items: {
-						type: 'object',
-						properties: {
-							file: str('Workspace file of the code this step points at.'),
-							method: str('Method or function, e.g. "OrderService.Place". Preferred: survives edits.'),
-							line: int('1-based line inside the method (a hint when method is given).'),
-							lines: { type: 'array', maxItems: 3, description: 'Line ranges to highlight, current-file 1-based, e.g. [[42,47]].', items: { type: 'array', items: { type: 'integer', minimum: 1 }, minItems: 1, maxItems: 2 } },
-							table: str('A database card instead of code: the table name.'),
-							title: { type: 'string', maxLength: 80, description: 'Short label for the step list; defaults to the method.' },
-							caption: { type: 'string', maxLength: 600, description: 'What to say here: one or two sentences on WHY, not a restatement of the code. Short Markdown: `code`, **bold**, a list or a fenced block are shown formatted; HTML is not.' },
-						},
-						required: ['caption'],
-						additionalProperties: false,
-					},
+					items: TOUR_STEP,
 				},
 				start: int('Step to open on (default 1).'),
+				followUps: { type: 'array', maxItems: 3, description: 'Up to three questions that go deeper than the tour (not yes/no questions), shown as chips after the last step; the reader taps one to ask it.', items: { type: 'string', maxLength: 120 } },
 			},
 			required: ['title', 'steps'],
 			additionalProperties: false,
@@ -491,7 +540,7 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'check_skeleton',
-		description: "Skeleton first, the developer's choice in Insilode (a switch per agent) to write the structure of a change themselves. Call it ONCE before your first edit for a request or an approved plan that adds or changes types, entities or interfaces (plan mode or not); it answers at once. A bug fix, a small edit or a question does not need it. If Insilode says skeleton first is off, implement as usual. If it is on, it tells you to draw the design with draw_board and stop. The developer then drives the rest by talking to you: call it with no step to check their skeleton against your design (a structured diff, each type and member matches, MISSING or DIFFERS, with what the code has) and explain it without fixing their code; pass step \"handover\" when they hand the skeleton over, \"just\" when they say just do it, \"accept\" with a warning number when they keep a signature you changed, \"finish\" when they are done. It never writes a file.",
+		description: "Skeleton first, the developer's choice (a switch per agent) to write the structure of a change themselves. Call it ONCE before your first edit for a request or approved plan that adds or changes types, entities or interfaces; a bug fix, small edit or question does not need it. Off: implement as usual. On: it tells you to draw the design with draw_board and stop. The developer then drives the rest by chat: pass their reply as `step` (handover, just, finish, or accept with a warning number), or no step to check their skeleton. See the `skeleton_first` prompt. It never writes a file.",
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -504,14 +553,17 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'tour_control',
-		description: "Drive the tour you started with `tour`, or answer the user's question during it. go: jump the user to a step (only while they are paused or waiting for your answer: the user paces the tour, so do not fight them) · note: pin your answer to a step's card, shown until the tour ends (plain text) · resume: continue after a question · end: close it. When the user asks a question during the tour it comes to you as a message: answer with note (for the step they asked about, and go to a step that answers it better), then resume; if the answer needs more than a note, start a new tour. Returns where the user is and whether they paused.",
+		description: "Drive the tour you started with `tour`, or answer the user's question during it. go: jump to a step · note: pin a plain-text answer to a step's card · edit: fix or extend the tour with `steps` plus `replace` or `insert` · resume: continue after a question · end: close it. `go` and `edit` are accepted only while the reader is paused or waiting for your answer. Returns where the user is and whether they paused. The `tour_guide` prompt says how to answer a question.",
 		inputSchema: {
 			type: 'object',
 			properties: {
 				id: str('Tour id.'),
-				action: { type: 'string', enum: ['go', 'note', 'resume', 'end'] },
+				action: { type: 'string', enum: ['go', 'note', 'edit', 'resume', 'end'] },
 				step: int('go: the step to jump to; note: the step the note is for (default: the step the user is on). 1-based.'),
 				text: { type: 'string', maxLength: 2000, description: 'note: your answer, as Markdown (short paragraphs, lists, `code`, fenced code blocks), a few sentences.' },
+				steps: { type: 'array', minItems: 1, maxItems: 10, description: 'edit: the new steps, in the same shape as the steps of `tour`.', items: TOUR_STEP },
+				replace: int('edit: the 1-based step that the given steps replace (one step may become several).'),
+				insert: int('edit: the 1-based position the given steps are inserted at (before the step now there; after the last step to append).'),
 			},
 			required: ['id', 'action'],
 			additionalProperties: false,
@@ -520,7 +572,7 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'search_sessions',
-		description: "Search this workspace's past Claude Code and Codex conversations for what the user asked and what the agent answered (not tool output), to find out whether something was done, decided or debugged before. All words of `query` must occur in one message, any case. Returns, newest session first, the agent, session id, date, the session's first prompt and a snippet around the match. Use it when the user says \"we did this before\" or before redoing a task; to find code use `find_symbol` or grep instead.",
+		description: "Search this workspace's past Claude Code and Codex conversations (what was asked and answered, not tool output) to find out whether something was done, decided or debugged before. All words of `query` must occur in one message. Returns, newest first, the agent, session id, date, first prompt and a snippet. Use it when the user says \"we did this before\" or before redoing a task; for code use `find_symbol` or grep. Returns past conversation text verbatim from this machine's agent transcripts; it can contain secrets you typed. Use it to find what was decided, not to copy text.",
 		inputSchema: { type: 'object', properties: { query: str('Words that must all occur in a prompt or an answer, e.g. "rate limit alert".'), limit: int('Maximum sessions (default 10, at most 50).'), agent: { type: 'string', enum: ['claude', 'codex'], description: 'Only the sessions of this agent. Omit for both.' } }, required: ['query'], additionalProperties: false },
 		annotations: ro('Search past sessions'),
 	},

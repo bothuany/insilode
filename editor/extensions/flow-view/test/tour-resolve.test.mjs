@@ -174,7 +174,7 @@ test('tool arguments: limits and strangers are errors that name the field', () =
 	fails(args({ steps: [{ caption: 'x'.repeat(601) }] }), /steps\[0\]\.caption is 601 characters/)
 	fails(args({ title: 'y'.repeat(121) }), /`title`/)
 	fails(args({ title: '' }), /`title` is required/)
-	fails(args({ extra: 1 }), /tour\.extra is not a field of a tour \(allowed: id, title, flow, steps, start\)/)
+	fails(args({ extra: 1 }), /tour\.extra is not a field of a tour \(allowed: id, title, flow, steps, start, followUps\)/)
 	fails(args({ steps: [{ caption: 'x', command: 'workbench.action.terminal.new' }] }), /steps\[0\]\.command is not a field of a tour step/)
 	fails(args({ flow: { shell: 'x' } }), /flow\.shell/)
 	fails(args({ flow: { http: 'GET /x' } }), /flow\.http/)

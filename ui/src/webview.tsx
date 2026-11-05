@@ -19,14 +19,25 @@ import { SelectionBar, type Picked, type SelectionAction } from './tour/Selectio
 import { useTourPlayer } from './tour/TourPlayer'
 import { useGaze } from './gaze/Gaze'
 import { loadCounter } from './loads'
-import type { FlowNode } from './types'
+import { AgentEditActions } from './agentEdit/AgentEditActions'
+import { ImpactChip } from './impact/ImpactChip'
+import { answered, asked, emptyFill, failed, messageOf, type Fill } from './impact/fill'
+import { cutNote } from './impact/cardLabel'
+import type { FlowNode, ImpactItem, ImpactResult } from './types'
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void }
 /** What to draw: opaque to the webview, interpreted by the host's provider for that language. */
 type Target = Record<string, unknown>
+/** The engine that traced the flow (the host names it from the target's kind); a hint when it is the weaker one. */
+interface Engine {
+  name: string
+  /** Set when this engine stands in for a better one: a few words on the bar, and the longer sentence as its tooltip. */
+  note?: string
+  hint?: string
+}
 declare global {
   interface Window {
-    __FLOW__: { target: Target; label: string; dark: boolean }
+    __FLOW__: { target: Target; label: string; dark: boolean; engine?: Engine }
   }
 }
 
@@ -130,7 +141,7 @@ function Timeline({ turns, active, onPick, onUndo }: { turns: TurnSummary[]; act
 }
 
 function Flow() {
-  const [target, setTarget] = useState<{ target: Target; label: string }>({ target: window.__FLOW__.target, label: window.__FLOW__.label })
+  const [target, setTarget] = useState<{ target: Target; label: string; engine?: Engine }>({ target: window.__FLOW__.target, label: window.__FLOW__.label, engine: window.__FLOW__.engine })
   const [down, setDown] = useState<FlowNode | null>(null)
   const [up, setUp] = useState<FlowNode | null>(null)
   const [showUp, setShowUp] = useState(true)
@@ -153,7 +164,10 @@ function Flow() {
   const [editHooks, setEditHooks] = useState<string[]>([])
   const turnRef = useRef(turn)
   turnRef.current = turn
-  const [impact, setImpact] = useState<{ label: string; items: string[] } | null>(null)
+  /** Impact and callers fill in after the canvas, and each can fail on its own: its own state, its own Retry. */
+  const [impactFill, setImpactFill] = useState<Fill<ImpactResult>>(emptyFill)
+  const impact = impactFill.value
+  const [callersError, setCallersError] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
   const { fitView, setCenter, getNode, getNodes, getViewport } = useReactFlow()
   const editingRef = useRef(editing)
@@ -191,15 +205,29 @@ function Flow() {
 
   /** Counts loads: an answer that arrives after a newer load started (another target, a refresh) is dropped. */
   const loads = useRef(loadCounter()).current
+  /**
+   * Asks for the impact. The answer lands only while load `mine` is the newest. A failure is kept next to the answer it replaces,
+   * so the chip says it failed and offers Retry: "Checking impact…" always ends in a result or an error.
+   */
+  const askImpact = useCallback((t: Target, mine: number, keep: boolean) => {
+    const live = loads.whileCurrent(mine)
+    live(() => setImpactFill(f => asked(f, keep)))
+    request<ImpactResult>('impact', { target: t }).then(
+      v => live(() => setImpactFill(answered(v))),
+      e => live(() => setImpactFill(f => failed(f, e))),
+    )
+  }, [])
   const load = useCallback(async (t: Target, keepFolds: boolean) => {
     const mine = loads.start()
     try {
-      // The callees are the flow; callers are an addition: when only they fail, the flow still draws.
+      // The callees are the flow; callers are an addition: when only they fail, the flow still draws and says so.
       const [graph, callers] = await Promise.allSettled([request<FlowNode>('graph', { target: t, turn: turnRef.current }), request<FlowNode | null>('callers', { target: t, turn: turnRef.current })])
       if (!loads.isCurrent(mine)) return
       if (graph.status === 'rejected') throw graph.reason
       const d = graph.value
-      const u = callers.status === 'fulfilled' ? callers.value : null
+      // A refresh whose callers failed keeps the callers already drawn: they are stale, not gone.
+      const u = callers.status === 'fulfilled' ? callers.value : keepFolds ? treesRef.current.up : null
+      setCallersError(callers.status === 'rejected' ? messageOf(callers.reason) : '')
       // These fill in after the canvas: an answer for a load that a newer one replaced must not land on the newer flow.
       const live = loads.whileCurrent(mine)
       request<TurnSummary[]>('timeline', {}).then(v => live(() => setTurns(v)), () => live(() => setTurns([])))
@@ -219,19 +247,33 @@ function Flow() {
       setStatus('')
       setError('')
       // Impact walks callers far up; it can take a moment, so it fills in after the canvas.
-      if (!keepFolds) setImpact(null)
-      request<{ label: string; items: string[] }>('impact', { target: t }).then(v => live(() => setImpact(v)), () => live(() => setImpact(null)))
+      askImpact(t, mine, keepFolds)
     } catch (e) {
-      if (loads.isCurrent(mine)) setError(String((e as Error).message ?? e))
+      if (loads.isCurrent(mine)) setError(messageOf(e))
     }
   }, [])
+
+  /** Callers alone, after they failed: the flow stays as it is. */
+  const retryCallers = () => {
+    const live = loads.whileCurrent(loads.current())
+    setCallersError('')
+    request<FlowNode | null>('callers', { target: target.target, turn: turnRef.current }).then(
+      v => live(() => {
+        // Callers that were not drawn before arrive folded the way a first load folds them, not all open.
+        if (v && !treesRef.current.up) setHidden(h => new Set([...h, ...initialHidden(v, 1)]))
+        setUp(v)
+      }),
+      e => live(() => setCallersError(messageOf(e))),
+    )
+  }
 
   useEffect(() => {
     setDown(null)
     setUp(null)
     setError('')
+    setCallersError('')
     // The previous flow's impact must not stand over a flow that has not loaded, or that failed.
-    setImpact(null)
+    setImpactFill(emptyFill())
     setImpactOpen(false)
     setPointing(null)
     load(target.target, false)
@@ -251,7 +293,7 @@ function Flow() {
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       const m = e.data
-      if (m?.type === 'show') setTarget({ target: m.target, label: m.label })
+      if (m?.type === 'show') setTarget({ target: m.target, label: m.label, engine: m.engine })
       if (m?.type === 'refresh' && !editingRef.current) load(target.target, true)
       // Mid-edit the editor's own cursor moves (the card's text is shown to the language servers): the canvas stays put.
       if (m?.type === 'cursor' && !editingRef.current) followCursor(m.file, m.line)
@@ -285,7 +327,8 @@ function Flow() {
     const lines = [`# Flow: ${target.label}`, '', 'This is the call flow the user is looking at on the Flow canvas. The file:line ranges are exact; read them directly instead of searching.', '']
     const walk = (n: FlowNode, d: number, via: string) => {
       const loc = n.file ? ` — \`${n.file}:${n.startLine}-${n.endLine}\`` : ''
-      lines.push(`${'  '.repeat(d)}- ${via}**${n.label}** (${n.kind})${loc}`)
+      // A cut flow says so next to the card that was cut, so the agent does not take it for the whole flow.
+      lines.push(`${'  '.repeat(d)}- ${via}**${n.label}** (${n.kind})${loc}${n.truncated ? ` [${cutNote(n.truncated).slice(1)}: the flow was cut at its size limit]` : ''}`)
       n.children.forEach(c => walk(c.node, d + 1, c.edgeKind === 'call' ? '' : `${c.edgeKind} → `))
     }
     if (up?.children.length) {
@@ -297,7 +340,7 @@ function Flow() {
       lines.push('## Flow (downstream)')
       walk(down, 0, '')
     }
-    if (impact?.items.length) lines.push('', `## Impact: ${impact.items.length} ${impact.label}${impact.items.length === 1 ? '' : 's'}`, ...impact.items.map(i => `- ${i}`))
+    if (impact?.items.length) lines.push('', `## Impact: ${impact.truncated ? 'at least ' : ''}${impact.items.length} ${impact.label}${impact.items.length === 1 ? '' : 's'}`, ...impact.items.map(i => `- ${i.label}`))
     return lines.join('\n')
   }
 
@@ -671,8 +714,10 @@ function Flow() {
   /** What the Git changes on the canvas are measured against, when it is not HEAD ("main"). */
   const since = changed.find(n => n.diff?.base)?.diff?.base
   const flowTurns = useMemo(() => turns.filter(t => t.files.some(f => flowFiles.some(x => samePath(x, f.file)))), [turns, flowFiles])
-  const impactCount = impact?.items.length ?? 0
-  const impactText = impact && `${impactCount ? `Affects ${impactCount}` : 'No'} ${impact.label}${impactCount === 1 ? '' : 's'}`
+  /** An impact row that names a place: the host shows the flow of the function there. */
+  const openImpact = (item: ImpactItem) => {
+    if (item.file && item.line > 0) vscode.postMessage({ type: 'showFlowAt', file: item.file, line: item.line })
+  }
   return (
     <div className={`wv${tour.touring ? ' wv-touring' : ''}`}>
       <style>{traceCss + proposedCss + pointCss + tour.css}</style>
@@ -681,26 +726,18 @@ function Flow() {
           <span className="owner">{owner}</span>
           <span className="member">{member}</span>
         </div>
+        {target.engine && (
+          <span className={`engine${target.engine.hint ? ' weaker' : ''}`} title={target.engine.hint ?? `Traced by ${target.engine.name}`}>
+            {target.engine.name}
+            {target.engine.note && <span className="engine-hint"> · {target.engine.note}</span>}
+          </span>
+        )}
         {/* Callers and the impact chip are on the bar from the first frame, before the flow arrives, so the bar keeps its lines: on a
             narrow canvas, chips appearing later wrapped it onto another line and moved the canvas below it (a layout shift). */}
         <button className="chip" aria-pressed={showUp} disabled={!down} onClick={() => setShowUp(v => !v)} title="Show who calls this method, to the left">
           Callers
         </button>
-        {down && impact ? (
-          <span className="impact-wrap">
-            <button className={`chip impact${impactCount ? ' hot' : ''}`} aria-expanded={impactOpen} disabled={!impactCount} onClick={() => setImpactOpen(v => !v)}>
-              {impactText}
-            </button>
-            {impactOpen && (
-              <div className="impact-pop" role="dialog" onMouseLeave={() => setImpactOpen(false)}>
-                <p>Changing this method can change the behaviour of:</p>
-                <ul>{impact.items.map(i => <li key={i}>{i}</li>)}</ul>
-              </div>
-            )}
-          </span>
-        ) : (
-          <span className="chip ghosted">Checking impact…</span>
-        )}
+        <ImpactChip fill={impactFill} ready={!!down} blocked={!down && !!error} open={impactOpen} onOpenChange={setImpactOpen} onRetry={() => askImpact(target.target, loads.current(), true)} onOpen={openImpact} />
         {(flowTurns.length > 0 || turn !== undefined) && (
           <span className="impact-wrap">
             <button className={`chip${turn !== undefined ? ' agent' : ''}`} aria-expanded={timelineOpen} onClick={() => setTimelineOpen(v => !v)} title="Changes by prompt (all of them; Undo works across files)">
@@ -721,7 +758,7 @@ function Flow() {
         <span className="wv-spacer" />
         {status && <span className="wv-status" title={status}>{status}</span>}
         {gaze.toggle}
-        <button className="icon-btn" onClick={() => load(target.target, true)} title="Trace the flow again">
+        <button className="icon-btn" onClick={() => load(target.target, true)} title="Trace the flow again" aria-label="Trace the flow again">
           ↻
         </button>
         <button className="ask" disabled={!down} onClick={() => vscode.postMessage({ type: 'ask', label: target.label, context: flowText() })} title="Hand this flow to the agent you chose">
@@ -745,6 +782,23 @@ function Flow() {
             )}
           </div>
         )}
+        {down && (error || callersError) && (
+          // The flow that is drawn stays; what failed to refresh or to load is said here, each with its own Retry.
+          <div className="wv-notes">
+            {error && (
+              <div className="wv-note" role="alert">
+                <span>Could not refresh the flow: {error}</span>
+                <button className="btn ghost" onClick={() => load(target.target, true)}>Retry</button>
+              </div>
+            )}
+            {callersError && (
+              <div className="wv-note" role="alert">
+                <span>Could not load the callers: {callersError}</span>
+                <button className="btn ghost" onClick={retryCallers}>Retry</button>
+              </div>
+            )}
+          </div>
+        )}
         {proposal && (
           <div className="proposal" role="status">
             <span className="proposal-dot" />
@@ -760,12 +814,7 @@ function Flow() {
           </div>
         )}
         {tour.bar(
-          reviewNode && (
-            <>
-              {!reviewNode.diff?.base && <button className="btn ghost" onClick={() => actions.undo?.(reviewNode.key)}>Undo</button>}
-              <button className="btn solid" onClick={() => actions.keep?.(reviewNode.key)}>Keep</button>
-            </>
-          ),
+          reviewNode && <AgentEditActions node={reviewNode} actions={actions} request={request} reload={() => load(target.target, true)} setStatus={setStatus} />,
         )}
         <ActionsCtx.Provider value={cardActions}>
           <ReactFlow

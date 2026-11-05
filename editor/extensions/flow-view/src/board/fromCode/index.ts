@@ -5,8 +5,10 @@
  *  the generators are one file each. Pure: no `vscode`.
  *--------------------------------------------------------------------------------------------*/
 
-export const FROM_CODE_KINDS = ['sequence', 'er', 'architecture', 'state'] as const;
-export type FromCodeKind = (typeof FROM_CODE_KINDS)[number];
+import { FROM_CODE_KINDS, type FromCodeKind } from './board';
+
+// Declared in board.ts, so the files that only need the kinds do not import this one back.
+export { FROM_CODE_KINDS, type FromCodeKind };
 
 /** The scope keys each kind takes. */
 export const SCOPE_KEYS: Record<FromCodeKind, readonly string[]> = {
@@ -67,4 +69,6 @@ export { erFromTables } from './er';
 export { architectureFromGraph } from './architecture';
 export { stateFromEnum } from './state';
 export { annotate } from './annotate';
+export { partialIndexNotes, type PartialIndexInput } from './notes';
+export { boardFromCodeMessage, kindChoices, scopeChoices, scopeSourceFrom, MAX_CHOICES, type IndexForChoices, type KindChoice, type ScopeChoice, type ScopeSource } from './choices';
 export type { GenBoard, GenEdge, GenGroup, GenNode, Generated } from './board';

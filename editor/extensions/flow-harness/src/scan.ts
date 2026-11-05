@@ -64,6 +64,8 @@ export interface Harness {
 	gaps: Gap[];
 	/** Tokens loaded into every new session before the first prompt. */
 	startupTokens: number;
+	/** Limits the scan hit (more files than it lists): shown with the result, never silently. */
+	notes?: string[];
 }
 
 const home = os.homedir();
@@ -369,7 +371,7 @@ function lintKind(i: HarnessItem): InstructionKind | undefined {
 }
 
 /** The harness lint (lint.ts) over what the scan found; each finding becomes an issue on the item whose file (and line) it names. */
-async function lintItems(items: HarnessItem[], root: string) {
+async function lintItems(items: HarnessItem[], root: string, folder: vscode.WorkspaceFolder) {
 	const seen = new Set<string>();
 	const files: LintFile[] = [];
 	for (const i of items) {
@@ -382,7 +384,8 @@ async function lintItems(items: HarnessItem[], root: string) {
 	// Listing the project is only worth it when some rule is scoped to globs.
 	const scoped = files.some(f => (f.kind === 'claude-rule' || f.kind === 'cursor-rule') && ruleGlobs(f).length);
 	const limit = 20_000;
-	const listed = scoped ? await vscode.workspace.findFiles('**/*', '{**/node_modules/**,**/.git/**,**/.claude/worktrees/**,**/.insilode/worktrees/**,**/.axle/worktrees/**}', limit) : [];
+	// This folder's files only: a rule's globs are relative to the folder that holds it.
+	const listed = scoped ? await vscode.workspace.findFiles(new vscode.RelativePattern(folder, '**/*'), '{**/node_modules/**,**/.git/**,**/.claude/worktrees/**,**/.insilode/worktrees/**,**/.axle/worktrees/**}', limit) : [];
 	const findings = lint({
 		files,
 		hooks: items.filter(i => i.hook).map(i => ({ ...i.hook!, line: i.line ?? 0 })),
@@ -447,23 +450,28 @@ const existsSyncSafe = (p: string) => {
 	}
 };
 
-export async function scan(): Promise<Harness | undefined> {
-	somewhere.clear();
-	const folder = vscode.workspace.workspaceFolders?.[0];
-	if (!folder) {
-		return undefined;
-	}
+/** Most nested CLAUDE.md / AGENTS.md files listed per folder: a monorepo can hold thousands, and the search stops here. */
+const MAX_NESTED = 200;
+const NESTED_EXCLUDE = '{**/node_modules/**,**/.git/**,**/bin/**,**/obj/**,**/.claude/worktrees/**,**/.insilode/worktrees/**,**/.axle/worktrees/**}';
+
+/**
+ * What one workspace folder contributes. The user's own files (home folder) belong to no folder: `first` reads them once,
+ * with the first folder, so a workspace of three folders does not list them three times.
+ */
+async function scanFolder(items: HarnessItem[], folder: vscode.WorkspaceFolder, first: boolean): Promise<string[]> {
 	const root = folder.uri.fsPath;
-	const items: HarnessItem[] = [];
+	const notes: string[] = [];
 
 	// Instructions: user, then project, then nested folders (more specific wins).
-	await memoryFile(items, root, path.join(claudeDir(), 'CLAUDE.md'), 'user', ['Claude'], 'Your instructions, every project');
-	await memoryFile(items, root, path.join(codexDir(), 'AGENTS.md'), 'user', ['Codex'], 'Your instructions, every project');
+	if (first) {
+		await memoryFile(items, root, path.join(claudeDir(), 'CLAUDE.md'), 'user', ['Claude'], 'Your instructions, every project');
+		await memoryFile(items, root, path.join(codexDir(), 'AGENTS.md'), 'user', ['Codex'], 'Your instructions, every project');
+	}
 	await memoryFile(items, root, path.join(root, 'CLAUDE.md'), 'project', ['Claude'], 'Loaded in every session');
 	await memoryFile(items, root, path.join(root, 'CLAUDE.local.md'), 'local', ['Claude'], 'Yours only, not committed');
 	await memoryFile(items, root, path.join(root, 'AGENTS.md'), 'project', ['Codex', 'Cursor'], 'Loaded in every session');
 	await memoryFile(items, root, path.join(root, '.github', 'copilot-instructions.md'), 'project', ['Copilot'], 'Copilot reads it in every chat');
-	const found = await vscode.workspace.findFiles('**/{CLAUDE,AGENTS}.md', '{**/node_modules/**,**/.git/**,**/bin/**,**/obj/**,**/.claude/worktrees/**,**/.insilode/worktrees/**,**/.axle/worktrees/**}', 200);
+	const found = await vscode.workspace.findFiles(new vscode.RelativePattern(folder, '**/{CLAUDE,AGENTS}.md'), NESTED_EXCLUDE, MAX_NESTED);
 	// Git answers with the paths as it was given them.
 	const ignored = await gitIgnoredOf(root, found.map(u => u.fsPath));
 	const nested = found.filter(u => !ignored.has(u.fsPath));
@@ -472,33 +480,74 @@ export async function scan(): Promise<Harness | undefined> {
 			await memoryFile(items, root, uri.fsPath, 'directory', path.basename(uri.fsPath) === 'CLAUDE.md' ? ['Claude'] : ['Codex', 'Cursor'], `When working under ${path.relative(root, path.dirname(uri.fsPath))}/`);
 		}
 	}
+	if (found.length >= MAX_NESTED) {
+		// The search stopped at its limit, so files past it are not listed: say so where the list is, never silently.
+		const message = `Insilode listed the first ${MAX_NESTED} CLAUDE.md and AGENTS.md files in ${folder.name}; there may be more, and they are not checked or counted.`;
+		notes.push(message);
+		items.push({ kind: 'instructions', scope: 'directory', label: `More than ${MAX_NESTED} CLAUDE.md / AGENTS.md files`, detail: 'Only the first ones are listed', file: found[0].fsPath, issues: [{ severity: 'info', message, fix: 'Ignore build output and vendored folders in .gitignore, or open the part of the repository you work in as its own folder' }], agents: [] });
+	}
 
 	await rulesIn(items, root, path.join(root, '.claude', 'rules'), 'project', ['Claude'], 'paths');
-	await rulesIn(items, root, path.join(claudeDir(), 'rules'), 'user', ['Claude'], 'paths');
+	if (first) {
+		await rulesIn(items, root, path.join(claudeDir(), 'rules'), 'user', ['Claude'], 'paths');
+	}
 	await rulesIn(items, root, path.join(root, '.cursor', 'rules'), 'project', ['Cursor'], 'globs');
 
 	await skillsIn(items, path.join(root, '.claude', 'skills'), 'project', ['Claude']);
 	await skillsIn(items, path.join(root, '.agents', 'skills'), 'project', ['Codex']);
 	await skillsIn(items, path.join(root, '.cursor', 'skills'), 'project', ['Cursor']);
-	await skillsIn(items, path.join(claudeDir(), 'skills'), 'user', ['Claude']);
+	if (first) {
+		await skillsIn(items, path.join(claudeDir(), 'skills'), 'user', ['Claude']);
+	}
 
 	await agentsIn(items, path.join(root, '.claude', 'agents'), 'project');
-	await agentsIn(items, path.join(claudeDir(), 'agents'), 'user');
+	if (first) {
+		await agentsIn(items, path.join(claudeDir(), 'agents'), 'user');
+	}
 
 	await memoryIn(items, root);
 
-	await settingsFile(items, root, path.join(claudeDir(), 'settings.json'), 'user');
+	if (first) {
+		await settingsFile(items, root, path.join(claudeDir(), 'settings.json'), 'user');
+	}
 	await settingsFile(items, root, path.join(root, '.claude', 'settings.json'), 'project');
 	await settingsFile(items, root, path.join(root, '.claude', 'settings.local.json'), 'local');
 	await mcpServers(items, root);
+	return notes;
+}
+
+/** What makes an item the same one found twice: the user's Codex memories and MCP servers are read again with every folder. */
+const sameItem = (i: HarnessItem) => JSON.stringify([i.kind, i.scope, i.file, i.label, i.detail, i.line ?? null, i.mcp?.id ?? null]);
+
+export async function scan(): Promise<Harness | undefined> {
+	somewhere.clear();
+	// Every folder of the workspace: a multi-root workspace has a harness in each.
+	const folders = vscode.workspace.workspaceFolders ?? [];
+	if (!folders.length) {
+		return undefined;
+	}
+	const root = folders[0].uri.fsPath;
+	const items: HarnessItem[] = [];
+	const notes: string[] = [];
+	for (const [n, folder] of folders.entries()) {
+		const batch: HarnessItem[] = [];
+		notes.push(...await scanFolder(batch, folder, n === 0));
+		const known = new Set(items.map(sameItem));
+		const mine = batch.filter(i => !known.has(sameItem(i)));
+		if (n > 0) {
+			// Two folders both have a CLAUDE.md: the label says whose.
+			mine.forEach(i => (i.label = `${folder.name}: ${i.label}`));
+		}
+		await lintItems(mine, folder.uri.fsPath, folder);
+		items.push(...mine);
+	}
 
 	conflicts(items);
-	await lintItems(items, root);
 
 	const counts: Record<Severity, number> = { error: 0, warning: 0, info: 0 };
 	items.forEach(i => i.issues.forEach(x => counts[x.severity]++));
 	const gaps = projectGaps(items);
 	const score = Math.max(0, 100 - counts.error * 12 - counts.warning * 4 - counts.info - gaps.reduce((a, g) => a + g.cost, 0));
 	const claudeStartup = items.filter(i => i.agents.includes('Claude') && i.tokens && (i.kind === 'instructions' || i.kind === 'skills' || i.kind === 'agents' || i.kind === 'rules' || i.kind === 'memory'));
-	return { root, items, score, counts, gaps, startupTokens: claudeStartup.reduce((a, i) => a + (i.tokens ?? 0), 0) };
+	return { root, items, score, counts, gaps, startupTokens: claudeStartup.reduce((a, i) => a + (i.tokens ?? 0), 0), ...(notes.length ? { notes } : {}) };
 }

@@ -75,7 +75,7 @@ export class AskRouter implements vscode.Disposable {
 		if (setting !== 'ask' && setting !== 'remember') {
 			const open = await vscode.window.showInformationMessage(`Questions always go to ${setting.replace(/^custom:/, '')}: the setting flow.agents.askTarget fixes it.`, 'Open Setting');
 			if (open) {
-				await vscode.commands.executeCommand('workbench.action.openSettings', 'flow.agents.askTarget');
+				await vscode.commands.executeCommand('flow.settings', 'flow.agents.askTarget');
 			}
 			return;
 		}

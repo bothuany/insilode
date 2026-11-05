@@ -4,6 +4,7 @@ import * as monaco from 'monaco-editor'
 import { CODE_PAD, HEADER_H, KIND_COLOR, LINE_H, SCHEMA_MAX, SCHEMA_OPS_H, SCHEMA_ROW, type CardData, type FrameData } from './layout'
 import { chipList, linkOf, ROW_H, STRIP_H, type CardChips, type ChipRow, type TypeLink } from './chips'
 import { bindEditor, hoverCode, leaveCode, wordAtPoint } from './ide'
+import { cardLabel, cutNote } from './impact/cardLabel'
 import type { DbSchema, FlowNode, Kind } from './types'
 
 /** Where a click on a card's code landed, in file coordinates (1-based), so editing starts right there. */
@@ -85,7 +86,7 @@ function KindGlyph({ kind }: { kind: Kind }) {
     external: <circle cx="6" cy="6" r="3.6" fill="none" stroke={c} strokeWidth="1.4" />,
   }[kind]
   return (
-    <svg className="glyph" width="12" height="12" viewBox="0 0 12 12" aria-label={KIND_NAME[kind]}>
+    <svg className="glyph" width="12" height="12" viewBox="0 0 12 12" role="img" aria-label={KIND_NAME[kind]}>
       <title>{KIND_NAME[kind]}</title>
       {shape}
     </svg>
@@ -390,9 +391,9 @@ function TypeChip({ type, mark = '', title, open, expandable, still, onToggle }:
         {mark && <span className="tc-mark">{mark}</span>}
       </button>
       <span className="tc-acts nodrag">
-        <button className="tc-act" title={`Go to ${type.name}`} onClick={go}>↗</button>
+        <button className="tc-act" title={`Go to ${type.name}`} aria-label={`Go to ${type.name}`} onClick={go}>↗</button>
         {actions.typeDiagram && (
-          <button className="tc-act" title={`Show ${type.name} in the diagram`} onClick={e => { e.stopPropagation(); actions.typeDiagram!(type.id) }}>◫</button>
+          <button className="tc-act" title={`Show ${type.name} in the diagram`} aria-label={`Show ${type.name} in the diagram`} onClick={e => { e.stopPropagation(); actions.typeDiagram!(type.id) }}>◫</button>
         )}
       </span>
     </span>
@@ -432,8 +433,8 @@ function TypeChips({ nodeKey, chips, rows, open, height, zoomedOut, still }: { n
                   <span className="tc-headname">{r.type.name}</span>
                   <span className="tc-faint">{r.type.role === r.type.kind ? r.type.kind : `${r.type.role} · ${r.type.kind}`}</span>
                   <span className="tc-space" />
-                  <button className="tc-act on" title={`Go to ${r.type.name}`} onClick={e => { e.stopPropagation(); if (still(e)) actions.openType?.(r.type.file, r.type.line) }}>↗</button>
-                  {actions.typeDiagram && <button className="tc-act on" title={`Show ${r.type.name} in the diagram`} onClick={e => { e.stopPropagation(); actions.typeDiagram!(r.type.id) }}>◫</button>}
+                  <button className="tc-act on" title={`Go to ${r.type.name}`} aria-label={`Go to ${r.type.name}`} onClick={e => { e.stopPropagation(); if (still(e)) actions.openType?.(r.type.file, r.type.line) }}>↗</button>
+                  {actions.typeDiagram && <button className="tc-act on" title={`Show ${r.type.name} in the diagram`} aria-label={`Show ${r.type.name} in the diagram`} onClick={e => { e.stopPropagation(); actions.typeDiagram!(r.type.id) }}>◫</button>}
                 </div>
               )
             const pad = { height: ROW_H, paddingLeft: 12 + r.level * 12 }
@@ -444,7 +445,7 @@ function TypeChips({ nodeKey, chips, rows, open, height, zoomedOut, still }: { n
             if (r.kind === 'more')
               return (
                 <div key={`m${i}`} className="tc-row" style={pad}>
-                  <button className="tc-more" title={`Go to ${r.type.name}`} onClick={e => { e.stopPropagation(); if (still(e)) actions.openType?.(r.type.file, r.type.line) }}>+{r.count} more</button>
+                  <button className="tc-more" title={`Go to ${r.type.name}`} aria-label={`${r.count} more fields: go to ${r.type.name}`} onClick={e => { e.stopPropagation(); if (still(e)) actions.openType?.(r.type.file, r.type.line) }}>+{r.count} more</button>
                 </div>
               )
             const f = r.field
@@ -533,6 +534,16 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
     <div
       className={`card kind-${node.kind}${selected ? ' selected' : ''}${changed ? ' changed' : ''}${editing ? ' editing' : ''}${editable ? (zoomedOut ? ' zoomable' : ' editable') : ''}`}
       style={{ '--k': color } as CSSProperties}
+      // A card is a stop for the keyboard and has a name for a screen reader; Enter on the card itself does what a click on its header does.
+      tabIndex={0}
+      role="group"
+      aria-label={cardLabel(node, KIND_NAME[node.kind])}
+      onKeyDown={e => {
+        if (e.key === 'Enter' && e.target === e.currentTarget && (node.code || schema?.file)) {
+          e.preventDefault()
+          actions.reveal?.(node.key)
+        }
+      }}
       onPointerDown={onDown}
       onClickCapture={e => {
         // Alt+click anywhere on a card: point at it and ask.
@@ -557,31 +568,35 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
             {owner && <span className="owner">{owner}.</span>}
             <span className="member">{member}</span>
           </div>
-          <div className="sub">{schema ? `${schema.entity} in ${schema.context}${changeNote(node.tableChange)}` : node.kind === 'db' && /SaveChanges/.test(node.label) ? 'Saves tracked changes' : file ? `${file}:${node.startLine}` : node.sub}</div>
+          <div className={`sub${node.truncated ? ' has-cut' : ''}`}>
+            {/* A flow cut at its size limit says it on the cards that were cut, in words, so a short flow never passes for a whole one. */}
+            {node.truncated ? <span className="cut" title="The flow was cut at its size limit: the calls below this card are not drawn.">{cutNote(node.truncated)}</span> : null}
+            <span className="sub-text">{schema ? `${schema.entity} in ${schema.context}${changeNote(node.tableChange)}` : node.kind === 'db' && /SaveChanges/.test(node.label) ? 'Saves tracked changes' : file ? `${file}:${node.startLine}` : node.sub}</span>
+          </div>
         </div>
         <div className="tools nodrag">
           {calls.length > 0 && (
-            <button className="tool" title={hiddenCount ? `Show ${hiddenCount} hidden calls` : 'Hide all calls'} onClick={() => actions.toggleAll(node.key)}>
+            <button className="tool" title={hiddenCount ? `Show ${hiddenCount} hidden calls` : 'Hide all calls'} aria-label={hiddenCount ? `Show ${hiddenCount} hidden calls` : 'Hide all calls'} onClick={() => actions.toggleAll(node.key)}>
               {hiddenCount ? `+${hiddenCount}` : '−'}
             </button>
           )}
           {compactable && !node.diff && !editing && (
-            <button className="tool" title={full ? 'Show only the flow lines' : 'Show every line'} onClick={() => actions.toggleFull(node.key)}>
+            <button className="tool" title={full ? 'Show only the flow lines' : 'Show every line'} aria-label={full ? 'Show only the flow lines' : 'Show every line'} onClick={() => actions.toggleFull(node.key)}>
               {full ? '⇤' : '⇥'}
             </button>
           )}
           {node.code && actions.ask && (
-            <button className="tool" title="Ask the agent about this method (Alt+click the card; select lines first to ask about them)" onMouseDown={e => e.preventDefault()} onClick={e => (e.stopPropagation(), actions.ask!(node.key))}>
+            <button className="tool" title="Ask the agent about this method (Alt+click the card; select lines first to ask about them)" aria-label="Ask the agent about this method" onMouseDown={e => e.preventDefault()} onClick={e => (e.stopPropagation(), actions.ask!(node.key))}>
               ?
             </button>
           )}
           {node.code && actions.mention && (
-            <button className="tool" title="Mention this method in Claude Code (terminal)" onClick={() => actions.mention!(node.key)}>
+            <button className="tool" title="Mention this method in Claude Code (terminal)" aria-label="Mention this method in Claude Code" onClick={() => actions.mention!(node.key)}>
               @
             </button>
           )}
           {node.code && (
-            <button className="tool" title="Open in the editor" onClick={() => actions.open(node.key)}>
+            <button className="tool" title="Open in the editor" aria-label="Open in the editor" onClick={() => actions.open(node.key)}>
               ↗
             </button>
           )}

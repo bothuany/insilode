@@ -62,6 +62,33 @@ export interface TypeDetailField {
 	ref?: string;
 }
 
+/** The sentence a cut board's description carries; `cutOf` reads the numbers back, so the export can say the same without a second source of truth. */
+const cutSentence = (shown: number, total: number, hint: string) => `Showing the ${shown} most connected of ${total} types: ${hint}.`;
+const CUT_SENTENCE = /Showing the (\d+) most connected of (\d+) types:/;
+
+/** How many types a board shows of how many its graph has, when `flow.types.maxNodes` (or the default limit) cut it; undefined for a whole diagram. */
+export function cutOf(spec: Pick<BoardSpec, 'description'>): { shown: number; total: number } | undefined {
+	const m = CUT_SENTENCE.exec(spec.description ?? '');
+	return m ? { shown: Number(m[1]), total: Number(m[2]) } : undefined;
+}
+
+/**
+ * Diagram source text with a first comment line `%% showing N of M types` (Mermaid) or `' showing N of M types` (PlantUML, after
+ * `@startuml`) when the board was cut: a pasted diagram that looks complete otherwise hides that types are missing.
+ */
+export function withCutNote(text: string, spec: Pick<BoardSpec, 'description'>, format: 'mermaid' | 'plantuml'): string {
+	const cut = cutOf(spec);
+	if (!cut) {
+		return text;
+	}
+	const note = `showing ${cut.shown} of ${cut.total} types`;
+	if (format === 'mermaid') {
+		return `%% ${note}\n${text}`;
+	}
+	const [first, ...rest] = text.split('\n');
+	return [first, `' ${note}`, ...rest].join('\n');
+}
+
 const DEFAULT_DTO_NODES = 120;
 const DEFAULT_ARCH_NODES = 150;
 const MAX_FIELDS = 40;
@@ -195,10 +222,14 @@ export function dtoBoard(graph: TypeGraph, opts: DtoBoardOptions = {}): BoardSpe
 	const groups: BoardGroup[] = [...modules].sort(byCode).map(m => ({ id: moduleGroupId(m), label: m }));
 	const parts = [`${nodes.length} type${nodes.length === 1 ? '' : 's'}, ${edges.length} relation${edges.length === 1 ? '' : 's'}.`];
 	if (total > nodes.length) {
-		parts.push(`Showing the ${nodes.length} most connected of ${total} types: search or focus a type to see the rest.`);
+		parts.push(cutSentence(nodes.length, total, 'search or focus a type to see the rest'));
 	}
 	if (hiddenEntities) {
 		parts.push(`${hiddenEntities} entit${hiddenEntities === 1 ? 'y is' : 'ies are'} hidden.`);
+	}
+	if (!nodes.length && !opts.focusId && !query) {
+		// An empty board with nothing filtered: say why, so the canvas's empty state can offer the two ways out.
+		parts.push(`No DTO found: a name ending in ${graph.options.dtoSuffixes.join(', ')} counts as one.`);
 	}
 	return { version: 1, kind: 'er', title: focus ? `DTO relations: ${focus.name}` : 'DTO relations', description: parts.join(' ') + note, direction: 'LR', nodes, edges, groups };
 }
@@ -286,7 +317,7 @@ export function architectureBoard(graph: TypeGraph, opts: ArchitectureBoardOptio
 	}
 	const parts = [`${nodes.length} type${nodes.length === 1 ? '' : 's'} in ${modules.size} module${modules.size === 1 ? '' : 's'}, ${edges.length} relation${edges.length === 1 ? '' : 's'}.`];
 	if (total > nodes.length) {
-		parts.push(`Showing the ${nodes.length} most connected of ${total} types: hide roles or focus a type to see the rest.`);
+		parts.push(cutSentence(nodes.length, total, 'hide roles or focus a type to see the rest'));
 	}
 	if (hide.size) {
 		parts.push(`Hidden roles: ${ROLE_ORDER.filter(r => hide.has(r)).join(', ')}.`);
