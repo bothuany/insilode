@@ -10,8 +10,8 @@ import type { AvatarKind } from './desktopModel';
 import type { UsageLimits } from './usage';
 import type { WorktreeView } from './worktreeActions';
 
-/** One agent as the dock and the page draw it: the session's own record plus what is worked out for the view. */
-export type AgentRow = AgentSession & {
+/** One agent as the dock and the page draw it: the session's own record plus what is worked out for the view (its impact slimmed to what the views draw). */
+export type AgentRow = Omit<AgentSession, 'impact' | 'worktree'> & {
 	attention?: AttentionKind;
 	/** Todos completed. */
 	done: number;
