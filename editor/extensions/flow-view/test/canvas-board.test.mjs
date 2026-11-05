@@ -269,3 +269,18 @@ test('canvas board: a code widget keeps only the 12 lines it draws, however wide
 	assert.equal(code.text.split('\n')[0], 'line 5')
 	assert.deepEqual(code.lines, [5, 16])
 })
+
+test('canvas board: the window hands the store every BoardHost method, not only show and update', async () => {
+	// The store reaches the board panel only through the host extension.ts gives it. A method missing there is silently
+	// optional (`host.image?.()`), so the agent would get no picture and read_board no user edits, with every unit test green.
+	const { readFileSync } = await import('node:fs')
+	const { join } = await import('node:path')
+	const { ROOT } = await import('./helpers.mjs')
+	const storeSrc = readFileSync(join(ROOT, 'src/board/store.ts'), 'utf8')
+	const iface = /export interface BoardHost \{([\s\S]*?)\n\}/.exec(storeSrc)[1]
+	const methods = [...iface.matchAll(/^\t(\w+)\??\(/gm)].map(m => m[1])
+	assert.ok(methods.includes('image') && methods.includes('overrides'), `BoardHost methods: ${methods}`)
+	const ext = readFileSync(join(ROOT, 'src/extension.ts'), 'utf8')
+	const host = /boards\.setHost\(\{([\s\S]*?)\n\t\}\);/.exec(ext)[1]
+	for (const m of methods) assert.match(host, new RegExp(`(^|[^\\w.])${m}\\s*[:(]`), `extension.ts passes ${m} to the store's host`)
+})

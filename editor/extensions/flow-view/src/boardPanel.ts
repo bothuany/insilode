@@ -216,7 +216,7 @@ export class BoardPanel implements vscode.Disposable {
 		}
 		const seq = ++this.imageSeq;
 		return new Promise<string | undefined>(resolve => {
-			const timer = setTimeout(() => { this.images.delete(seq); resolve(undefined); }, timeoutMs);
+			const timer = setTimeout(() => { this.images.delete(seq); this.log?.warn(`board: ${key} did not answer a picture request within ${timeoutMs} ms${tab.ready ? '' : ' (the page never said it was ready)'}`); resolve(undefined); }, timeoutMs);
 			this.images.set(seq, png => { clearTimeout(timer); this.images.delete(seq); resolve(png); });
 			const ask = () => void tab.panel.webview.postMessage({ type: 'render', seq, step });
 			// A tab that was just created has not said 'ready' yet: the request waits for that (bounded by the same timer).
@@ -264,6 +264,9 @@ export class BoardPanel implements vscode.Disposable {
 				const waiting = typeof m.seq === 'number' ? this.images.get(m.seq) : undefined;
 				if (waiting) {
 					const png = typeof m.png === 'string' && m.png.length < 4_000_000 && /^[A-Za-z0-9+/=]+$/.test(m.png) ? m.png : undefined;
+					if (!png) {
+						this.log?.warn(`board: no picture for the agent (${typeof m.error === 'string' ? m.error.slice(0, 200) : typeof m.png === 'string' ? `${m.png.length} characters that are not base64` : 'nothing drawn'})`);
+					}
 					waiting(png);
 				}
 				return;

@@ -428,6 +428,12 @@ function wireAgentBridge(flow: Flow) {
 				await viewer.update(id, spec);
 			}
 		},
+		// The rest is the canvas's alone (the Markdown fallback has no picture and no hand edits): the picture an agent gets back,
+		// and the moves and notes a user made on a canvas board. Leaving them out would make every draw answer "no picture" and
+		// read_board report nothing the user did.
+		image: (id, timeoutMs, step) => canvas.image?.(id, timeoutMs, step) ?? Promise.resolve(undefined),
+		overrides: id => canvas.overrides?.(id) ?? {},
+		forgetOverrides: id => canvas.forgetOverrides?.(id),
 	});
 	// Skeleton first: the plan board against the type index, the stages the dock drives (docs/design/skeleton-first.md).
 	const skeleton = new SkeletonHost(boards, TypeService.get(log), log, context.workspaceState);

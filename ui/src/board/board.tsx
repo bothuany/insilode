@@ -547,8 +547,9 @@ function BoardView() {
           // Wide boards are scaled down: the picture is for a look, not for print, and the base64 stays small.
           const scale = Math.min(1, 1600 / Number(m[1]))
           post({ type: 'image', seq, png: await pngOf(svg, Math.round(Number(m[1]) * scale), Math.round(Number(m[2]) * scale), 1) })
-        } catch {
-          post({ type: 'image', seq })
+        } catch (e) {
+          // Said to the host, so the agent hears why there is no picture instead of a timeout.
+          post({ type: 'image', seq, error: String((e as Error)?.message ?? e).slice(0, 200) })
         }
       })()
     }

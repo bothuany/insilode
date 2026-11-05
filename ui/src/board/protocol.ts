@@ -49,7 +49,7 @@ export type ToHost =
   /** C4: open the board a box zooms into (the host checks the id). */
   | { type: 'zoom'; board: string }
   /** The picture a `render` asked for: base64 PNG of the board as drawn, or no `png` when it could not be drawn. */
-  | { type: 'image'; seq: number; png?: string }
+  | { type: 'image'; seq: number; png?: string; error?: string }
   /** Canvas boards: the user dropped an element at (x, y) inside its frame. The host checks the id and works out the frame hash itself. */
   | { type: 'move'; id: string; x: number; y: number }
   /** Canvas boards: a note pinned to an element (empty text removes it). */
