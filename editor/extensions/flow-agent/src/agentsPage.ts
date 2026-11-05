@@ -167,7 +167,6 @@ ${AVATAR_CSS}
 .reply .rr { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
 .err { color: var(--danger-text); font-size: 12px; }
 .row2 { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-.confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; padding: 7px 9px; border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent); border-radius: 8px; }
 .clash { margin: 0 0 6px; padding: 5px 8px; border-radius: 7px; background: color-mix(in srgb, var(--blocked) 12%, transparent); font-size: 12.5px; }
 .clash small { display: block; color: var(--muted); margin-top: 2px; }
 .clash .f { font-family: var(--mono); font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
@@ -234,14 +233,14 @@ const tailAsked = new Map();  // id -> the state it was asked in
 const drafts = new Map();     // id -> what is typed in the reply box
 const sentText = new Map();   // id -> the last reply sent, put back when the host says it could not be typed in
 const replyError = new Map();
-let pending; // { id, action }
 let ticks = [];
 let cardEls = new Map();
 let openMenu = false;
 
 // ---- derived ---------------------------------------------------------------------------------------------------------------
 const rowById = id => data.rows.find(r => r.id === id);
-const needKind = s => s.need && (s.need.kind !== 'error' || s.unread) ? s.need.kind : s.attention === 'approval' || s.attention === 'question' || s.attention === 'error' ? s.attention : s.state === 'blocked' ? 'approval' : undefined;
+// What the row waits for, as the host worked it out (attention.ts attentionKind): the page keeps no rule of its own.
+const needKind = s => s.attention && s.attention !== 'done' ? s.attention : undefined;
 function column(s) {
 	if (s.state === 'ended') { return 'ended'; }
 	if (needKind(s)) { return 'needs'; }
@@ -304,7 +303,7 @@ function setMenu(on) {
 			item('Resume a Claude session…', { type: 'start', cli: 'claude', how: 'resume' }),
 			item('Resume a Codex session…', { type: 'start', cli: 'codex', how: 'resume' }),
 			h('hr'),
-			data.customs.map((n, i) => item(n, { type: 'custom', index: i })),
+			data.customs.map((n, i) => item(n, { type: 'custom', index: i, name: n })),
 			data.customs.length ? h('hr') : null,
 			item('Start an Agent…', { type: 'pick' }),
 		]);
@@ -368,7 +367,7 @@ function branchText(s) {
 function wire(el, s) {
 	el.addEventListener('click', () => select(s.id));
 	el.addEventListener('dblclick', () => post({ type: 'show', id: s.id }));
-	el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target === el) { e.preventDefault(); post({ type: 'show', id: s.id }); } });
+	el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target === el) { e.preventDefault(); e.stopPropagation(); post({ type: 'show', id: s.id }); } });
 	el.setAttribute('data-id', s.id);
 	cardEls.set(s.id, el);
 }
@@ -504,12 +503,9 @@ function paintDetail() {
 			s.state === 'ended' ? h('p', { class: 'note' }, 'Forget this agent to keep, merge or remove its worktree.') : h('div', { class: 'row2', style: 'margin-top:6px' },
 				act('Open', { type: 'wt', id: s.id, action: 'open' }, { tip: 'Open the worktree folder' }),
 				act('Changes', { type: 'wt', id: s.id, action: 'diff' }, { tip: 'Show the changes of this branch since ' + w.base + ' in flow' }),
-				h('button', { type: 'button', class: 'btn small', onclick: () => { pending = { id: s.id, action: 'merge' }; paintDetail(); } }, 'Merge'),
-				h('button', { type: 'button', class: 'btn small danger', onclick: () => { pending = { id: s.id, action: 'remove' }; paintDetail(); } }, 'Remove')),
-			pending && pending.id === s.id ? h('div', { class: 'confirm', role: 'alertdialog' },
-				pending.action === 'merge' ? 'Merge ' + w.branch + ' into ' + w.base + '?' : 'Remove the worktree folder of ' + w.branch + '? The branch stays.',
-				h('button', { type: 'button', class: 'btn small primary', onclick: () => { const a = pending.action; pending = undefined; post({ type: 'wt', id: s.id, action: a }); paintDetail(); } }, pending.action === 'merge' ? 'Merge' : 'Remove'),
-				h('button', { type: 'button', class: 'btn small', onclick: () => { pending = undefined; paintDetail(); } }, 'Cancel')) : null) : null,
+				// No confirm here: the host asks itself, with the commit count and what happens to uncommitted work (worktreeFlow.ts).
+				act('Merge…', { type: 'wt', id: s.id, action: 'merge' }, { tip: 'Merge ' + w.branch + ' into ' + w.base + ' (asks first)' }),
+				act('Remove…', { type: 'wt', id: s.id, action: 'remove' }, { tip: 'Remove the worktree folder; the branch stays (asks first)', cls: 'danger' }))) : null,
 		s.clash && s.clash.length ? section('Conflicts', s.clash.map(c => h('div', { class: 'clash' }, '⚠ ' + c.text,
 			c.same ? h('small', null, 'Same checkout: each writes over the edits of the other. Start agents that work in parallel in a worktree.') : null,
 			c.files.length ? h('div', { class: 'f' }, c.files.join(', ')) : null))) : null,
@@ -539,7 +535,7 @@ function paintConv(s) {
 	if (t && t.entries.length && body.scrollTop !== undefined) { body.scrollTop = atEnd ? body.scrollHeight : was; }
 }
 // The reply box is built once and kept: a repaint never touches what is typed in it.
-const replyText = h('textarea', { rows: '3', placeholder: 'Reply to the agent… (Ctrl/Cmd+Enter to send)', 'aria-label': 'Reply to the agent', maxlength: '8000' });
+const replyText = h('textarea', { rows: '3', placeholder: 'Reply to the agent… (Ctrl/Cmd+Enter to send; line breaks are sent as spaces)', 'aria-label': 'Reply to the agent', maxlength: '8000' });
 const replyErr = h('span', { class: 'err', role: 'alert' });
 const replyBtn = h('button', { type: 'button', class: 'btn small primary', onclick: () => sendReply() }, 'Send');
 add(dReply, h('h4', null, 'Reply'), replyText, h('div', { class: 'rr' }, replyBtn, replyErr));
@@ -581,7 +577,6 @@ function askTail(id, force) {
 function select(id) {
 	if (id === sel) { return; }
 	sel = id;
-	pending = undefined;
 	if (id) { askTail(id, true); }
 	for (const [cid, el] of cardEls) {
 		const c = el.className.split(' ').filter(x => x !== 'sel');
@@ -591,7 +586,7 @@ function select(id) {
 	paintDetail();
 }
 function paint() {
-	if (sel && !rowById(sel)) { sel = undefined; pending = undefined; }
+	if (sel && !rowById(sel)) { sel = undefined; }
 	ticks = [];
 	const mainTop = main.scrollTop, detTop = detail.scrollTop;
 	paintHead();
@@ -638,7 +633,6 @@ document.addEventListener('keydown', e => {
 	if (e.key === 'Escape') {
 		if (openMenu) { setMenu(false); return; }
 		if (typing(e.target)) { if (e.target.blur) { e.target.blur(); } return; }
-		if (pending) { pending = undefined; paintDetail(); return; }
 		if (sel) { select(undefined); }
 		return;
 	}

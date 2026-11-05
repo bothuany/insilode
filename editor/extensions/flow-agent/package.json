@@ -250,7 +250,8 @@
       {
         "command": "flow.agents.openPage",
         "key": "ctrl+shift+a",
-        "mac": "cmd+shift+a"
+        "mac": "cmd+shift+a",
+        "when": "!isLinux || !editorTextFocus || editorReadonly"
       },
       {
         "command": "-workbench.action.openAgentsWindow",

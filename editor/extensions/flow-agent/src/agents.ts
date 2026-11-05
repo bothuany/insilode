@@ -1822,7 +1822,12 @@ export class Agents implements vscode.Disposable {
 	}
 
 	private reportLimits(limits: UsageLimits) {
+		// The Agents page draws the limits: a change repaints it, a repeat (every status line refresh) does not.
+		const changed = JSON.stringify(limits) !== JSON.stringify(this.latest);
 		this.latest = limits;
+		if (changed) {
+			this.changed.fire();
+		}
 		void this.limits.offer(limits).then(outcome => {
 			// A failed send (flow-harness still starting) tries again shortly; a repeat of what went through does not.
 			if (outcome === 'failed' && !this.limitsRetry) {

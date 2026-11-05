@@ -76,3 +76,13 @@ test('readTail reads only the end of a file larger than the window, and a missin
 	assert.ok(all.every(e => e.text.startsWith('old') || e.text.startsWith('newest') || e.text.startsWith('last')))
 	assert.deepEqual(await t.readTail(join(tmp, 'nope.jsonl'), 'codex', 5), [])
 })
+
+test('readTail reads a larger window when the last line alone is longer than the first one', async () => {
+	const file = join(tmp, 'huge-last.jsonl')
+	const user = JSON.stringify({ type: 'user', message: { content: 'please read the log' } })
+	// One tool result of about 1 MB: more than the first window, so that window holds only part of one line.
+	const huge = JSON.stringify({ type: 'user', message: { content: [{ type: 'tool_result', content: 'x'.repeat(1024 * 1024) }] } })
+	writeFileSync(file, user + '\n' + huge + '\n')
+	const got = await t.readTail(file, 'claude', 5)
+	assert.deepEqual(got.map(e => e.text), ['please read the log'])
+})

@@ -23,7 +23,8 @@ test('the page-only messages become one action each', () => {
 	assert.deepEqual(a.agentsAction({ type: 'tail', id: 'a1', extra: 1 }), { type: 'tail', id: 'a1' })
 	assert.deepEqual(a.agentsAction({ type: 'reply', id: 'a1', text: 'go on' }), { type: 'reply', id: 'a1', text: 'go on' })
 	assert.deepEqual(a.agentsAction({ type: 'reply', id: 'a1', text: 'x'.repeat(a.MAX_REPLY) }).type, 'reply')
-	assert.deepEqual(a.agentsAction({ type: 'custom', index: 0 }), { type: 'custom', index: 0 })
+	assert.deepEqual(a.agentsAction({ type: 'custom', index: 0, name: 'Gemini' }), { type: 'custom', index: 0, name: 'Gemini' })
+	assert.equal(a.agentsAction({ type: 'custom', index: 0 }), undefined)
 	assert.deepEqual(a.agentsAction({ type: 'kept' }), { type: 'kept' })
 })
 
@@ -43,7 +44,7 @@ test('bad replies, indexes and ids are dropped', () => {
 	assert.equal(a.agentsAction({ type: 'reply', id: 'a1', text: 5 }), undefined)
 	assert.equal(a.agentsAction({ type: 'reply', text: 'hi' }), undefined)
 	for (const index of [-1, 1.5, '1', undefined, NaN, 100]) {
-		assert.equal(a.agentsAction({ type: 'custom', index }), undefined, String(index))
+		assert.equal(a.agentsAction({ type: 'custom', index, name: 'Gemini' }), undefined, String(index))
 	}
 	assert.equal(a.agentsAction({ type: 'tail' }), undefined)
 	assert.equal(a.agentsAction({ type: 'tail', id: '' }), undefined)

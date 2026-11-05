@@ -188,21 +188,16 @@ test('the detail panel posts the dock actions with the row id', () => {
 	assert.deepEqual(p.posted, [{ type: 'pr', id: 'w' }, { type: 'xray', id: 'w' }, { type: 'wt', id: 'w', action: 'open' }, { type: 'flow', id: 'w', index: 0 }, { type: 'sk', id: 'w', on: true }, { type: 'show', id: 'w' }])
 })
 
-test('merge and remove ask inline first, and Cancel posts nothing', () => {
+test('merge and remove go straight to the host, which asks first', () => {
 	const p = boot()
 	p.data(rows())
 	p.body.byClass('card').find(c => /Worker/.test(c.textContent)).fire('click')
 	p.posted.length = 0
 	const d = () => p.body.byClass('detail')[0]
-	d().button('Remove').fire('click')
-	assert.match(d().textContent, /Remove the worktree folder of insilode\/w\?/)
-	assert.deepEqual(p.posted, [])
-	d().button('Cancel').fire('click')
-	assert.doesNotMatch(d().textContent, /Remove the worktree folder/)
-	d().button('Merge').fire('click')
-	assert.match(d().textContent, /Merge insilode\/w into main\?/)
-	d().byClass('confirm')[0].button('Merge').fire('click')
-	assert.deepEqual(p.posted, [{ type: 'wt', id: 'w', action: 'merge' }])
+	// The host asks before it merges or removes (worktreeFlow.ts): the page asks nothing of its own, so nobody confirms twice.
+	d().button('Remove…').fire('click')
+	d().button('Merge…').fire('click')
+	assert.deepEqual(p.posted, [{ type: 'wt', id: 'w', action: 'remove' }, { type: 'wt', id: 'w', action: 'merge' }])
 })
 
 test('the reply box sends on Ctrl+Enter, keeps its text across repaints, and shows a failure', () => {
@@ -293,7 +288,7 @@ test('the New menu offers worktree, resume, custom agents and the picker', () =>
 	menu.button('Aider').fire('click')
 	p.body.button('More ▾').fire('click', { stopPropagation() {} })
 	menu.button('Start an Agent…').fire('click')
-	assert.deepEqual(p.posted, [{ type: 'start', cli: 'claude', how: 'worktree' }, { type: 'start', cli: 'codex', how: 'resume' }, { type: 'custom', index: 1 }, { type: 'pick' }])
+	assert.deepEqual(p.posted, [{ type: 'start', cli: 'claude', how: 'worktree' }, { type: 'start', cli: 'codex', how: 'resume' }, { type: 'custom', index: 1, name: 'Aider' }, { type: 'pick' }])
 })
 
 test('kept worktrees get their own section with a Manage button', () => {

@@ -9,8 +9,11 @@ import type { TailEntry } from './agentsData';
 const TEXT_CHARS = 600;
 const TOOL_CHARS = 140;
 const MAX_LINES = 6;
-/** How much of the end of a transcript is read: enough for many messages, never a whole long session. */
-const WINDOW_BYTES = 512 * 1024;
+/**
+ * How much of the end of a transcript is read: enough for many messages, never a whole long session. When nothing parses
+ * in a window (its last lines are one huge tool result or a pasted image), the next, larger window is read, up to the last.
+ */
+const WINDOWS = [512 * 1024, 4 * 1024 * 1024, 16 * 1024 * 1024];
 
 type Rec = Record<string, unknown>;
 
@@ -182,15 +185,21 @@ export async function readTail(file: string, cli: 'claude' | 'codex', max: numbe
 	try {
 		handle = await fs.promises.open(file, 'r');
 		const size = (await handle.stat()).size;
-		const start = Math.max(0, size - WINDOW_BYTES);
-		const buf = Buffer.alloc(size - start);
-		const { bytesRead } = await handle.read(buf, 0, buf.length, start);
-		let lines = buf.subarray(0, bytesRead).toString('utf8').split(/\r?\n/);
-		if (start > 0) {
-			// The window begins mid-line.
-			lines = lines.slice(1);
+		for (const window of WINDOWS) {
+			const start = Math.max(0, size - window);
+			const buf = Buffer.alloc(size - start);
+			const { bytesRead } = await handle.read(buf, 0, buf.length, start);
+			let lines = buf.subarray(0, bytesRead).toString('utf8').split(/\r?\n/);
+			if (start > 0) {
+				// The window begins mid-line.
+				lines = lines.slice(1);
+			}
+			const entries = tailEntries(lines, cli, max);
+			if (entries.length || start === 0) {
+				return entries;
+			}
 		}
-		return tailEntries(lines, cli, max);
+		return [];
 	} catch {
 		return [];
 	} finally {

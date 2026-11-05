@@ -16,8 +16,8 @@ export type AgentsAction =
 	| { type: 'tail'; id: string }
 	/** Type the reply box's text into the agent's prompt and submit it. */
 	| { type: 'reply'; id: string; text: string }
-	/** One of the user's own agents from the New menu, by its index in the `customs` list the host sent. */
-	| { type: 'custom'; index: number }
+	/** One of the user's own agents from the New menu, by its index in the `customs` list the host sent and its name (the list may have changed since). */
+	| { type: 'custom'; index: number; name: string }
 	/** The kept worktrees' quick pick (Agents: Kept Worktrees…). */
 	| { type: 'kept' };
 
@@ -33,7 +33,7 @@ export function agentsAction(raw: unknown): AgentsAction | undefined {
 		case 'reply':
 			return id !== undefined && typeof m.text === 'string' && m.text.trim().length > 0 && m.text.length <= MAX_REPLY ? { type: 'reply', id, text: m.text } : undefined;
 		case 'custom':
-			return typeof m.index === 'number' && Number.isInteger(m.index) && m.index >= 0 && m.index < 100 ? { type: 'custom', index: m.index } : undefined;
+			return typeof m.index === 'number' && Number.isInteger(m.index) && m.index >= 0 && m.index < 100 && typeof m.name === 'string' && m.name.length <= 200 ? { type: 'custom', index: m.index, name: m.name } : undefined;
 		case 'kept':
 			return { type: 'kept' };
 		// The chat settings link belongs to the dock only.

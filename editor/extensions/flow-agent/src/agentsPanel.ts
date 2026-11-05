@@ -35,7 +35,7 @@ export class AgentsPanel implements vscode.Disposable {
 			this.panel.reveal();
 			return;
 		}
-		const panel = vscode.window.createWebviewPanel('flow.agentsPage', 'Agents', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true });
+		const panel = vscode.window.createWebviewPanel('flow.agentsPage', 'Agents', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
 		this.panel = panel;
 		panel.iconPath = new vscode.ThemeIcon('sparkle') as unknown as vscode.WebviewPanel['iconPath'];
 		panel.webview.html = agentsHtml();
@@ -45,6 +45,8 @@ export class AgentsPanel implements vscode.Disposable {
 			this.agents.onDidChange(repaint),
 			...(this.worktrees ? [this.worktrees.onDidChange(repaint)] : []),
 			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst') || e.affectsConfiguration('flow.agents.custom')) && this.post()),
+			// A hidden page is not repainted (it keeps its state anyway): it catches up the moment it shows again.
+			panel.onDidChangeViewState(e => e.webviewPanel.visible && this.post()),
 			panel.onDidDispose(() => this.release(panel)),
 		];
 	}
@@ -100,7 +102,8 @@ export class AgentsPanel implements vscode.Disposable {
 			// By index into the list the host sent: the page never names a command.
 			case 'custom': {
 				const custom = savedAgents()[m.index];
-				return custom ? void this.agents.spawn('custom', undefined, custom) : undefined;
+				// The list may have changed since the page was drawn: only the agent the user saw starts.
+				return custom && custom.name === m.name ? void this.agents.spawn('custom', undefined, custom) : undefined;
 			}
 			case 'kept': return void vscode.commands.executeCommand('flow.agents.keptWorktrees');
 		}
@@ -130,6 +133,9 @@ export class AgentsPanel implements vscode.Disposable {
 
 	/** Coalesces bursts of hook events into one repaint. */
 	private post() {
+		if (!this.panel?.visible) {
+			return;
+		}
 		clearTimeout(this.timer);
 		this.timer = setTimeout(async () => {
 			const mine = ++this.paint;
