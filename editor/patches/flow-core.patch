@@ -1180,3 +1180,46 @@ index 34cc2f2f..0affe987 100644
  					'OriginalFilename': basename,
  					'ProductName': product.nameLong,
  					'ProductVersion': packageJson.version,
+diff --git a/src/vs/workbench/contrib/chat/electron-browser/chat.contribution.ts b/src/vs/workbench/contrib/chat/electron-browser/chat.contribution.ts
+index 20fbabe..b23dbb8 100644
+--- a/src/vs/workbench/contrib/chat/electron-browser/chat.contribution.ts
++++ b/src/vs/workbench/contrib/chat/electron-browser/chat.contribution.ts
+@@ -49,7 +49,7 @@ import { registerExportAgentTracesDbAction } from './actions/exportAgentTracesDb
+ import { registerInstallDictationModelAction } from './actions/installDictationModelAction.js';
+ import { confirmSessionShutdown, getEffectiveSessionShutdownReason, shouldWarnForInFlightSessionShutdown, shouldWarnForSessionShutdown } from './chatLifecycle.js';
+ import { HoldToVoiceChatInChatViewAction, InlineVoiceChatAction, KeywordActivationContribution, QuickVoiceChatAction, ReadChatResponseAloud, StartVoiceChatAction, StopListeningAction, StopListeningAndSubmitAction, StopReadAloud, StopReadChatItemAloud, VoiceChatInChatViewAction } from './actions/voiceChatActions.js';
+-import { OpenWorkspaceInAgentsWindowAction, OpenWorkspaceInAgentsContribution, OpenAgentsWindowAction, OpenChatSessionInAgentsWindowAction, AgentsHandoffInputTipContribution, AgentsParallelWorkContribution, ToggleOpenInAgentsWindowTitleBarAction, OpenWorkspaceInAgentsWindowChatTitleAction, OpenWorkspaceInAgentsWindowTitleBarAction, ResetCopilotHarnessIntroductionAction } from './agentSessions/agentSessionsActions.js';
++import { OpenWorkspaceInAgentsWindowAction, OpenWorkspaceInAgentsContribution, OpenAgentsWindowAction, OpenChatSessionInAgentsWindowAction, AgentsHandoffInputTipContribution, AgentsParallelWorkContribution, ResetCopilotHarnessIntroductionAction } from './agentSessions/agentSessionsActions.js';
+ import { NativeBuiltinToolsContribution } from './builtInTools/tools.js';
+ import { NativePluginGitCommandService } from './pluginGitCommandService.js';
+ 
+@@ -213,9 +213,8 @@ class ChatLifecycleHandler extends Disposable {
+ }
+ 
+ registerAction2(OpenWorkspaceInAgentsWindowAction);
+-registerAction2(OpenWorkspaceInAgentsWindowChatTitleAction);
+-registerAction2(OpenWorkspaceInAgentsWindowTitleBarAction);
+-registerAction2(ToggleOpenInAgentsWindowTitleBarAction);
++// Insilode: no "Open in Agents" buttons (the title bar one, its toggle, the chat title one): Insilode's own Agents page
++// button takes that place in the title bar (flow-agent, `titleBar/center`). The Agents window and its commands stay.
+ registerAction2(OpenAgentsWindowAction);
+ registerAction2(OpenChatSessionInAgentsWindowAction);
+ if (!product.quality) {
+diff --git a/src/vs/workbench/services/actions/common/menusExtensionPoint.ts b/src/vs/workbench/services/actions/common/menusExtensionPoint.ts
+index e6c222d..33a616b 100644
+--- a/src/vs/workbench/services/actions/common/menusExtensionPoint.ts
++++ b/src/vs/workbench/services/actions/common/menusExtensionPoint.ts
+@@ -131,6 +131,13 @@ const apiMenus: IAPIMenu[] = [
+ 		id: MenuId.NotebookVariablesContext,
+ 		description: localize('menus.notebookVariablesContext', "The notebook variables view context menu")
+ 	},
++	{
++		// Insilode: the built-in Agents extension puts its Agents page button where VS Code's "Open in Agents" was.
++		key: 'titleBar/center',
++		id: MenuId.TitleBarAdjacentCenter,
++		description: localize('menus.titleBarCenter', "The title bar buttons beside the command center"),
++		supportsSubmenus: false
++	},
+ 	{
+ 		key: 'menuBar/home',
+ 		id: MenuId.MenubarHomeMenu,
