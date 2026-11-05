@@ -51,6 +51,8 @@ interface Tab {
 	ready: boolean;
 	/** The state changed after the page was written: the webview is sent it when it is ready. */
 	stale: boolean;
+	/** Requests (a picture for an agent) that wait for the page to be ready. */
+	onReady?: (() => void)[];
 }
 
 /** A file the canvas may ask to open: inside a workspace folder, spelled the way VS Code spells it. */
@@ -169,8 +171,36 @@ export class BoardPanel implements vscode.Disposable {
 		return {
 			show: (id, spec, extra?: BoardExtra) => this.show(spec, { key: `board:${id}`, preserveFocus: true, since: extra?.since, boards: extra?.boards }),
 			update: (id, spec, extra?: BoardExtra) => (this.tabs.has(`board:${id}`) ? this.show(spec, { key: `board:${id}`, preserveFocus: true, since: extra?.since, boards: extra?.boards }) : undefined),
+			image: (id, timeoutMs) => this.image(`board:${id}`, timeoutMs),
 		};
 	}
+
+	/**
+	 * Asks the tab for a picture of the board it shows (the webview renders its SVG and rasterises it) and answers with the
+	 * base64 PNG, or nothing when there is no such tab or it does not answer in time. The panel is retained while hidden, so a
+	 * tab behind another one still answers.
+	 */
+	image(key: string, timeoutMs = 10_000): Promise<string | undefined> {
+		const tab = this.tabs.get(key);
+		if (!tab) {
+			return Promise.resolve(undefined);
+		}
+		const seq = ++this.imageSeq;
+		return new Promise<string | undefined>(resolve => {
+			const timer = setTimeout(() => { this.images.delete(seq); resolve(undefined); }, timeoutMs);
+			this.images.set(seq, png => { clearTimeout(timer); this.images.delete(seq); resolve(png); });
+			const ask = () => void tab.panel.webview.postMessage({ type: 'render', seq });
+			// A tab that was just created has not said 'ready' yet: the request waits for that (bounded by the same timer).
+			if (tab.ready) {
+				ask();
+			} else {
+				(tab.onReady ??= []).push(ask);
+			}
+		});
+	}
+
+	private readonly images = new Map<number, (png: string | undefined) => void>();
+	private imageSeq = 0;
 
 	private post(tab: Tab, seq?: number, refresh = false) {
 		if (!tab.ready) {
@@ -187,7 +217,19 @@ export class BoardPanel implements vscode.Disposable {
 				if (tab.stale) {
 					this.post(tab);
 				}
+				for (const fn of tab.onReady?.splice(0) ?? []) {
+					fn();
+				}
 				return;
+			case 'image': {
+				// The picture a `render` asked for: base64 PNG, bounded (a 1600px-wide board is well under 2 MB), or nothing when the page could not draw it.
+				const waiting = typeof m.seq === 'number' ? this.images.get(m.seq) : undefined;
+				if (waiting) {
+					const png = typeof m.png === 'string' && m.png.length < 4_000_000 && /^[A-Za-z0-9+/=]+$/.test(m.png) ? m.png : undefined;
+					waiting(png);
+				}
+				return;
+			}
 			case 'open': {
 				const file = workspaceFile(m.file);
 				if (!file) {

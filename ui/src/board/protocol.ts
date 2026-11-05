@@ -45,11 +45,15 @@ export type ToHost =
   | { type: 'export'; format: ExportFormat; data?: string; name?: string }
   /** C4: open the board a box zooms into (the host checks the id). */
   | { type: 'zoom'; board: string }
+  /** The picture a `render` asked for: base64 PNG of the board as drawn, or no `png` when it could not be drawn. */
+  | { type: 'image'; seq: number; png?: string }
 
 export type ToWebview =
   /** `refresh`: the same board drawn again because the code changed: the search, selection and viewport stay as they are. */
   | { type: 'board'; spec: BoardSpec; since?: BoardSpec; boards?: BoardRef[]; opts?: BoardOpts; seq?: number; refresh?: boolean }
   | { type: 'error'; message: string; seq?: number }
+  /** The host wants a picture of the board (for the agent that drew it): the page answers with `image` and the same seq. */
+  | { type: 'render'; seq: number }
 
 /** Colour per node kind (the accent of a card). */
 export const KIND_COLOR: Record<NodeKind, string> = {

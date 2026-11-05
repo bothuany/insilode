@@ -1160,12 +1160,19 @@ export class AgentTools {
 			found.push(`id "${claimed}" is another agent's skeleton design, so this was drawn as a new board.`);
 		}
 		const layout = spec.kind === 'sequence' ? '' : `, ${lint.visible} visible, ~${lint.crossings} crossing${lint.crossings === 1 ? '' : 's'}`;
-		return text([
+		// The picture of the board as shown, so the model can look at what it drew: asked of the tab after it has the spec; skipped on request or when the tab does not answer in time.
+		const png = a.image === false ? undefined : await this.d.boards.image(id, 10_000);
+		const result = text([
 			`Board "${id}" ${replaced ? 'replaced' : 'drawn'} and shown to the user in Insilode: ${spec.kind}, ${spec.nodes.length} nodes, ${spec.edges.length} edges${layout}.`,
 			spec.kind === 'plan' ? `Tick steps off with update_board (id "${id}", nodeId one of: ${spec.nodes.slice(0, 20).map(n => n.id).join(', ')}).` : `Use id "${id}" again to replace it.`,
 			...formatLint(notes, found, lint),
 			...(skeleton ? ['', skeleton] : []),
+			...(png ? ['', 'The picture below is the board as Insilode shows it now.'] : a.image === false ? [] : ['', 'No picture: the board tab did not answer in time (it may still be opening); call again with the same id and board to get one.']),
 		].join('\n'));
+		if (png) {
+			result.content.push({ type: 'image', data: png, mimeType: 'image/png' });
+		}
+		return result;
 	}
 
 	/**

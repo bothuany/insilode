@@ -10,8 +10,11 @@ import type { Readable, Writable } from 'stream';
 import { getPrompt, promptList } from './prompts';
 import { TOOLS, TOOL_NAMES } from './tools';
 
+/** What a tool answers: text, and for a drawn board the picture of it (base64 PNG), so the model can look at what it drew. */
+export type ToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: 'image/png' };
+
 export interface ToolResult {
-	content: { type: 'text'; text: string }[];
+	content: ToolContent[];
 	isError?: boolean;
 }
 

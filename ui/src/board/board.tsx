@@ -68,12 +68,12 @@ function readPalette(): Palette {
   }
 }
 
-async function pngOf(svg: string, width: number, height: number): Promise<string> {
+async function pngOf(svg: string, width: number, height: number, maxScale = 2): Promise<string> {
   // Blob URLs are not allowed by the panel's CSP, data: URLs are.
   const img = new Image()
   img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
   await img.decode()
-  const scale = Math.min(2, 8000 / Math.max(width, height, 1))
+  const scale = Math.min(maxScale, 8000 / Math.max(width, height, 1))
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(width * scale))
   canvas.height = Math.max(1, Math.round(height * scale))
@@ -151,6 +151,8 @@ function BoardView() {
   const fitNext = useRef(true)
   /** The user picked a direction: the host's default must not take it back. */
   const directionChosen = useRef(false)
+  const renderRef = useRef<() => void>(() => undefined)
+  const pendingRenders = useRef<number[]>([])
   const centerNext = useRef<string | undefined>(undefined)
   /** The board's `focus` (a node or a group) opens first: the groups around it open and the view goes to it. */
   const focusFirst = (s: BoardSpec) => {
@@ -205,6 +207,11 @@ function BoardView() {
         if (m.seq !== undefined && m.seq < seq.current) return
         setPending(false)
         setError(m.message)
+      } else if (m?.type === 'render') {
+        // The host wants a picture for the agent. Not requestAnimationFrame: it never fires while the tab is hidden. A timeout lets
+        // a board that arrived in the same tick commit first, and the layout effect below answers when that commit comes later.
+        pendingRenders.current.push(m.seq)
+        setTimeout(() => renderRef.current(), 0)
       }
     }
     window.addEventListener('message', onMessage)
@@ -461,6 +468,26 @@ function BoardView() {
     return (spec.groups ?? []).reduce((m, g) => Math.max(m, groupDepth(byId, g.id) + 1), 0)
   }, [spec])
   const collapsedCount = layout.nodes.filter(v => v.group).length
+
+  // Answers every pending `render` with the board as the export draws it, from the layout of this commit. A ref, because the
+  // message listener is registered once; also run after a layout commit, so a request that came with a new board draws the new one.
+  renderRef.current = () => {
+    for (const seq of pendingRenders.current.splice(0)) {
+      void (async () => {
+        try {
+          const svg = sequence ? sequenceSvg(spec, readPalette(), spec.title) : toSvg(layout, direction, readPalette(), spec.title)
+          const m = /width="(\d+)" height="(\d+)"/.exec(svg)
+          if (!m) throw new Error('no size')
+          // Wide boards are scaled down: the picture is for a look, not for print, and the base64 stays small.
+          const scale = Math.min(1, 1600 / Number(m[1]))
+          post({ type: 'image', seq, png: await pngOf(svg, Math.round(Number(m[1]) * scale), Math.round(Number(m[2]) * scale), 1) })
+        } catch {
+          post({ type: 'image', seq })
+        }
+      })()
+    }
+  }
+  useEffect(() => { renderRef.current() }, [layout])
 
   const doExport = async (format: ExportFormat) => {
     setMenu(undefined)

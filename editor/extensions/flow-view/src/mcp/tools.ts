@@ -256,6 +256,7 @@ export const TOOLS: ToolDef[] = [
 					required: ['mermaid'],
 				},
 				id: str('Stable name for the board (letters, digits, - _ . :). Reuse it to replace the board; omit for a new one.'),
+				image: { type: 'boolean', description: 'Default true: the answer carries a picture of the board as Insilode shows it, so you can check the layout and fix it with the same id. Pass false to skip it (a plan you only tick off, a quick redraw).' },
 			},
 			additionalProperties: false,
 		},

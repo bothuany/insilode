@@ -14,6 +14,8 @@ export interface NodePatch { status?: NodeStatus; note?: string; change?: Change
 export interface BoardHost {
 	show(id: string, spec: BoardSpec, extra?: BoardExtra): void | Promise<void>;
 	update(id: string, spec: BoardSpec, extra?: BoardExtra): void | Promise<void>;
+	/** A picture of the board as it is shown (base64 PNG), or nothing when the tab cannot answer in time. */
+	image?(id: string, timeoutMs?: number): Promise<string | undefined>;
 }
 
 /** What a host shows next to the board: the board compared with its previous draw, for the "what changed" switch. */
@@ -89,6 +91,11 @@ export class BoardStore {
 	private seq = 0;
 	/** Paints a board before it is shown (skeleton first's plan vs code); the stored board stays as it was drawn. */
 	private decorator: ((id: string, spec: BoardSpec) => BoardSpec) | undefined;
+
+	/** The picture of a shown board, for the agent that drew it; nothing when no host shows it or it does not answer. */
+	image(id: string, timeoutMs?: number): Promise<string | undefined> {
+		return this.host?.image?.(id, timeoutMs) ?? Promise.resolve(undefined);
+	}
 
 	setHost(host: BoardHost | undefined) {
 		this.host = host;

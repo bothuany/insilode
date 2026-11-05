@@ -305,3 +305,14 @@ test('mcp-protocol: the agent session the server was started for reaches the win
 	}
 	await server.close()
 })
+
+test('mcp-protocol: an image block in a tool result reaches the client unchanged (the picture of a drawn board)', async () => {
+	const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+	const { dir, server } = await fakeWindow(['/work/app'], async () => ({ content: [{ type: 'text', text: 'Board "b" drawn.' }, { type: 'image', data: png, mimeType: 'image/png' }] }))
+	const s = session({ INSILODE_BRIDGE_DIR: dir }, { cwd: '/work/app' })
+	await s.send('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 't', version: '1' } })
+	const res = await s.send('tools/call', { name: 'draw_board', arguments: { board: { kind: 'flow', title: 'T', nodes: [{ id: 'a', label: 'A' }] } } })
+	assert.deepEqual(res.result.content, [{ type: 'text', text: 'Board "b" drawn.' }, { type: 'image', data: png, mimeType: 'image/png' }])
+	assert.ok(!res.result.isError)
+	await server.close()
+})

@@ -24,7 +24,7 @@ export class AgentBridge implements vscode.Disposable {
 	/** The canvas action "Board from Code": the same generator the `board_from_code` tool runs, answered as text for a message. */
 	async boardFromCode(args: Record<string, unknown>): Promise<{ ok: boolean; message: string }> {
 		const result = await this.tools.call('board_from_code', args);
-		return { ok: !result.isError, message: result.content.map(c => c.text).join('\n') };
+		return { ok: !result.isError, message: result.content.map(c => c.type === 'text' ? c.text : '').filter(Boolean).join('\n') };
 	}
 
 	/** The changes since `base` on the flow canvas (one canvas for all of them); `only` narrows them to files or folders. */
