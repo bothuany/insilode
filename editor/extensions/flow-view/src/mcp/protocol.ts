@@ -10,8 +10,11 @@ import type { Readable, Writable } from 'stream';
 import { getPrompt, promptList } from './prompts';
 import { TOOLS, TOOL_NAMES } from './tools';
 
+/** What a tool answers: text, and for a drawn board the picture of it (base64 PNG), so the model can look at what it drew. */
+export type ToolContent = { type: 'text'; text: string } | { type: 'image'; data: string; mimeType: 'image/png' };
+
 export interface ToolResult {
-	content: { type: 'text'; text: string }[];
+	content: ToolContent[];
 	isError?: boolean;
 }
 
@@ -27,7 +30,7 @@ export const INSTRUCTIONS = [
 	'To open a file or place in the editor use `open`. To open the flow of a feature for the user use `find_entry_points` then `show_flow`; `flow_text` is the same call chain as text, to understand code without reading many files.',
 	'SKELETON FIRST: before your first edit for a request or an approved plan that adds or changes types, entities or interfaces (in any mode, plan mode or not), call `check_skeleton` once (load it with ToolSearch if it is listed but not loaded). It answers at once: off means implement as usual; on means the developer writes the skeleton themselves and it says what to do (draw the design with `draw_board`, every new or changed type with the members to write as `{"text": "name(param: Type): Return"}` objects, then stop). The developer then drives it by chat ("check", "hand over", "just do it", "done"): pass their reply to `check_skeleton` as its `step`. The `skeleton_first` prompt has the whole flow.',
 	'IMPACT: `impact` for a method gives its callers and the entry points that reach it. For a table (`table`, or `entity` for its model class) it gives the endpoints that write it and the endpoints that read it, each with the method and database card it goes through; a guessed link (raw SQL, a naming default) is marked ~table?. It follows ORM calls and string SQL only and says what it did not check (dynamic SQL, views, other services, migrations). A migration file or an entity file alone (`file` without `method` or `line`) gives the same for the tables it changes: what the migration does to each table (adds, drops, renames), the endpoints that use it, and the code that may still use a column it drops.',
-	'Use `impact` before changing shared code (or, with `table` or `entity`, a table or its entity), `get_context` to see what the user is looking at, and `draw_board` (kinds: flow, plan, class, er, sequence, architecture, state) to show the user a flow or plan you designed; tick plan steps with `update_board`. After drawing a board, EXPLAIN it with the `steps` of the board (3-10, a caption each, they play like a tour) instead of a paragraph in chat, and fix what the LINT in the answer names by drawing again with the same id (the `diagram_guide` prompt has the rules). For a sequence, ER, architecture or state diagram of EXISTING code use `board_from_code` instead of drawing it: Insilode reads every node and relation from the index, so none is invented; you only choose the scope and may add notes.',
+	'Use `impact` before changing shared code (or, with `table` or `entity`, a table or its entity), `get_context` to see what the user is looking at, and `draw_board` (kinds: flow, plan, class, er, sequence, architecture, state, canvas) to show the user a flow or plan you designed; tick plan steps with `update_board`. To TEACH a concept or explain real code in a free drawing (frames, shapes, arrows with data badges, tables, JSON trees, charts, matrices, code) draw kind canvas: the answer carries a picture of it, so look at it, fix what is crowded with `update_board` `elements`, and call `read_board` before a redraw to see what the user moved or noted by hand. After drawing a board, EXPLAIN it with the `steps` of the board (3-10, a caption each, they play like a tour) instead of a paragraph in chat, and fix what the LINT in the answer names by drawing again with the same id (the `diagram_guide` prompt has the rules). For a sequence, ER, architecture or state diagram of EXISTING code use `board_from_code` instead of drawing it: Insilode reads every node and relation from the index, so none is invented; you only choose the scope and may add notes.',
 ].join('\n');
 
 export const errorResult = (text: string): ToolResult => ({ content: [{ type: 'text', text }], isError: true });

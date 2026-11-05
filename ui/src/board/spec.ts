@@ -2,10 +2,14 @@
  *  Insilode board: one diagram format for everything that is drawn on its own canvas rather than
  *  traced from the code: the DTO relations, the architecture (UML) view, and flows or plans an
  *  agent draws. Hosts build a BoardSpec, the canvas renders it. Keep this file identical to
- *  ui/src/board/spec.ts (a test compares them).
+ *  ui/src/board/spec.ts (a test compares them; only the path of the board-canvas import differs).
  *--------------------------------------------------------------------------------------------*/
 
-export type BoardKind = 'flow' | 'plan' | 'class' | 'er' | 'sequence' | 'architecture' | 'state';
+// The free-form canvas board's own types live in board-canvas/ (one engine for the host and the webview); this file only
+// carries them on the spec.
+import type { CanvasElement } from '../../../board-canvas/canvas';
+
+export type BoardKind = 'flow' | 'plan' | 'class' | 'er' | 'sequence' | 'architecture' | 'state' | 'canvas';
 
 /** C4 level of an architecture board: who uses the system, what it is made of, what one part is made of. */
 export type BoardLevel = 'context' | 'container' | 'component';
@@ -124,6 +128,10 @@ export interface BoardStep {
 	edges?: [string, string][];
 	/** A group (or node) to open for this step. */
 	focus?: string;
+	/** Canvas boards: the element ids drawn in this step (absent: all), the frames opened, and the elements at full strength while the rest dims. */
+	show?: string[];
+	open?: string[];
+	lit?: string[];
 }
 
 /** A route drawn bold with the rest dimmed. */
@@ -163,12 +171,17 @@ export interface BoardSpec {
 	steps?: BoardStep[];
 	highlight?: BoardHighlight[];
 	callouts?: BoardCallout[];
+	/** kind canvas: what the board is for (a concept taught, or code explained), the root layout, and the elements. `nodes` and `edges` stay empty. */
+	purpose?: 'concept' | 'code';
+	layout?: 'row' | 'column' | 'grid';
+	columns?: number;
+	elements?: CanvasElement[];
 }
 
 const NODE_KINDS = new Set<string>(['entry', 'controller', 'service', 'repository', 'entity', 'dto', 'enum', 'interface', 'class', 'external', 'step', 'decision', 'note', 'actor']);
 const EDGE_KINDS = new Set<string>(['calls', 'extends', 'implements', 'uses', 'has', 'has-many', 'depends', 'next', 'yes', 'no', 'reads', 'writes', 'message']);
 const STATUSES = new Set<string>(['todo', 'doing', 'done', 'skipped', 'blocked']);
-const BOARD_KINDS = new Set<string>(['flow', 'plan', 'class', 'er', 'sequence', 'architecture', 'state']);
+const BOARD_KINDS = new Set<string>(['flow', 'plan', 'class', 'er', 'sequence', 'architecture', 'state', 'canvas']);
 const LEVELS = new Set<string>(['context', 'container', 'component']);
 const SHAPES = new Set<string>(['rect', 'round', 'diamond', 'cylinder', 'actor', 'cloud', 'initial', 'final', 'choice']);
 const CHANGES = new Set<string>(['added', 'removed', 'changed']);
@@ -277,6 +290,9 @@ export function parseBoardWithNotes(input: unknown): ParsedBoard {
 		kind = pick<BoardKind>(BOARD_KINDS, raw.kind, 'board', 'kind', 'flow') ?? 'flow';
 	}
 	const title = typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim().slice(0, 120) : 'Untitled';
+	if (kind === 'canvas') {
+		throw new Error('A canvas board has `elements`, not `nodes`: it is read by parseCanvasBoard (board/canvas.ts).');
+	}
 	if (!Array.isArray(raw.nodes) || raw.nodes.length === 0) {
 		throw new Error('A board needs a non-empty "nodes" array: [{ id, label, kind?, detail?, file?, line?, status? }].');
 	}
@@ -411,15 +427,22 @@ export function parseBoardWithNotes(input: unknown): ParsedBoard {
 		}
 	}
 	const steps: BoardStep[] = [];
+	let described = false;
+	let listed = false;
 	for (const [i, s] of (Array.isArray(raw.steps) ? raw.steps.slice(0, MAX_STEPS) : []).entries()) {
 		const x = s as Record<string, unknown>;
 		const stepTitle = str(x?.title, 80);
-		const caption = str(x?.caption, 600);
+		// Agents other than Claude (Codex) have written a step's caption as `description` and its nodes as a `focus` list.
+		// Both are read, so the step still says and lights what was meant, and the note tells the agent the right names.
+		const caption = str(x?.caption, 600) ?? str(x?.description, 600);
 		if (!stepTitle && !caption) {
 			notes.add('step', `step #${i + 1} was dropped: it needs a title or a caption.`);
 			continue;
 		}
-		const stepNodes = (Array.isArray(x.nodes) ? x.nodes : []).filter((id): id is string => typeof id === 'string');
+		described ||= x.caption === undefined && !!caption;
+		listed ||= Array.isArray(x.focus);
+		const focusList = Array.isArray(x.focus) ? x.focus.filter((id): id is string => typeof id === 'string') : [];
+		const stepNodes = [...new Set([...(Array.isArray(x.nodes) ? x.nodes : []).filter((id): id is string => typeof id === 'string'), ...focusList])];
 		const stepEdges = (Array.isArray(x.edges) ? x.edges : []).map(pair).filter((p): p is [string, string] => !!p);
 		const badNode = stepNodes.find(id => !ids.has(id));
 		const badEdge = stepEdges.find(([a, b]) => !edgeKeys.has(`${a}>${b}`));
@@ -430,13 +453,26 @@ export function parseBoardWithNotes(input: unknown): ParsedBoard {
 		if (badEdge) {
 			notes.add('step', `step #${i + 1}: there is no edge \`${badEdge[0]}\` → \`${badEdge[1]}\`; it was left out.`);
 		}
-		steps.push({
+		const lit = stepNodes.filter(id => ids.has(id)).slice(0, 40);
+		const litEdges = stepEdges.filter(([a, b]) => edgeKeys.has(`${a}>${b}`)).slice(0, 40);
+		const step: BoardStep = {
 			title: stepTitle ?? `Step ${i + 1}`,
 			caption: caption ?? '',
-			nodes: stepNodes.filter(id => ids.has(id)).slice(0, 40),
-			edges: stepEdges.filter(([a, b]) => edgeKeys.has(`${a}>${b}`)).slice(0, 40),
+			nodes: lit,
+			edges: litEdges,
 			focus: known(x.focus) ? x.focus : undefined,
-		});
+		};
+		if (!lit.length && !litEdges.length && !step.focus) {
+			notes.add('step', `step #${i + 1} lights up nothing: give it \`nodes\` (ids) or \`edges\` ([from, to]) so the user sees what it is about.`);
+		}
+		steps.push(step);
+	}
+	// Once per board, not per step: a board that used the other names in every step would otherwise crowd out the rest.
+	if (described) {
+		notes.add('step names', 'steps: `description` was read as the caption; call it `caption`.');
+	}
+	if (listed) {
+		notes.add('step names', 'steps: a `focus` list was read as `nodes`, the ids to light up; `focus` is one group or node id to open.');
 	}
 	const highlight: BoardHighlight[] = [];
 	for (const h of (Array.isArray(raw.highlight) ? raw.highlight.slice(0, MAX_HIGHLIGHTS) : []) as Record<string, unknown>[]) {

@@ -212,3 +212,21 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .bg.k-layer { border-style: dotted; }
 .bg-tech { margin-left: 6px; color: var(--fl-muted); font: 10.5px var(--fl-mono); white-space: nowrap; }
 .bc-zoom:hover { background: color-mix(in srgb, var(--fl-signal) 22%, transparent); }
+
+/* The canvas board (CanvasView.tsx): one SVG, drawn by board-canvas, panned and zoomed by the page. */
+.cv { position: absolute; inset: 0; user-select: none; }
+.cv-svg { display: block; touch-action: none; cursor: grab; }
+.cv-hit { cursor: grab; }
+.cv-hit[data-link] { cursor: pointer; }
+.cv[data-dragging] .cv-hit, .cv[data-dragging] .cv-svg { cursor: grabbing; }
+.cv-sel { stroke: var(--fl-signal); stroke-width: 1.5; pointer-events: none; }
+.cv-fade { animation: cv-in 250ms ease-out; }
+@keyframes cv-in { from { opacity: .35; } to { opacity: 1; } }
+.cv-note-btn { position: absolute; z-index: 5; height: 20px; padding: 0 8px; border: 1px solid var(--fl-line-strong); border-radius: 10px; background: var(--vscode-editorHoverWidget-background, var(--fl-card)); color: var(--fl-muted); font-size: 11px; cursor: pointer; box-shadow: var(--fl-lift); }
+.cv-note-btn:hover { color: var(--fl-text); }
+.cv-pop { position: absolute; z-index: 6; width: 250px; padding: 8px; border: 1px solid var(--fl-line-strong); border-radius: 8px; background: var(--vscode-editorHoverWidget-background, var(--fl-card)); box-shadow: var(--fl-lift); display: flex; flex-direction: column; gap: 6px; }
+.cv-pop-title { font-weight: 600; font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cv-pop textarea { resize: vertical; min-height: 60px; padding: 6px 8px; border: 1px solid var(--fl-line-strong); border-radius: 6px; background: var(--vscode-input-background, transparent); color: var(--fl-text); font: inherit; }
+.cv-pop textarea:focus { border-color: var(--fl-signal); outline: none; }
+.cv-pop-row { display: flex; gap: 6px; }
+@media (prefers-reduced-motion: reduce) { .cv-fade { animation: none; } }

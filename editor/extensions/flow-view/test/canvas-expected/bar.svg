@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="388" height="258" viewBox="0 0 388 258">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8b8b8b"/></marker>
+<marker id="o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1L9 5L1 9" fill="none" stroke="#8b8b8b" stroke-width="1.4"/></marker></defs>
+<rect width="388" height="258" fill="#181818"/>
+<g transform="translate(24 24)">
+<rect x="0" y="0" width="340" height="210" rx="8" fill="#222222" stroke="#2c2c2c"/>
+<text x="10" y="16" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="12" font-weight="600" fill="#d4d4d4">Latency</text>
+<rect x="46" y="176" width="280" height="1" rx="0" fill="#2c2c2c" stroke="none"/>
+<text x="40" y="179" font-family="Consolas, 'JetBrains Mono', Menlo, monospace" xml:space="preserve" font-size="10" text-anchor="end" fill="#8b8b8b">0</text>
+<rect x="46" y="144" width="280" height="1" rx="0" fill="#2c2c2c" stroke="none"/>
+<text x="40" y="147" font-family="Consolas, 'JetBrains Mono', Menlo, monospace" xml:space="preserve" font-size="10" text-anchor="end" fill="#8b8b8b">25</text>
+<rect x="46" y="112" width="280" height="1" rx="0" fill="#2c2c2c" stroke="none"/>
+<text x="40" y="115" font-family="Consolas, 'JetBrains Mono', Menlo, monospace" xml:space="preserve" font-size="10" text-anchor="end" fill="#8b8b8b">50</text>
+<rect x="46" y="80" width="280" height="1" rx="0" fill="#2c2c2c" stroke="none"/>
+<text x="40" y="83" font-family="Consolas, 'JetBrains Mono', Menlo, monospace" xml:space="preserve" font-size="10" text-anchor="end" fill="#8b8b8b">75</text>
+<rect x="46" y="48" width="280" height="1" rx="0" fill="#2c2c2c" stroke="none"/>
+<text x="40" y="51" font-family="Consolas, 'JetBrains Mono', Menlo, monospace" xml:space="preserve" font-size="10" text-anchor="end" fill="#8b8b8b">100</text>
+<rect x="46" y="176" width="280" height="1" rx="0" fill="#3f3f3f" stroke="none"/>
+<text x="92.67" y="189" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" text-anchor="middle" fill="#8b8b8b">api</text>
+<text x="186" y="189" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" text-anchor="middle" fill="#8b8b8b">db</text>
+<text x="279.33" y="189" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" text-anchor="middle" fill="#8b8b8b">cache</text>
+<rect x="60" y="160.64" width="31.67" height="15.36" rx="2" fill="#6f86ff" stroke="none"/>
+<rect x="153.33" y="152.96" width="31.67" height="23.04" rx="2" fill="#6f86ff" stroke="none"/>
+<rect x="246.67" y="164.48" width="31.67" height="11.52" rx="2" fill="#6f86ff" stroke="none"/>
+<rect x="92.67" y="124.8" width="31.67" height="51.2" rx="2" fill="#4fd6d0" stroke="none"/>
+<rect x="186" y="54.4" width="31.67" height="121.6" rx="2" fill="#4fd6d0" stroke="none"/>
+<rect x="279.33" y="147.84" width="31.67" height="28.16" rx="2" fill="#4fd6d0" stroke="none"/>
+<rect x="10" y="27" width="9" height="9" rx="2" fill="#6f86ff" stroke="none"/>
+<text x="23" y="35" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" fill="#8b8b8b">p50</text>
+<rect x="53.8" y="27" width="9" height="9" rx="2" fill="#4fd6d0" stroke="none"/>
+<text x="66.8" y="35" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" fill="#8b8b8b">p99</text>
+</g></svg>

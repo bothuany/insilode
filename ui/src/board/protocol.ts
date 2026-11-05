@@ -1,5 +1,6 @@
 // What the board webview and its host (flow-view/src/boardPanel.ts) say to each other, and the look-up tables both the
 // renderer and the SVG export use. Pure: no DOM, no React.
+import type { Overrides } from '../../../board-canvas/canvas'
 import type { BoardSpec, ChangeMark, EdgeKind, EdgeLine, NodeKind } from './spec'
 
 /** What a rebuild asks the host for. Mirrors flow-view's BoardOptions: the host recomputes the board from these. */
@@ -32,6 +33,8 @@ export interface Bootstrap {
   source?: string
   opts: BoardOpts
   dark: boolean
+  /** Canvas boards: what the user moved or noted by hand, kept by the host per board. */
+  overrides?: Overrides
   /** 'local': the source ignores the query, so a search only highlights what is drawn (no rebuild). */
   search?: 'host' | 'local'
 }
@@ -45,13 +48,23 @@ export type ToHost =
   | { type: 'export'; format: ExportFormat; data?: string; name?: string }
   /** C4: open the board a box zooms into (the host checks the id). */
   | { type: 'zoom'; board: string }
+  /** The picture a `render` asked for: base64 PNG of the board as drawn, or no `png` when it could not be drawn. */
+  | { type: 'image'; seq: number; png?: string; error?: string }
+  /** Canvas boards: the user dropped an element at (x, y) inside its frame. The host checks the id and works out the frame hash itself. */
+  | { type: 'move'; id: string; x: number; y: number }
+  /** Canvas boards: a note pinned to an element (empty text removes it). */
+  | { type: 'note'; id: string; text: string }
+  /** Canvas boards: "Reset positions" (the notes stay). */
+  | { type: 'resetMoves' }
   /** An empty state's "Edit DTO suffixes": open this setting (the host opens only the ones on its own list). */
   | { type: 'settings'; setting: string }
 
 export type ToWebview =
   /** `refresh`: the same board drawn again because the code changed: the search, selection and viewport stay as they are. */
-  | { type: 'board'; spec: BoardSpec; since?: BoardSpec; boards?: BoardRef[]; opts?: BoardOpts; seq?: number; refresh?: boolean }
+  | { type: 'board'; spec: BoardSpec; since?: BoardSpec; boards?: BoardRef[]; opts?: BoardOpts; seq?: number; refresh?: boolean; overrides?: Overrides }
   | { type: 'error'; message: string; seq?: number }
+  /** The host wants a picture of the board (for the agent that drew it): the page answers with `image` and the same seq. `step` (0-based): the picture of that step's scene (canvas boards). */
+  | { type: 'render'; seq: number; step?: number }
 
 /** Colour per node kind (the accent of a card). */
 export const KIND_COLOR: Record<NodeKind, string> = {

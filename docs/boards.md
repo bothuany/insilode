@@ -142,3 +142,31 @@ The command **Board from Code…** asks for the kind and then offers the tables,
 | Explorer context menu | **Show Type in DTO Diagram** on a file: the type the file is named for |
 | Home | The Home page lists what Insilode can do, boards included |
 
+## Canvas boards
+
+Kind `canvas` is the free drawing: for teaching a concept (text, tokens, an embedding matrix, attention, pooling, with typed inputs and outputs and honest origin labels) and for explaining real architecture and code side by side. The structured kinds above keep their auto-layout, lint and symbol grounding; a canvas board has `elements` instead of `nodes` and `edges` (the spec carries empty arrays). The engine is `board-canvas/` (types, parse, measure, layout, route, paint, lint, the widgets and the icons), a package that imports nothing, so the extension host (the picture and the lint an agent gets) and the canvas webview (what the user sees) lay out and draw with the same code. The design is [plans/canvas-board.md](plans/canvas-board.md).
+
+| Field | Meaning |
+|---|---|
+| `purpose` | `concept` (teaching an idea) or `code` (explaining real code); shown as a chip. |
+| `layout`, `columns` | How the root places elements: `row`, `column` or `grid` (default, 3 columns). |
+| `elements` | At most 300: `{ id, type, frame?, x?, y?, w?, h?, label?, detail?, style?, link?, origin?, source?, note?, span? }` plus the data of the type, in a sub-object named after it. |
+| `steps[].show`, `open`, `lit` | A step's scene: the element ids drawn (absent: all), the collapsed frames opened, the elements kept at full strength while the rest dims. Nothing moves between steps. |
+
+Element types: `rect` (label, detail, `kind` colour, `icon`, typed `inputs` and `output` rows, `members`), `ellipse`, `diamond`, `text`, `frame` (`frameData`: `layout`, `columns`, `gap`, `pad`, `align`, `collapsed`; frames hold elements by `frame` and lay them out as a row, a column or a grid, so an agent rarely needs coordinates; a frame whose children have `x`/`y` is absolute), `path` (`points` or sanitised `d`), `arrow` (`from`, `to` as an id, `{ el, side?, port? }` or a point; `route` elbow, straight or curve; `head`; `at`; `data: { type, shape }` drawn as a badge; an elbow arrow runs along the gaps and never through text) and the widgets below.
+
+| Widget | Data | Limits |
+|---|---|---|
+| `table` | `columns` (`key`, `label`, `align`, `mono`, `link`), `rows`, `maxRows` | 12 columns, 40 rows kept, 8 drawn by default |
+| `json` | `value`, a typed `schema` (`name`, `type`, `origin`, `unknown`, `children`), or both; `open`, `maxItems` | 400 nodes, 200 KB of value |
+| `chart` | `kind` bar, line, scatter or points2d; `series` (`label`, `points` as numbers or pairs, `labels`, `color`); `axes` | 6 series, 200 points; bar and line series need equal lengths |
+| `matrix` | `cells`, `rowLabels`, `colLabels`, `dims`, `scale` diverging or sequential, `range`, `showValues` | 24 x 24 cells drawn, rows must be equal in length |
+| `code` | `text`, or `file` + `lines` (the host reads them inside the workspace); `language`, `highlight` | 12 lines; coloured by a small tokenizer (C-like, Python, SQL), not Monaco |
+
+Every value an agent shows should say where it comes from: `origin` is `source` (in the code or the data), `illustrative` (made up to teach) or `runtime` (observed; give `source`, e.g. "test output"), drawn as a pill on the element or a tag on the port row. `link` (`symbol`, `file` + `line`, or `board`) makes a click open code or zoom into another board; a symbol is checked against the index like a node's. The icon set is 42 outline glyphs (`board-canvas/icons.ts`); an unknown name is drawn as a text chip.
+
+**The answer** of `draw_board` and `update_board` on a canvas board says: what the parser dropped (an unknown or duplicate id, an arrow to nothing or to an unknown port, a ragged matrix, series of different lengths, a widget without its data), the lint (warnings: more than 12 lines of code or a file that could not be read, overlapping boxes, an element outside its frame, an arrow through text, a frame that mixes placed and unplaced children; hints: hex colours, `origin: runtime` without `source`, an unknown icon, `purpose: code` with no link), the final box of every element, and a PNG of the board tab (`image: false` skips it, `image: { step: n }` draws step n; when the tab does not answer in 10 seconds the answer carries the host's own SVG instead).
+
+`update_board` takes `elements` patches: `{ id, ...fields }` merges into that element (`style` one level deep), `{ id, remove: true }` removes it and the arrows that end there, an unknown id adds an element; the merged board is parsed again, so a patch is checked like a drawing.
+
+**What the user does by hand.** Pan and zoom, drag an element (its place is stored per board id in the workspace state with the hash of its frame's layout input; when the agent changes that input the move is dropped and the toolbar says "n moves reset"), "Reset positions", a note on any element (hover, "+ note"), a click on an element or a port row that links to code or a board, a double click on a frame header to collapse or expand it (view only). The webview posts `move`, `note` and `resetMoves`; each is a case in `boardPanel.ts` that checks the element id against the board and bounds the numbers and text, and the host computes the frame hash itself. `read_board(id)` gives an agent the spec, the boxes and `{ moves, notes }`, so it can answer a note and keep what the user placed when it redraws.

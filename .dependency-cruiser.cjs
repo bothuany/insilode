@@ -59,6 +59,13 @@ module.exports = {
 			to: { pathNot: '^protocol/' },
 		},
 		{
+			name: 'board-canvas-imports-nothing',
+			severity: 'error',
+			comment: 'board-canvas/ is the canvas board engine (types, parse, layout, routing, paint) that the extension host and the canvas webview both run, so it must not pull in either side, a package or a Node built-in.',
+			from: { path: '^board-canvas/' },
+			to: { pathNot: '^board-canvas/' },
+		},
+		{
 			name: 'protocol-is-type-only',
 			severity: 'error',
 			comment: 'protocol/ is erased from both bundles: the extension and the canvas reach it with `import type` / `export type` only.',

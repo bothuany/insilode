@@ -12,3 +12,4 @@ editor/extensions/flow-view/test/expected/** text eol=lf
 editor/extensions/flow-view/test/types-expected/** text eol=lf
 editor/extensions/flow-view/test/table-expected/** text eol=lf
 editor/extensions/flow-view/test/migration-expected/** text eol=lf
+editor/extensions/flow-view/test/canvas-expected/** text eol=lf

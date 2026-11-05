@@ -11,7 +11,10 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { exportFormat, exportPayload, fileStem, openableSetting, revealsExistingTab, sanitizeRequest, type BoardRequest, type ExportFormat } from './boardRequest';
+import { moveHash } from '../../../../board-canvas/layout';
+import { canvasSpecOf } from './board/canvas';
 import { toMermaid } from './board/mermaid';
+import { OverridesStore } from './board/overrides';
 import { cleanBoardId, type BoardExtra, type BoardHost, type BoardRef } from './board/store';
 import type { BoardSpec } from './board/spec';
 import { flowRoot } from './root';
@@ -53,6 +56,8 @@ interface Tab {
 	ready: boolean;
 	/** The state changed after the page was written: the webview is sent it when it is ready. */
 	stale: boolean;
+	/** Requests (a picture for an agent) that wait for the page to be ready. */
+	onReady?: (() => void)[];
 }
 
 /** A file the canvas may ask to open: inside a workspace folder, spelled the way VS Code spells it. */
@@ -77,14 +82,27 @@ export class BoardPanel implements vscode.Disposable {
 	/** Fires with the key of the tab that became the active one (undefined when none is). */
 	readonly onDidChangeActive = this.changed.event;
 
+	/** What the user moved or noted on canvas boards, kept per board id in the workspace's state. */
+	private readonly overrides: OverridesStore;
+
 	constructor(context: vscode.ExtensionContext, private readonly log?: vscode.LogOutputChannel) {
 		this.dist = path.join(flowRoot(context.extensionPath), 'ui', 'dist-webview');
+		this.overrides = new OverridesStore(context.workspaceState);
+	}
+
+	/** The board id a tab key stands for: agent boards are `board:<id>`. */
+	private boardId(key: string) {
+		return key.startsWith('board:') ? key.slice('board:'.length) : key;
 	}
 
 	/** Opens the board in its tab (or redraws the tab that is open). */
 	async show(spec: BoardSpec, options: BoardShowOptions = {}): Promise<void> {
 		const key = options.key ?? spec.kind;
 		const request = sanitizeRequest(options.request);
+		if (spec.kind === 'canvas') {
+			// What belonged to an element the redraw no longer has is forgotten; the rest survives (a move whose frame changed is dropped by the layout).
+			this.overrides.prune(this.boardId(key), (spec.elements ?? []).map(e => e.id));
+		}
 		const tab = this.tabs.get(key);
 		if (tab) {
 			Object.assign(tab, { spec, request, source: options.source ?? tab.source, since: options.since, boards: options.boards, stale: true });
@@ -101,7 +119,7 @@ export class BoardPanel implements vscode.Disposable {
 		});
 		const created: Tab = { panel, spec, request, source: options.source, since: options.since, boards: options.boards, ready: false, stale: false };
 		try {
-			panel.webview.html = await this.html(panel.webview, created);
+			panel.webview.html = await this.html(panel.webview, created, key);
 		} catch (e) {
 			// The board build is missing: no blank tab left behind.
 			panel.dispose();
@@ -180,15 +198,54 @@ export class BoardPanel implements vscode.Disposable {
 			show: (id, spec, extra?: BoardExtra) => this.show(spec, { key: `board:${id}`, preserveFocus: true, since: extra?.since, boards: extra?.boards, reveal: extra?.reveal }),
 			// A redraw of an open tab: never reveals, so an agent updating a board does not pull it in front of the user's own tab.
 			update: (id, spec, extra?: BoardExtra) => (this.tabs.has(`board:${id}`) ? this.show(spec, { key: `board:${id}`, preserveFocus: true, since: extra?.since, boards: extra?.boards }) : undefined),
+			image: (id, timeoutMs, step) => this.image(`board:${id}`, timeoutMs, step),
+			overrides: id => this.overrides.get(id),
+			forgetOverrides: id => this.overrides.forget(id),
 		};
 	}
+
+	/**
+	 * Asks the tab for a picture of the board it shows (the webview renders its SVG and rasterises it) and answers with the
+	 * base64 PNG, or nothing when there is no such tab or it does not answer in time. The panel is retained while hidden, so a
+	 * tab behind another one still answers.
+	 */
+	image(key: string, timeoutMs = 10_000, step?: number): Promise<string | undefined> {
+		const tab = this.tabs.get(key);
+		if (!tab) {
+			return Promise.resolve(undefined);
+		}
+		const seq = ++this.imageSeq;
+		return new Promise<string | undefined>(resolve => {
+			const timer = setTimeout(() => { this.images.delete(seq); this.log?.warn(`board: ${key} did not answer a picture request within ${timeoutMs} ms${tab.ready ? '' : ' (the page never said it was ready)'}`); resolve(undefined); }, timeoutMs);
+			this.images.set(seq, png => { clearTimeout(timer); this.images.delete(seq); resolve(png); });
+			const ask = () => void tab.panel.webview.postMessage({ type: 'render', seq, step });
+			// A tab that was just created has not said 'ready' yet: the request waits for that (bounded by the same timer).
+			if (tab.ready) {
+				ask();
+			} else {
+				(tab.onReady ??= []).push(ask);
+			}
+		});
+	}
+
+	private readonly images = new Map<number, (png: string | undefined) => void>();
+	private imageSeq = 0;
 
 	private post(tab: Tab, seq?: number, refresh = false) {
 		if (!tab.ready) {
 			return; // it asks for the current state when it starts
 		}
 		tab.stale = false;
-		void tab.panel.webview.postMessage({ type: 'board', spec: tab.spec, since: tab.since, boards: tab.boards, opts: tab.request, seq, refresh: refresh || undefined });
+		void tab.panel.webview.postMessage({ type: 'board', spec: tab.spec, since: tab.since, boards: tab.boards, opts: tab.request, seq, refresh: refresh || undefined, overrides: this.overridesOf(tab) });
+	}
+
+	private keyOf(tab: Tab) {
+		return [...this.tabs].find(([, t]) => t === tab)?.[0];
+	}
+
+	/** The user's moves and notes for the board a canvas tab shows (none for other kinds). */
+	private overridesOf(tab: Tab, key = this.keyOf(tab)) {
+		return tab.spec.kind === 'canvas' && key ? this.overrides.get(this.boardId(key)) : undefined;
 	}
 
 	private async onMessage(tab: Tab, m: Record<string, unknown> | undefined) {
@@ -198,7 +255,48 @@ export class BoardPanel implements vscode.Disposable {
 				if (tab.stale) {
 					this.post(tab);
 				}
+				for (const fn of tab.onReady?.splice(0) ?? []) {
+					fn();
+				}
 				return;
+			case 'image': {
+				// The picture a `render` asked for: base64 PNG, bounded (a 1600px-wide board is well under 2 MB), or nothing when the page could not draw it.
+				const waiting = typeof m.seq === 'number' ? this.images.get(m.seq) : undefined;
+				if (waiting) {
+					const png = typeof m.png === 'string' && m.png.length < 4_000_000 && /^[A-Za-z0-9+/=]+$/.test(m.png) ? m.png : undefined;
+					if (!png) {
+						this.log?.warn(`board: no picture for the agent (${typeof m.error === 'string' ? m.error.slice(0, 200) : typeof m.png === 'string' ? `${m.png.length} characters that are not base64` : 'nothing drawn'})`);
+					}
+					waiting(png);
+				}
+				return;
+			}
+			case 'move': {
+				// A drag the user ended: the element must be on this canvas board and the place a number on the drawing. The hash is the host's own, from this tab's spec, never the page's.
+				const key = this.keyOf(tab);
+				const canvas = canvasSpecOf(tab.spec);
+				const id = typeof m.id === 'string' ? m.id : undefined;
+				const hash = canvas && id ? moveHash(canvas, id) : undefined;
+				if (key && id && hash) {
+					this.overrides.move(this.boardId(key), id, m.x, m.y, hash);
+				}
+				return;
+			}
+			case 'note': {
+				const key = this.keyOf(tab);
+				const id = typeof m.id === 'string' ? m.id : undefined;
+				if (key && id && canvasSpecOf(tab.spec)?.elements.some(e => e.id === id)) {
+					this.overrides.note(this.boardId(key), id, m.text);
+				}
+				return;
+			}
+			case 'resetMoves': {
+				const key = this.keyOf(tab);
+				if (key && tab.spec.kind === 'canvas') {
+					this.overrides.resetMoves(this.boardId(key));
+				}
+				return;
+			}
 			case 'open': {
 				const file = workspaceFile(m.file);
 				if (!file) {
@@ -213,7 +311,7 @@ export class BoardPanel implements vscode.Disposable {
 			}
 			case 'create': {
 				// Skeleton first: the node id only. The path, the folder check and the write are the skeleton host's own work.
-				const id = [...this.tabs].find(([, t]) => t === tab)?.[0];
+				const id = this.keyOf(tab);
 				if (id?.startsWith('board:') && typeof m.node === 'string') {
 					await vscode.commands.executeCommand('flow.skeleton.createFile', id.slice('board:'.length), m.node);
 				}
@@ -312,7 +410,7 @@ export class BoardPanel implements vscode.Disposable {
 	}
 
 	/** Everything inline, as in panel.ts: no side files, a nonce for the one script. */
-	private async html(webview: vscode.Webview, tab: Tab) {
+	private async html(webview: vscode.Webview, tab: Tab, key: string) {
 		const [js, css] = await Promise.all([
 			fs.readFile(path.join(this.dist, 'board.js'), 'utf8'),
 			fs.readFile(path.join(this.dist, 'board.css'), 'utf8'),
@@ -329,7 +427,7 @@ export class BoardPanel implements vscode.Disposable {
 			`worker-src blob:`,
 		].join('; ');
 		const safe = (text: string, tag: string) => text.replace(new RegExp(`</${tag}`, 'gi'), `<\\/${tag}`).replace(/<!--/g, '\\x3C!--');
-		const boot = { spec: tab.spec, since: tab.since, boards: tab.boards, source: tab.source?.kind, search: tab.source?.searchOnHost === false ? 'local' : 'host', opts: tab.request, dark };
+		const boot = { spec: tab.spec, since: tab.since, boards: tab.boards, source: tab.source?.kind, search: tab.source?.searchOnHost === false ? 'local' : 'host', opts: tab.request, dark, overrides: this.overridesOf(tab, key) };
 		return `<!doctype html><html><head><meta charset="utf-8">` +
 			`<meta http-equiv="Content-Security-Policy" content="${csp}">` +
 			`<style>${safe(css, 'style')}</style>` +

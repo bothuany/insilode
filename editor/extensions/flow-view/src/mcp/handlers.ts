@@ -13,6 +13,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { innermost, type Analyzer } from '../analyzer';
 import { entryName, type Endpoints, type Entry, type Source } from '../backends';
+import { fillCode, isCanvasInput, lintOf, parseCanvasBoard, patchElements, renderCanvas, type ElementPatch } from '../board/canvas';
 import { formatLint, lintBoard } from '../board/lint';
 import { checkOverlap } from '../board/overlap';
 import { importMermaid } from '../board/mermaidImport';
@@ -165,7 +166,8 @@ export class AgentTools {
 				case 'get_context': return await this.context();
 				case 'draw_board': return await this.draw(a, ctx);
 				case 'board_from_code': return await this.fromCode(a, ctx);
-				case 'update_board': return await this.update(a);
+				case 'update_board': return await this.update(a, ctx);
+				case 'read_board': return await this.readBoard(a);
 				case 'tour': return await this.tour(a, ctx);
 				case 'tour_control': return await this.tourControl(a, ctx);
 				case 'check_skeleton': return text(await this.checkSkeleton(a, ctx));
@@ -1163,6 +1165,9 @@ export class AgentTools {
 		if (JSON.stringify(raw ?? null).length > 1_500_000) {
 			throw new Error('The board is too large; draw fewer nodes or split it into several boards.');
 		}
+		if (isCanvasInput(raw)) {
+			return await this.drawCanvas(a, raw as Record<string, unknown>, ctx);
+		}
 		// Mermaid text the agent already has becomes the nodes and edges; `board` then only adds what Mermaid cannot say (title, steps, callouts...).
 		const imported: string[] = [];
 		if (a.source !== undefined) {
@@ -1216,13 +1221,133 @@ export class AgentTools {
 			found.push(`id "${claimed}" is another agent's skeleton design, so this was drawn as a new board.`);
 		}
 		const layout = spec.kind === 'sequence' ? '' : `, ${lint.visible} visible, ~${lint.crossings} crossing${lint.crossings === 1 ? '' : 's'}`;
-		return text([
+		// The picture of the board as shown, so the model can look at what it drew: asked of the tab after it has the spec; skipped on request or when the tab does not answer in time.
+		const png = a.image === false ? undefined : await this.d.boards.image(id, 10_000);
+		const result = text([
 			`Board "${id}" ${replaced ? 'replaced' : 'drawn'} and shown to the user in Insilode: ${spec.kind}, ${spec.nodes.length} nodes, ${spec.edges.length} edges${layout}.`,
 			spec.kind === 'plan' ? `Tick steps off with update_board (id "${id}", nodeId one of: ${spec.nodes.slice(0, 20).map(n => n.id).join(', ')}).` : `Use id "${id}" again to replace it.`,
 			...formatLint(notes, found, lint),
 			...(moved.length ? [`Layout: ${moved.join('; ')}.`] : []),
 			...(skeleton ? ['', skeleton] : []),
+			...(png ? ['', 'The picture below is the board as Insilode shows it now.'] : a.image === false ? [] : ['', 'No picture: the board tab did not answer in time (it may still be opening); call again with the same id and board to get one.']),
 		].join('\n'));
+		if (png) {
+			result.content.push({ type: 'image', data: png, mimeType: 'image/png' });
+		}
+		return result;
+	}
+
+	/** A canvas board: elements the engine lays out. Parsed and grounded here, then shown and rendered like any board (`showCanvas`). */
+	private async drawCanvas(a: Record<string, unknown>, raw: Record<string, unknown>, ctx: CallContext): Promise<ToolResult> {
+		if (a.source !== undefined) {
+			throw new Error('`source` (Mermaid) is for the other board kinds; a canvas board is drawn from `board.elements`.');
+		}
+		const { spec, errors, notes } = parseCanvasBoard(raw);
+		const found = await this.groundCanvas(spec);
+		return await this.showCanvas(spec, { errors, notes, found, head: [] }, a, raw.id, ctx);
+	}
+
+	/** Links, then the lines the code widgets name (read inside the workspace only). */
+	private async groundCanvas(spec: BoardSpec): Promise<string[]> {
+		return [
+			...await this.groundBoard(spec),
+			...fillCode(spec, readTextIn(this.folders), file => resolveInWorkspace(file, this.folders)),
+		];
+	}
+
+	/**
+	 * Stores a canvas board, shows it, and answers with what was dropped, the lint (geometry from the engine, run here), where every
+	 * element ended up and, unless `image` is false, the picture of the board tab. When the tab does not answer, the host's own
+	 * drawing of the board comes back as SVG text instead, so the answer is never only "no picture".
+	 */
+	private async showCanvas(spec: BoardSpec, issues: { errors: string[]; notes: string[]; found: string[]; head: string[] }, a: Record<string, unknown>, sentId: unknown, ctx: CallContext): Promise<ToolResult> {
+		let wanted = cleanBoardId(a.id) ?? cleanBoardId(sentId);
+		let claimed: string | undefined;
+		if (wanted && this.d.skeleton?.claimed(wanted, ctx.session)) {
+			claimed = wanted;
+			wanted = undefined;
+		}
+		const replaced = wanted ? !!this.d.boards.get(wanted) : false;
+		const found = [...issues.found];
+		if (claimed) {
+			found.push(`id "${claimed}" is another agent's skeleton design, so this was drawn as a new board.`);
+		}
+		const steps = spec.steps ?? [];
+		const asked = typeof a.image === 'object' && a.image !== null ? (a.image as { step?: unknown }).step : undefined;
+		const step = typeof asked === 'number' && Number.isFinite(asked) ? Math.floor(asked) : undefined;
+		if (step !== undefined && (step < 1 || step > steps.length)) {
+			found.push(`image.step ${step} is not a step of this board (${steps.length ? `1 to ${steps.length}` : 'it has none'}); the picture shows every element.`);
+		}
+		const index = step !== undefined && step >= 1 && step <= steps.length ? step - 1 : undefined;
+		for (const el of (spec.elements ?? []).filter(e => e.link?.board && e.link.board !== wanted && !this.d.boards.get(e.link.board)).slice(0, 4)) {
+			found.push(`element \`${el.id}\` zooms into board "${el.link!.board}", which is not drawn yet: draw it next with that id, or the element has nothing to open.`);
+		}
+		if (!replaced && wanted) {
+			// An id this window has not drawn: whatever a user moved or noted on an earlier board of that name is not about this one.
+			this.d.boards.forgetOverrides(wanted);
+		}
+		const id = await this.d.boards.set(spec, { id: wanted, origin: 'agent' });
+		const dark = ![vscode.ColorThemeKind.Light, vscode.ColorThemeKind.HighContrastLight].includes(vscode.window.activeColorTheme.kind);
+		const rendered = renderCanvas(spec, { dark, overrides: this.d.boards.overrides(id), step: index });
+		const types = new Map<string, number>();
+		for (const e of spec.elements ?? []) {
+			types.set(e.type, (types.get(e.type) ?? 0) + 1);
+		}
+		const png = a.image === false ? undefined : await this.d.boards.image(id, 10_000, index);
+		const boxes = Object.entries(rendered?.boxes ?? {});
+		const result = text([
+			`Board "${id}" ${issues.head.length ? 'updated' : replaced ? 'replaced' : 'drawn'} and shown to the user in Insilode: canvas${spec.purpose ? ` (${spec.purpose})` : ''}, ${spec.elements?.length ?? 0} elements (${[...types].map(([t, n]) => `${n} ${t}`).join(', ')})${spec.steps?.length ? `, ${spec.steps.length} steps` : ''}.`,
+			...issues.head,
+			`Use id "${id}" again to replace it; update_board with \`elements\` changes single elements; read_board shows what the user moved or noted.`,
+			...formatLint(issues.errors.map(e => `dropped: ${e}`).concat(issues.notes), found, lintOf(rendered?.findings ?? [])),
+			`Boxes after layout (x, y, w, h; a frame is the frame box): ${JSON.stringify(Object.fromEntries(boxes.slice(0, 80)))}${boxes.length > 80 ? ` ...and ${boxes.length - 80} more (read_board has them all)` : ''}`,
+			...(png ? ['', `The picture below is the board${index !== undefined ? ` at step ${index + 1}` : ''} as Insilode shows it now.`] : a.image === false ? [] : ['', `No picture: the board tab did not answer in time (it may still be opening); call again with the same id and board to get one. This is the board as the host draws it, in SVG:`, ...(rendered && rendered.svg.length <= 60_000 ? [rendered.svg] : ['(too large to include)'])]),
+		].join('\n'));
+		if (png) {
+			result.content.push({ type: 'image', data: png, mimeType: 'image/png' });
+		}
+		return result;
+	}
+
+	/** `update_board` with `elements`: patches merged into the canvas board, checked like a drawing, then shown again. */
+	private async updateElements(id: string, a: Record<string, unknown>, ctx: CallContext): Promise<ToolResult> {
+		const board = this.d.boards.get(id);
+		if (!board) {
+			throw new Error(`No board "${id}". Boards: ${this.d.boards.list().map(b => b.id).join(', ') || 'none drawn yet'}.`);
+		}
+		if (board.spec.kind !== 'canvas') {
+			throw new Error(`Board "${id}" is a ${board.spec.kind} board: \`elements\` patches are for canvas boards. Use \`nodeId\`, \`updates\` and \`highlight\` here.`);
+		}
+		const patches = (a.elements as unknown[]).slice(0, 100).map((p): ElementPatch => {
+			if (typeof p !== 'object' || p === null || typeof (p as { id?: unknown }).id !== 'string') {
+				throw new Error('Each element patch is an object with an `id`: {"id": "a", "label": "new"}, {"id": "a", "remove": true} or a new element.');
+			}
+			return p as ElementPatch;
+		});
+		if (!patches.length) {
+			throw new Error('`elements` is empty: pass patches, [{"id": "a", "label": "new"}].');
+		}
+		const { raw, changed } = patchElements(board.spec, patches);
+		const { spec, errors, notes } = parseCanvasBoard(raw);
+		const found = await this.groundCanvas(spec);
+		return await this.showCanvas(spec, { errors, notes, found, head: [`Changes: ${changed.join('; ')}.`] }, { id, image: a.image }, undefined, ctx);
+	}
+
+	/** `read_board`: what is drawn and what the user did to it, so the agent can answer "I moved this" or "what did I note". */
+	private async readBoard(a: Record<string, unknown>): Promise<ToolResult> {
+		const id = cleanBoardId(a.id);
+		if (!id) {
+			throw new Error('`id` is required: the board id draw_board returned.');
+		}
+		const board = this.d.boards.get(id);
+		if (!board) {
+			throw new Error(`No board "${id}". Boards: ${this.d.boards.list().map(b => b.id).join(', ') || 'none drawn yet'}.`);
+		}
+		const overrides = this.d.boards.overrides(id);
+		const rendered = renderCanvas(board.spec, { overrides });
+		const { nodes, edges, elements, ...rest } = board.spec;
+		const body = JSON.stringify({ id, spec: board.spec.kind === 'canvas' ? { ...rest, elements } : { ...rest, nodes, edges }, boxes: rendered?.boxes, overrides: { moves: overrides.moves ?? {}, notes: overrides.notes ?? {} } }, null, 1);
+		return text(body.length > 120_000 ? `${body.slice(0, 120_000)}\n...(cut: the board is larger than 120,000 characters)` : body);
 	}
 
 	/**
@@ -1232,6 +1357,11 @@ export class AgentTools {
 	 */
 	private async groundBoard(spec: BoardSpec): Promise<string[]> {
 		const found: string[] = [];
+		// What can point at code: a node (its own file, line and symbol) or a canvas element's `link`. The fields are written back in place.
+		const targets: { id: string; what: string; ref: { file?: string; line?: number; symbol?: string } }[] = [
+			...spec.nodes.map(n => ({ id: n.id, what: 'node', ref: n })),
+			...(spec.elements ?? []).flatMap(e => e.link ? [{ id: e.id, what: 'element', ref: e.link }] : []),
+		];
 		const lineCounts = new Map<string, number | undefined>();
 		const linesIn = async (file: string): Promise<number | undefined> => {
 			if (!lineCounts.has(file)) {
@@ -1248,13 +1378,14 @@ export class AgentTools {
 			return lineCounts.get(file);
 		};
 		// Links to code: only files inside the workspace; a path outside is dropped, not followed.
-		for (const n of spec.nodes) {
+		for (const t of targets) {
+			const n = t.ref;
 			if (!n.file) {
 				continue;
 			}
 			const resolved = resolveInWorkspace(n.file, this.folders);
 			if (!resolved) {
-				found.push(`node \`${n.id}\`: file "${n.file}" is outside the workspace and was not linked.`);
+				found.push(`${t.what} \`${t.id}\`: file "${n.file}" is outside the workspace and was not linked.`);
 				n.file = undefined;
 				n.line = undefined;
 				continue;
@@ -1263,14 +1394,14 @@ export class AgentTools {
 			if (lineCounts.size < 60) {
 				const count = await linesIn(n.file);
 				if (count === undefined) {
-					found.push(`node \`${n.id}\`: file "${this.rel(n.file)}" does not exist; check the path (find_symbol gives real ones).`);
+					found.push(`${t.what} \`${t.id}\`: file "${this.rel(n.file)}" does not exist; check the path (find_symbol gives real ones).`);
 				} else if (n.line !== undefined && n.line > count) {
-					found.push(`node \`${n.id}\`: line ${n.line} is past the end of ${this.rel(n.file)} (${count} lines).`);
+					found.push(`${t.what} \`${t.id}\`: line ${n.line} is past the end of ${this.rel(n.file)} (${count} lines).`);
 					n.line = undefined;
 				}
 			}
 		}
-		const all = spec.nodes.filter(n => n.symbol);
+		const all = targets.filter(t => t.ref.symbol);
 		const withSymbol = all.slice(0, 25);
 		if (all.length > withSymbol.length) {
 			found.push('only the first 25 symbols were checked.');
@@ -1302,7 +1433,8 @@ export class AgentTools {
 		};
 		try {
 			await within((async () => {
-				for (const n of withSymbol) {
+				for (const t of withSymbol) {
+					const n = t.ref;
 					const here = n.file ? await fileCandidates(n.file) : [];
 					let all = [...here, ...await candidates(n.symbol!)];
 					let { exact, near } = matchSymbols(n.symbol!, all);
@@ -1321,7 +1453,7 @@ export class AgentTools {
 							n.line = exact.line;
 						}
 					} else {
-						found.push(`node \`${n.id}\`: symbol "${n.symbol}" is not in the index${near.length ? `; closest: ${near.map(describeCandidate).join('; ')}` : ' (the language servers may still be loading; find_symbol shows what exists)'}. If it does not exist yet, leave \`symbol\` off.`);
+						found.push(`${t.what} \`${t.id}\`: symbol "${n.symbol}" is not in the index${near.length ? `; closest: ${near.map(describeCandidate).join('; ')}` : ' (the language servers may still be loading; find_symbol shows what exists)'}. If it does not exist yet, leave \`symbol\` off.`);
 					}
 				}
 			})(), 10_000, 'the symbol check');
@@ -1452,10 +1584,13 @@ export class AgentTools {
 		].join('\n'));
 	}
 
-	private async update(a: Record<string, unknown>): Promise<ToolResult> {
+	private async update(a: Record<string, unknown>, ctx: CallContext = {}): Promise<ToolResult> {
 		const id = cleanBoardId(a.id);
 		if (!id) {
 			throw new Error('`id` is required: the board id draw_board returned.');
+		}
+		if (Array.isArray(a.elements)) {
+			return await this.updateElements(id, a, ctx);
 		}
 		const one = (o: Record<string, unknown>) => {
 			if (typeof o.nodeId !== 'string') {

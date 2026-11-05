@@ -22,8 +22,11 @@ import { idle, reduce } from '../tour/player'
 import { TourBar } from '../tour/TourBar'
 import { Caption } from '../tour/Caption'
 import { captionPlace, CAPTION_W } from '../tour/geometry'
-import { highlightLit, litOf, litVisible, stepOpens, stepsOf, stepsSignature, tourOf, type StepLit } from './steps'
+import { highlightLit, litOf, litVisible, sceneOf, stepOpens, stepsOf, stepsSignature, tourOf, type StepLit } from './steps'
 import { Legend } from './legend'
+import type { CanvasSpec, Overrides } from '../../../board-canvas/canvas'
+import { DARK, paintCanvas, toSvg as canvasToSvg, type Palette as CanvasPalette } from '../../../board-canvas/paint'
+import { CanvasView, type CanvasApi } from './CanvasView'
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void }
 declare global {
@@ -70,12 +73,18 @@ function readPalette(): Palette {
   }
 }
 
-async function pngOf(svg: string, width: number, height: number): Promise<string> {
+/** The canvas board's palette: the same theme tokens, resolved to plain colours so the SVG and the PNG carry them; the hues the theme has no token for come from the shared dark palette. */
+function readCanvasPalette(): CanvasPalette {
+  const p = readPalette()
+  return { ...DARK, canvas: p.canvas, card: p.card, line: p.groupFill, strong: p.line, ink: p.text, muted: p.muted, accent: p.signal, green: p.add, red: p.del, amber: p.warn }
+}
+
+async function pngOf(svg: string, width: number, height: number, maxScale = 2): Promise<string> {
   // Blob URLs are not allowed by the panel's CSP, data: URLs are.
   const img = new Image()
   img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg)
   await img.decode()
-  const scale = Math.min(2, 8000 / Math.max(width, height, 1))
+  const scale = Math.min(maxScale, 8000 / Math.max(width, height, 1))
   const canvas = document.createElement('canvas')
   canvas.width = Math.max(1, Math.round(width * scale))
   canvas.height = Math.max(1, Math.round(height * scale))
@@ -153,6 +162,13 @@ function BoardView() {
   const fitNext = useRef(true)
   /** The user picked a direction: the host's default must not take it back. */
   const directionChosen = useRef(false)
+  const renderRef = useRef<() => void>(() => undefined)
+  const pendingRenders = useRef<{ seq: number; step?: number }[]>([])
+  const canvasApi = useRef<CanvasApi | null>(null)
+  /** Canvas boards: what the user moved or noted (kept by the host), and the frames whose collapsed state they flipped. */
+  const [ovr, setOvr] = useState<Overrides>(boot.overrides ?? {})
+  const [flip, setFlip] = useState<ReadonlySet<string>>(NO_NODES)
+  const [themeTick, setThemeTick] = useState(0)
   const centerNext = useRef<string | undefined>(undefined)
   /** The board's `focus` (a node or a group) opens first: the groups around it open and the view goes to it. */
   const focusFirst = (s: BoardSpec) => {
@@ -184,6 +200,7 @@ function BoardView() {
         // A rebuild answered late: a newer one is already on its way.
         if (m.seq !== undefined && m.seq < seq.current) return
         setSpec(m.spec)
+        setOvr(m.overrides ?? {})
         setSince(m.since)
         setRefs(m.boards ?? [])
         if (!m.since) setShowSince(false)
@@ -207,6 +224,11 @@ function BoardView() {
         if (m.seq !== undefined && m.seq < seq.current) return
         setPending(false)
         setError(m.message)
+      } else if (m?.type === 'render') {
+        // The host wants a picture for the agent. Not requestAnimationFrame: it never fires while the tab is hidden. A timeout lets
+        // a board that arrived in the same tick commit first, and the layout effect below answers when that commit comes later.
+        pendingRenders.current.push({ seq: m.seq, step: typeof m.step === 'number' ? m.step : undefined })
+        setTimeout(() => renderRef.current(), 0)
       }
     }
     window.addEventListener('message', onMessage)
@@ -244,6 +266,9 @@ function BoardView() {
     [spec, direction, members, expandedNodes, overrides, autoOpen],
   )
   const sequence = spec.kind === 'sequence'
+  const canvas = spec.kind === 'canvas' && !!spec.elements
+  /** The graph views (flow, class, ER...) draw with React Flow; a sequence and a canvas board have a view of their own. */
+  const graph = !sequence && !canvas
   const changes = useMemo(() => countChanges(spec), [spec])
   const walk = useMemo(() => stepsOf(spec), [spec])
   const walkSig = useMemo(() => stepsSignature(walk.steps), [walk])
@@ -253,6 +278,52 @@ function BoardView() {
   const lit: StepLit | undefined = stepLit ?? routeLit
   const seqLit = useMemo<Lit | undefined>(() => (searching ? { nodes: matched, edges: new Set() } : undefined), [searching, matched])
   const adj = useMemo(() => adjacency(layout.edges), [layout])
+
+  // ---- the canvas board: painted by board-canvas, the same engine the host draws the agent's picture with ----------------------
+  useEffect(() => {
+    // The editor's theme changed (VS Code switches a class on the body): the palette is read again.
+    const ob = new MutationObserver(() => setThemeTick(t => t + 1))
+    ob.observe(document.body, { attributes: true, attributeFilter: ['class', 'style'] })
+    return () => ob.disconnect()
+  }, [])
+  const cspec = useMemo<CanvasSpec | undefined>(() => (canvas ? { title: spec.title, purpose: spec.purpose, layout: spec.layout, columns: spec.columns, elements: spec.elements! } : undefined), [spec, canvas])
+  const cpalette = useMemo(() => (canvas ? readCanvasPalette() : DARK), [canvas, themeTick])
+  const canvasMatches = useMemo(() => {
+    const needle = q.trim().toLowerCase()
+    return canvas && needle ? new Set(spec.elements!.filter(e => `${e.id} ${e.label ?? ''} ${e.detail ?? ''}`.toLowerCase().includes(needle)).map(e => e.id)) : undefined
+  }, [canvas, spec, q])
+  const popts = useMemo(() => {
+    const scene = sceneOf(curStep)
+    // A search lights the matches; a step's own `lit` wins while a step is showing.
+    return { ...scene, lit: scene.lit ?? canvasMatches, flip, overrides: ovr }
+  }, [curStep, canvasMatches, flip, ovr])
+  const painted = useMemo(() => (cspec ? paintCanvas(cspec, cpalette, popts) : undefined), [cspec, cpalette, popts])
+  const movedCount = Object.keys(ovr.moves ?? {}).length
+  const staleCount = painted?.layout.stale.length ?? 0
+  /** The board as the export and the agent's picture draw it: with the user's moves and notes, optionally one step's scene, never the viewer's own flips. */
+  const canvasSvg = (step?: number) => {
+    const s = step === undefined ? undefined : spec.steps?.[step]
+    const p = readCanvasPalette()
+    return canvasToSvg(paintCanvas(cspec!, p, { overrides: ovr, ...sceneOf(s) }), p)
+  }
+  const onCanvasMove = useCallback((id: string, x: number, y: number, hash: string) => {
+    setOvr(prev => ({ ...prev, moves: { ...prev.moves, [id]: { x, y, hash } } }))
+    post({ type: 'move', id, x, y })
+  }, [])
+  const onCanvasNote = useCallback((id: string, text: string) => {
+    const t = text.trim().slice(0, 600)
+    setOvr(prev => {
+      const notes = { ...prev.notes }
+      if (t) notes[id] = t
+      else delete notes[id]
+      return { ...prev, notes }
+    })
+    post({ type: 'note', id, text: t })
+  }, [])
+  const resetMoves = () => {
+    setOvr(prev => ({ ...prev, moves: undefined }))
+    post({ type: 'resetMoves' })
+  }
   // The agent's steps start by themselves when a board arrives or its steps change; a walk made from message order waits to be asked for.
   useEffect(() => {
     const t = tourOf(spec, walk.steps, walk.derived)
@@ -335,7 +406,7 @@ function BoardView() {
   }, [litView, nodes])
 
   // ---- viewport --------------------------------------------------------------------------------
-  const fit = useCallback(() => (seqApi.current ? seqApi.current.fit() : void rf.fitView({ padding: 0.12, duration: 0, maxZoom: 1.1 })), [rf])
+  const fit = useCallback(() => (canvasApi.current ? canvasApi.current.fit() : seqApi.current ? seqApi.current.fit() : void rf.fitView({ padding: 0.12, duration: 0, maxZoom: 1.1 })), [rf])
   const centerOn = useCallback((id: string) => {
     const v = layout.nodes.find(n => n.id === (layout.rep.get(id) ?? id))
     const g = v ? undefined : layout.groups.find(x => x.id === id)
@@ -464,6 +535,27 @@ function BoardView() {
   }, [spec])
   const collapsedCount = layout.nodes.filter(v => v.group).length
 
+  // Answers every pending `render` with the board as the export draws it, from the layout of this commit. A ref, because the
+  // message listener is registered once; also run after a layout commit, so a request that came with a new board draws the new one.
+  renderRef.current = () => {
+    for (const { seq, step } of pendingRenders.current.splice(0)) {
+      void (async () => {
+        try {
+          const svg = canvas ? canvasSvg(step) : sequence ? sequenceSvg(spec, readPalette(), spec.title) : toSvg(layout, direction, readPalette(), spec.title)
+          const m = /width="(\d+)" height="(\d+)"/.exec(svg)
+          if (!m) throw new Error('no size')
+          // Wide boards are scaled down: the picture is for a look, not for print, and the base64 stays small.
+          const scale = Math.min(1, 1600 / Number(m[1]))
+          post({ type: 'image', seq, png: await pngOf(svg, Math.round(Number(m[1]) * scale), Math.round(Number(m[2]) * scale), 1) })
+        } catch (e) {
+          // Said to the host, so the agent hears why there is no picture instead of a timeout.
+          post({ type: 'image', seq, error: String((e as Error)?.message ?? e).slice(0, 200) })
+        }
+      })()
+    }
+  }
+  useEffect(() => { renderRef.current() }, [layout, painted])
+
   const doExport = async (format: ExportFormat) => {
     setMenu(undefined)
     const name = slug(spec.title)
@@ -471,7 +563,7 @@ function BoardView() {
       if (format === 'json') {
         post({ type: 'export', format, data: JSON.stringify(spec, null, 2), name })
       } else if (format === 'svg' || format === 'png') {
-        const svg = sequence ? sequenceSvg(spec, readPalette(), spec.title) : toSvg(layout, direction, readPalette(), spec.title)
+        const svg = canvas ? canvasSvg() : sequence ? sequenceSvg(spec, readPalette(), spec.title) : toSvg(layout, direction, readPalette(), spec.title)
         if (format === 'svg') {
           post({ type: 'export', format, data: svg, name })
         } else {
@@ -558,7 +650,10 @@ function BoardView() {
       <div className="bd-bar">
         <div className="bd-row">
           <div className="bd-title" title={spec.title}>{spec.title}</div>
-          <span className="bd-status">{spec.nodes.length} {spec.nodes.length === 1 ? 'node' : 'nodes'} · {spec.edges.length} {spec.edges.length === 1 ? 'edge' : 'edges'}{pending ? ' · updating…' : ''}</span>
+          <span className="bd-status">{canvas ? `${spec.elements!.length} ${spec.elements!.length === 1 ? 'element' : 'elements'}` : <>{spec.nodes.length} {spec.nodes.length === 1 ? 'node' : 'nodes'} · {spec.edges.length} {spec.edges.length === 1 ? 'edge' : 'edges'}</>}{pending ? ' · updating…' : ''}</span>
+          {canvas && spec.purpose && <span className="bd-level" title={spec.purpose === 'concept' ? 'This board teaches an idea: values marked illustrative are made up' : 'This board explains real code'}>{spec.purpose}</span>}
+          {canvas && movedCount > 0 && <button className="chip" data-act="reset-moves" title="Put every element back where the layout places it (your notes stay)" onClick={resetMoves}>Reset positions</button>}
+          {canvas && staleCount > 0 && <span className="bd-status bd-changes" title="The agent changed the frame around these elements, so the places you gave them no longer apply">{staleCount} {staleCount === 1 ? 'move' : 'moves'} reset</span>}
           <div className="bd-grow" />
           {walk.steps.length > 0 && !pl.tour && (
             <button className="chip steps" data-act="steps" title={walk.derived ? 'Walk through the messages in order' : 'Play the steps the agent wrote'} onClick={() => { const t = tourOf(spec, walk.steps, walk.derived); if (t) dispatchPl({ type: 'start', tour: t }) }}>▶ {walk.derived ? 'Walk through' : `Steps (${walk.steps.length})`}</button>
@@ -586,21 +681,21 @@ function BoardView() {
             onKeyDown={e => { if (e.key === 'Enter') firstMatch() }}
             aria-label="Search the board"
           />
-          {searching && <span className="bd-status">{matched.size} {matched.size === 1 ? 'match' : 'matches'}</span>}
+          {searching && <span className="bd-status">{canvas ? canvasMatches?.size ?? 0 : matched.size} {(canvas ? canvasMatches?.size ?? 0 : matched.size) === 1 ? 'match' : 'matches'}</span>}
           <div className="bd-menu">
             <button className="chip" aria-pressed={menu === 'export'} onClick={e => { e.stopPropagation(); setMenu(menu === 'export' ? undefined : 'export') }}>Export ▾</button>
             {menu === 'export' && (
               <div className="bd-pop" role="menu" onClick={e => e.stopPropagation()}>
-                {([['mermaid', 'Copy as Mermaid'], ['plantuml', 'Save as PlantUML'], ['png', 'Save as PNG'], ['svg', 'Save as SVG'], ['json', 'Save as JSON']] as [ExportFormat, string][]).map(([f, label]) => (
+                {([['mermaid', 'Copy as Mermaid'], ['plantuml', 'Save as PlantUML'], ['png', 'Save as PNG'], ['svg', 'Save as SVG'], ['json', 'Save as JSON']] as [ExportFormat, string][]).filter(([f]) => !canvas || f === 'png' || f === 'svg' || f === 'json').map(([f, label]) => (
                   <button key={f} role="menuitem" data-export={f} onClick={() => void doExport(f)}>{label}</button>
                 ))}
               </div>
             )}
           </div>
-          <div className="bd-menu">
+          {!canvas && <div className="bd-menu">
             <button className="chip" aria-pressed={menu === 'legend'} title="Legend" onClick={e => { e.stopPropagation(); setMenu(menu === 'legend' ? undefined : 'legend') }}>?</button>
             {menu === 'legend' && <div className="bd-pop bd-legend" onClick={e => e.stopPropagation()}><Legend kinds={[...present]} changes={changes.added + changes.removed + changes.changed > 0} entries={spec.legend} /></div>}
-          </div>
+          </div>}
         </div>
         <div className="bd-row bd-row2">
           {canRebuild && (
@@ -637,10 +732,10 @@ function BoardView() {
           <div className="bd-group">
             {canRebuild && typeBoard && <button className="chip" data-act="entities" aria-pressed={includeEntities} onClick={() => rebuild({ includeEntities: !includeEntities })}>Entities</button>}
             {canRebuild && typeBoard && <button className="chip" data-act="enums" aria-pressed={includeEnums} onClick={() => rebuild({ includeEnums: !includeEnums })}>Enums</button>}
-            {!sequence && <button className="chip" data-act="members" aria-pressed={members} onClick={() => { setMembers(!members); fitNext.current = true }}>Members</button>}
-            {!sequence && <button className="chip" data-act="direction" title="Layout direction" onClick={() => { directionChosen.current = true; setDirection(direction === 'LR' ? 'TB' : 'LR'); fitNext.current = true }}>{direction === 'LR' ? 'Left → right' : 'Top ↓ bottom'}</button>}
+            {graph && <button className="chip" data-act="members" aria-pressed={members} onClick={() => { setMembers(!members); fitNext.current = true }}>Members</button>}
+            {graph && <button className="chip" data-act="direction" title="Layout direction" onClick={() => { directionChosen.current = true; setDirection(direction === 'LR' ? 'TB' : 'LR'); fitNext.current = true }}>{direction === 'LR' ? 'Left → right' : 'Top ↓ bottom'}</button>}
           </div>
-          {!sequence && (spec.groups?.length ?? 0) > 0 && (
+          {graph && (spec.groups?.length ?? 0) > 0 && (
             <div className="bd-group" title="Packages">
               <span className="bd-status">Packages</span>
               <button className="chip" data-act="collapse-all" onClick={() => setLevel(0)}>Collapse</button>
@@ -661,8 +756,24 @@ function BoardView() {
       <div className="bd-stage" ref={stage}>
         <ActionsCtx.Provider value={actions}>
           {sequence && <SequenceView spec={spec} lit={lit ?? seqLit} selected={selected} apiRef={seqApi} onSelect={n => { setSelected(n.id); if (n.file) post({ type: 'open', file: n.file, line: n.line ?? 1 }) }} />}
-          {!sequence && <EdgeLayer layout={layout} direction={direction} hot={hotId ?? undefined} active={active} lit={litView?.edges} />}
-          {!sequence && <ReactFlow
+          {canvas && cspec && painted && <CanvasView
+            spec={cspec}
+            painted={painted}
+            palette={cpalette}
+            options={popts}
+            selected={selected}
+            notes={ovr.notes}
+            apiRef={canvasApi}
+            onUserMove={() => { userMoved.current = true }}
+            onSelect={setSelected}
+            onMove={onCanvasMove}
+            onNote={onCanvasNote}
+            onToggleFrame={id => setFlip(prev => { const next = new Set(prev); if (!next.delete(id)) next.add(id); return next })}
+            onOpen={(file, line) => post({ type: 'open', file, line })}
+            onZoom={board => post({ type: 'zoom', board })}
+          />}
+          {graph && <EdgeLayer layout={layout} direction={direction} hot={hotId ?? undefined} active={active} lit={litView?.edges} />}
+          {graph && <ReactFlow
             nodes={nodes}
             edges={[]}
             nodeTypes={nodeTypes}
@@ -679,7 +790,7 @@ function BoardView() {
           >
             {layout.nodes.length > 8 && <MiniMap pannable zoomable nodeStrokeWidth={0} nodeColor={n => ((n.data as CardData | undefined)?.v?.node ? KIND_COLOR[(n.data as CardData).v.node!.kind ?? 'class'] : 'var(--fl-line-strong)')} />}
           </ReactFlow>}
-          {!sequence && <CalloutLayer layout={layout} direction={direction} />}
+          {graph && <CalloutLayer layout={layout} direction={direction} />}
           {pl.tour && (
             <TourBar
               tour={pl.tour}
@@ -688,10 +799,10 @@ function BoardView() {
             />
           )}
           {pl.tour && !pl.paused && pl.tour.steps[pl.index] && (
-            <StepCaption step={pl.tour.steps[pl.index]} layout={layout} lit={litView} sequence={sequence} stage={stage} />
+            <StepCaption step={pl.tour.steps[pl.index]} layout={layout} lit={litView} sequence={sequence || canvas} stage={stage} />
           )}
         </ActionsCtx.Provider>
-        {spec.nodes.length === 0 && (
+        {!canvas && spec.nodes.length === 0 && (
           <EmptyState
             message={spec.description || 'There is nothing to draw here.'}
             actions={emptyActions(boot.source, opts, canRebuild)}

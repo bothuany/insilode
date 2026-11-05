@@ -5,6 +5,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { createHash } from 'crypto';
+import type { Overrides } from '../../../../../board-canvas/canvas';
 import { compareBoards, hasChanges } from './compare';
 import type { BoardHighlight, BoardNode, BoardSpec, ChangeMark, NodeStatus } from './spec';
 
@@ -14,6 +15,12 @@ export interface NodePatch { status?: NodeStatus; note?: string; change?: Change
 export interface BoardHost {
 	show(id: string, spec: BoardSpec, extra?: BoardExtra): void | Promise<void>;
 	update(id: string, spec: BoardSpec, extra?: BoardExtra): void | Promise<void>;
+	/** A picture of the board as it is shown (base64 PNG), or nothing when the tab cannot answer in time. `step` (0-based) draws that step's scene. */
+	image?(id: string, timeoutMs?: number, step?: number): Promise<string | undefined>;
+	/** What the user did to a canvas board by hand (moves, notes). */
+	overrides?(id: string): Overrides;
+	/** Forgets those: the id now names a board this window has not drawn before. */
+	forgetOverrides?(id: string): void;
 }
 
 /** What a host shows next to the board: the board compared with its previous draw, for the "what changed" switch. */
@@ -160,6 +167,25 @@ export class BoardStore {
 	private seq = 0;
 	/** Paints a board before it is shown (skeleton first's plan vs code); the stored board stays as it was drawn. */
 	private decorator: ((id: string, spec: BoardSpec) => BoardSpec) | undefined;
+
+	/** The picture of a shown board, for the agent that drew it; nothing when no host shows it or it does not answer. */
+	image(id: string, timeoutMs?: number, step?: number): Promise<string | undefined> {
+		return this.host?.image?.(id, timeoutMs, step) ?? Promise.resolve(undefined);
+	}
+
+	/** The user's moves and notes on a canvas board; empty when no host keeps them. */
+	overrides(id: string): Overrides {
+		return this.host?.overrides?.(id) ?? {};
+	}
+
+	/**
+	 * Moves and notes are kept apart from the boards and can outlive them (a board evicted by the limit, or saved state from
+	 * before boards were kept): a board drawn under an id this store does not hold is a new drawing, maybe another session's,
+	 * so what a user once did to an earlier board of that name must not land on it.
+	 */
+	forgetOverrides(id: string): void {
+		this.host?.forgetOverrides?.(id);
+	}
 
 	constructor(options: BoardStoreOptions = {}) {
 		this.persist = options.persist;

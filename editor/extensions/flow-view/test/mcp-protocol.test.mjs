@@ -79,7 +79,7 @@ test('mcp-protocol: initialize echoes the client protocol version and offers too
 test('mcp-protocol: tools/list has the eighteen tools, each annotated read-only with a schema', async () => {
 	const s = session({ INSILODE_BRIDGE_DIR: temp('insilode-empty-') })
 	const { result } = await s.send('tools/list')
-	assert.deepEqual(result.tools.map(t => t.name), ['open', 'open_diff', 'get_diagnostics', 'find_symbol', 'go_to_definition', 'find_references', 'find_entry_points', 'show_flow', 'flow_text', 'impact', 'get_context', 'draw_board', 'board_from_code', 'update_board', 'tour', 'check_skeleton', 'tour_control', 'search_sessions'])
+	assert.deepEqual(result.tools.map(t => t.name), ['open', 'open_diff', 'get_diagnostics', 'find_symbol', 'go_to_definition', 'find_references', 'find_entry_points', 'show_flow', 'flow_text', 'impact', 'get_context', 'draw_board', 'board_from_code', 'update_board', 'read_board', 'tour', 'check_skeleton', 'tour_control', 'search_sessions'])
 	for (const t of result.tools) {
 		assert.equal(t.inputSchema.type, 'object', t.name)
 		assert.equal(t.annotations.readOnlyHint, true, t.name)
@@ -322,5 +322,16 @@ test('mcp-protocol: the agent session the server was started for reaches the win
 		await s.close()
 		assert.deepEqual(seen.pop(), expected, String(id))
 	}
+	await server.close()
+})
+
+test('mcp-protocol: an image block in a tool result reaches the client unchanged (the picture of a drawn board)', async () => {
+	const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='
+	const { dir, server } = await fakeWindow(['/work/app'], async () => ({ content: [{ type: 'text', text: 'Board "b" drawn.' }, { type: 'image', data: png, mimeType: 'image/png' }] }))
+	const s = session({ INSILODE_BRIDGE_DIR: dir }, { cwd: '/work/app' })
+	await s.send('initialize', { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 't', version: '1' } })
+	const res = await s.send('tools/call', { name: 'draw_board', arguments: { board: { kind: 'flow', title: 'T', nodes: [{ id: 'a', label: 'A' }] } } })
+	assert.deepEqual(res.result.content, [{ type: 'text', text: 'Board "b" drawn.' }, { type: 'image', data: png, mimeType: 'image/png' }])
+	assert.ok(!res.result.isError)
 	await server.close()
 })

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="388" height="258" viewBox="0 0 388 258">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8b8b8b"/></marker>
+<marker id="o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1L9 5L1 9" fill="none" stroke="#8b8b8b" stroke-width="1.4"/></marker></defs>
+<rect width="388" height="258" fill="#181818"/>
+<g transform="translate(24 24)">
+<rect x="0" y="0" width="340" height="210" rx="8" fill="#222222" stroke="#2c2c2c"/>
+<text x="10" y="16" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="12" font-weight="600" fill="#d4d4d4">Loss</text>
+<rect x="46" y="176" width="280" height="1" rx="0" fill="#2c2c2c" stroke="none"/>
+<text x="40" y="179" font-family="Consolas, 'JetBrains Mono', Menlo, monospace" xml:space="preserve" font-size="10" text-anchor="end" fill="#8b8b8b">0</text>
+<rect x="46" y="147" width="280" height="1" rx="0" fill="#2c2c2c" stroke="none"/>
+<text x="40" y="150" font-family="Consolas, 'JetBrains Mono', Menlo, monospace" xml:space="preserve" font-size="10" text-anchor="end" fill="#8b8b8b">1</text>
+<rect x="46" y="118" width="280" height="1" rx="0" fill="#2c2c2c" stroke="none"/>
+<text x="40" y="121" font-family="Consolas, 'JetBrains Mono', Menlo, monospace" xml:space="preserve" font-size="10" text-anchor="end" fill="#8b8b8b">2</text>
+<rect x="46" y="89" width="280" height="1" rx="0" fill="#2c2c2c" stroke="none"/>
+<text x="40" y="92" font-family="Consolas, 'JetBrains Mono', Menlo, monospace" xml:space="preserve" font-size="10" text-anchor="end" fill="#8b8b8b">3</text>
+<rect x="46" y="60" width="280" height="1" rx="0" fill="#2c2c2c" stroke="none"/>
+<text x="40" y="63" font-family="Consolas, 'JetBrains Mono', Menlo, monospace" xml:space="preserve" font-size="10" text-anchor="end" fill="#8b8b8b">4</text>
+<rect x="46" y="176" width="280" height="1" rx="0" fill="#3f3f3f" stroke="none"/>
+<text x="46" y="189" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" text-anchor="middle" fill="#8b8b8b">0</text>
+<text x="116" y="189" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" text-anchor="middle" fill="#8b8b8b">1</text>
+<text x="186" y="189" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" text-anchor="middle" fill="#8b8b8b">2</text>
+<text x="256" y="189" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" text-anchor="middle" fill="#8b8b8b">3</text>
+<text x="326" y="189" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" text-anchor="middle" fill="#8b8b8b">4</text>
+<path d="M46.0 83.2 L116.0 115.1 L186.0 135.4 L256.0 149.9 L326.0 155.7" fill="none" stroke="#6f86ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<ellipse cx="46" cy="83.2" rx="2.6" ry="2.6" fill="#6f86ff" stroke="none"/>
+<ellipse cx="116" cy="115.1" rx="2.6" ry="2.6" fill="#6f86ff" stroke="none"/>
+<ellipse cx="186" cy="135.4" rx="2.6" ry="2.6" fill="#6f86ff" stroke="none"/>
+<ellipse cx="256" cy="149.9" rx="2.6" ry="2.6" fill="#6f86ff" stroke="none"/>
+<ellipse cx="326" cy="155.7" rx="2.6" ry="2.6" fill="#6f86ff" stroke="none"/>
+<path d="M46.0 77.4 L116.0 103.5 L186.0 120.9 L256.0 132.5 L326.0 135.4" fill="none" stroke="#4fd6d0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+<ellipse cx="46" cy="77.4" rx="2.6" ry="2.6" fill="#4fd6d0" stroke="none"/>
+<ellipse cx="116" cy="103.5" rx="2.6" ry="2.6" fill="#4fd6d0" stroke="none"/>
+<ellipse cx="186" cy="120.9" rx="2.6" ry="2.6" fill="#4fd6d0" stroke="none"/>
+<ellipse cx="256" cy="132.5" rx="2.6" ry="2.6" fill="#4fd6d0" stroke="none"/>
+<ellipse cx="326" cy="135.4" rx="2.6" ry="2.6" fill="#4fd6d0" stroke="none"/>
+<rect x="10" y="27" width="9" height="9" rx="2" fill="#6f86ff" stroke="none"/>
+<text x="23" y="35" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" fill="#8b8b8b">train</text>
+<rect x="65" y="27" width="9" height="9" rx="2" fill="#4fd6d0" stroke="none"/>
+<text x="78" y="35" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" fill="#8b8b8b">val</text>
+<text x="186" y="204" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" text-anchor="middle" fill="#8b8b8b">epoch</text>
+<text x="10" y="52" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="10" fill="#8b8b8b">loss</text>
+</g></svg>
