@@ -36,7 +36,8 @@ export function buildRows(agents: Agents, worktrees: WorktreeRows | undefined, s
 	const conflicts = agents.conflicts();
 	const asking = new Map(agents.askSessions().map(s => [s.id, s]));
 	return rank([...agents.sessions.values()])
-		.map((s): AgentRow => ({ ...s, attention: attentionKind(s), done: s.todos.filter(t => t.status === 'completed').length, current: s.todos.find(t => t.status === 'in_progress')?.text, explain: agents.canExplain(s), impact: s.impact && { files: s.impact.files, more: s.impact.more, flows: s.impact.flows.map(f => ({ label: f.label, via: f.via })), tables: s.impact.tables },
+		// The transcript path and the process id stay with the host: neither view draws them.
+		.map((s): AgentRow => ({ ...s, transcript: undefined, pid: undefined, attention: attentionKind(s), done: s.todos.filter(t => t.status === 'completed').length, current: s.todos.find(t => t.status === 'in_progress')?.text, explain: agents.canExplain(s), impact: s.impact && { files: s.impact.files, more: s.impact.more, flows: s.impact.flows.map(f => ({ label: f.label, via: f.via })), tables: s.impact.tables },
 			// Worktree and conflicts are explicit fields: the session's own record (paths, the base branch) stays here.
 			worktree: s.worktree ? worktrees?.view(s) : undefined,
 			skeletonOn: agents.skeletonOn(s.id), skeletonAvailable: s.state !== 'ended' && s.cli !== 'custom', skeletonStage: stages.get(s.id),
