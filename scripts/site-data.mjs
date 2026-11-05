@@ -2,7 +2,7 @@
 // `vscode`) headlessly on the fictional demo project in site/demo, and writes what the editor's parts would have shown:
 //   - the endpoints, each one's flow, callers and impact, for the project before and after an agent's change;
 //   - one "an agent changed this" change set, drawn by flow-view's own changeSet code, and the dock's "this turn touched" summary;
-//   - the two pages that sit around the canvas in the real app: the Agents dock page (flow-agent's dockPage.ts) and the desktop
+//   - the two pages that sit around the canvas in the real app: the Agents dock page (flow-agent's dockPage.ts) and the Agents page (agentsPage.ts) and the desktop
 //     status overlay (the page inside editor/patches/flow-desktop.patch), each with a small shim so it runs in an iframe.
 //   node scripts/site-data.mjs      writes site/public/data/demo.json and site/public/pages/
 //   DEMO_CHANGED=<dir>               lays <dir> over base instead of site/demo/changed (the launch film's change)
@@ -97,6 +97,7 @@ async function loadHostModules(tmp) {
 		changed: await load('src/mcp/changedMethods.ts', 'changedMethods'),
 		// No stub: these must stay free of `vscode`, or the site (and this bundle) could not use them.
 		dockPage: await load('src/dockPage.ts', 'dockPage', FLOW_AGENT, {}),
+		agentsPage: await load('src/agentsPage.ts', 'agentsPage', FLOW_AGENT, {}),
 		avatars: await load('src/avatars.ts', 'avatars', FLOW_AGENT, {}),
 	}
 }
@@ -221,14 +222,14 @@ async function version(index) {
 /** What VS Code gives every webview before its own page: the font variables and a transparent body. */
 const WEBVIEW_BASE = `:root{--vscode-font-family:"Segoe UI Variable Text","Segoe UI Variable",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--vscode-font-size:13px;--vscode-editor-font-family:ui-monospace,Menlo,Consolas,monospace;--vscode-editor-font-size:12px}html{color-scheme:dark}`
 
-/** The Agents dock page, with the theme variables and an `acquireVsCodeApi` that talks to the page around it. */
-function dockPage(dockHtml, themeCss) {
+/** One of flow-agent's pages (the Agents dock or the Agents page), with the theme variables and an `acquireVsCodeApi` that talks to the page around it as `source`. */
+function dockPage(dockHtml, themeCss, source = 'insilode-dock', file = 'dockPage.ts') {
 	// The dock page listens to every window that can post to it: it hears only the page around it (a site that frames this one could not feed it).
 	const guard = `<script>(function(){var add=window.addEventListener.bind(window);window.addEventListener=function(t,f,o){if(t==='message'){var g=f;f=function(e){if(e.source===parent&&e.origin===location.origin)g(e)}}add(t,f,o)}})()</script>`
-	const shim = `${guard}<script>window.acquireVsCodeApi=function(){return{postMessage:function(m){parent.postMessage({source:'insilode-dock',message:m},location.origin)}}}</script>`
+	const shim = `${guard}<script>window.acquireVsCodeApi=function(){return{postMessage:function(m){parent.postMessage({source:'${source}',message:m},location.origin)}}}</script>`
 	const head = `<meta name="robots" content="noindex"><style>${themeCss}</style><style>${WEBVIEW_BASE}</style>${shim}`
 	if (!dockHtml.includes('<head>')) {
-		throw new Error('The dock page has no <head>: flow-agent/src/dockPage.ts changed shape, and the site has to follow.')
+		throw new Error(`The page has no <head>: flow-agent/src/${file} changed shape, and the site has to follow.`)
 	}
 	return dockHtml.replace('<head>', () => `<head>${head}`).replace("default-src 'none';", () => "default-src 'none'; base-uri 'none'; form-action 'none';")
 }
@@ -391,7 +392,7 @@ const scratch = mkdtempSync(join(tmpdir(), 'insilode-site-work-'))
 const indexBefore = new Index(dirs.before, scratch)
 const indexAfter = new Index(dirs.after, scratch)
 try {
-	const { changeSet, turnImpact, tableIndex, changed, dockPage: dockModule, avatars } = await loadHostModules(scratch)
+	const { changeSet, turnImpact, tableIndex, changed, dockPage: dockModule, agentsPage: agentsModule, avatars } = await loadHostModules(scratch)
 	const before = await version(indexBefore)
 	const after = await version(indexAfter)
 	const dir = dirs.after
@@ -468,6 +469,7 @@ try {
 	const island = islandPage(avatars)
 	mkdirSync(join(PUBLIC, 'pages'), { recursive: true })
 	writeFileSync(join(PUBLIC, 'pages', 'dock.html'), dockPage(dockModule.dockHtml(), theme))
+	writeFileSync(join(PUBLIC, 'pages', 'agents.html'), dockPage(agentsModule.agentsHtml(), theme, 'insilode-agents', 'agentsPage.ts'))
 	writeFileSync(join(PUBLIC, 'pages', 'island.html'), island.html)
 
 	const data = relocate({ before, after: { entries, flows }, changes: { label: 'Claude Code: discount codes on orders', root, impact, timeline }, agentImpact, edits, harness, islandColors: island.colors }, dirs.before, dirs.after)

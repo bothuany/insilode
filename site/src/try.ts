@@ -2,6 +2,7 @@
 // change), and the Agents dock with the status island.
 import './site.css'
 import { allowWaiting, mountAgents, setAvatar } from './agents'
+import { mountAgentsPage } from './agentsPage'
 import type { DemoData } from './demo'
 import { wireDownloads } from './download'
 import { Stage } from './stage'
@@ -67,6 +68,11 @@ const dock = document.querySelector<HTMLIFrameElement>('iframe.dock')!
 const island = document.querySelector<HTMLIFrameElement>('iframe.island')!
 const agentsNote = document.querySelector<HTMLElement>('[data-agents-note]')!
 data.then(d => mountAgents(dock, island, d, text => (agentsNote.textContent = text)))
+const pickedAvatar = () => (document.querySelector<HTMLInputElement>('input[name="avatar"]:checked')?.value === 'pixel' ? 'pixel' : 'gyro')
+let redrawPage = () => {}
+data.then(d => {
+  redrawPage = mountAgentsPage(document.querySelector<HTMLIFrameElement>('iframe.agents-page')!, d, pickedAvatar) as () => void
+})
 const allow = document.querySelector<HTMLButtonElement>('[data-allow]')!
 allow.addEventListener('click', () => {
   if (allowWaiting()) {
@@ -74,4 +80,4 @@ allow.addEventListener('click', () => {
     allow.textContent = 'Allowed'
   }
 })
-document.querySelectorAll<HTMLInputElement>('input[name="avatar"]').forEach(r => r.addEventListener('change', () => r.checked && setAvatar(r.value === 'pixel' ? 'pixel' : 'gyro')))
+document.querySelectorAll<HTMLInputElement>('input[name="avatar"]').forEach(r => r.addEventListener('change', () => r.checked && (setAvatar(r.value === 'pixel' ? 'pixel' : 'gyro'), redrawPage())))
