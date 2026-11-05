@@ -39,7 +39,7 @@ export interface CanvasLayout {
 
 export interface LayoutOptions {
 	/** Frames to show expanded in addition to the spec (a scene's `open`). */
-	open?: Set<string>;
+	open?: ReadonlySet<string>;
 	overrides?: Overrides;
 }
 

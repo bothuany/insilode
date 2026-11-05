@@ -2,10 +2,14 @@
  *  Insilode board: one diagram format for everything that is drawn on its own canvas rather than
  *  traced from the code: the DTO relations, the architecture (UML) view, and flows or plans an
  *  agent draws. Hosts build a BoardSpec, the canvas renders it. Keep this file identical to
- *  ui/src/board/spec.ts (a test compares them).
+ *  ui/src/board/spec.ts (a test compares them; only the path of the board-canvas import differs).
  *--------------------------------------------------------------------------------------------*/
 
-export type BoardKind = 'flow' | 'plan' | 'class' | 'er' | 'sequence' | 'architecture' | 'state';
+// The free-form canvas board's own types live in board-canvas/ (one engine for the host and the webview); this file only
+// carries them on the spec.
+import type { CanvasElement } from '../../../board-canvas/canvas';
+
+export type BoardKind = 'flow' | 'plan' | 'class' | 'er' | 'sequence' | 'architecture' | 'state' | 'canvas';
 
 /** C4 level of an architecture board: who uses the system, what it is made of, what one part is made of. */
 export type BoardLevel = 'context' | 'container' | 'component';
@@ -124,6 +128,10 @@ export interface BoardStep {
 	edges?: [string, string][];
 	/** A group (or node) to open for this step. */
 	focus?: string;
+	/** Canvas boards: the element ids drawn in this step (absent: all), the frames opened, and the elements at full strength while the rest dims. */
+	show?: string[];
+	open?: string[];
+	lit?: string[];
 }
 
 /** A route drawn bold with the rest dimmed. */
@@ -163,12 +171,17 @@ export interface BoardSpec {
 	steps?: BoardStep[];
 	highlight?: BoardHighlight[];
 	callouts?: BoardCallout[];
+	/** kind canvas: what the board is for (a concept taught, or code explained), the root layout, and the elements. `nodes` and `edges` stay empty. */
+	purpose?: 'concept' | 'code';
+	layout?: 'row' | 'column' | 'grid';
+	columns?: number;
+	elements?: CanvasElement[];
 }
 
 const NODE_KINDS = new Set<string>(['entry', 'controller', 'service', 'repository', 'entity', 'dto', 'enum', 'interface', 'class', 'external', 'step', 'decision', 'note', 'actor']);
 const EDGE_KINDS = new Set<string>(['calls', 'extends', 'implements', 'uses', 'has', 'has-many', 'depends', 'next', 'yes', 'no', 'reads', 'writes', 'message']);
 const STATUSES = new Set<string>(['todo', 'doing', 'done', 'skipped', 'blocked']);
-const BOARD_KINDS = new Set<string>(['flow', 'plan', 'class', 'er', 'sequence', 'architecture', 'state']);
+const BOARD_KINDS = new Set<string>(['flow', 'plan', 'class', 'er', 'sequence', 'architecture', 'state', 'canvas']);
 const LEVELS = new Set<string>(['context', 'container', 'component']);
 const SHAPES = new Set<string>(['rect', 'round', 'diamond', 'cylinder', 'actor', 'cloud', 'initial', 'final', 'choice']);
 const CHANGES = new Set<string>(['added', 'removed', 'changed']);
@@ -277,6 +290,9 @@ export function parseBoardWithNotes(input: unknown): ParsedBoard {
 		kind = pick<BoardKind>(BOARD_KINDS, raw.kind, 'board', 'kind', 'flow') ?? 'flow';
 	}
 	const title = typeof raw.title === 'string' && raw.title.trim() ? raw.title.trim().slice(0, 120) : 'Untitled';
+	if (kind === 'canvas') {
+		throw new Error('A canvas board has `elements`, not `nodes`: it is read by parseCanvasBoard (board/canvas.ts).');
+	}
 	if (!Array.isArray(raw.nodes) || raw.nodes.length === 0) {
 		throw new Error('A board needs a non-empty "nodes" array: [{ id, label, kind?, detail?, file?, line?, status? }].');
 	}

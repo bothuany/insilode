@@ -184,6 +184,8 @@ export function parseCanvas(raw: unknown): Parsed {
 		const where = `element ${id ? `\`${id}\`` : `#${i + 1}`}`;
 		if (!id) { errors.push(`${where}: missing id.`); continue; }
 		if (seen.has(id)) { errors.push(`${where}: duplicate id; the first one is kept.`); continue; }
+		// Ids key objects (moves, notes) on the host: these three would reach the prototype.
+		if (id === '__proto__' || id === 'constructor' || id === 'prototype') { errors.push(`${where}: \`${id}\` is not allowed as an id.`); continue; }
 		let type = pick<CanvasElement['type']>(TYPES, it.type);
 		if (!type) { errors.push(`${where}: unknown type \`${String(it.type).slice(0, 20)}\`; one of ${[...TYPES].join(', ')}.`); continue; }
 		if (type === 'frame' && ++frameCount > LIMITS.frames) {

@@ -5,6 +5,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { createHash } from 'crypto';
+import type { Overrides } from '../../../../../board-canvas/canvas';
 import { compareBoards, hasChanges } from './compare';
 import type { BoardHighlight, BoardNode, BoardSpec, ChangeMark, NodeStatus } from './spec';
 
@@ -14,8 +15,10 @@ export interface NodePatch { status?: NodeStatus; note?: string; change?: Change
 export interface BoardHost {
 	show(id: string, spec: BoardSpec, extra?: BoardExtra): void | Promise<void>;
 	update(id: string, spec: BoardSpec, extra?: BoardExtra): void | Promise<void>;
-	/** A picture of the board as it is shown (base64 PNG), or nothing when the tab cannot answer in time. */
-	image?(id: string, timeoutMs?: number): Promise<string | undefined>;
+	/** A picture of the board as it is shown (base64 PNG), or nothing when the tab cannot answer in time. `step` (0-based) draws that step's scene. */
+	image?(id: string, timeoutMs?: number, step?: number): Promise<string | undefined>;
+	/** What the user did to a canvas board by hand (moves, notes). */
+	overrides?(id: string): Overrides;
 }
 
 /** What a host shows next to the board: the board compared with its previous draw, for the "what changed" switch. */
@@ -93,8 +96,13 @@ export class BoardStore {
 	private decorator: ((id: string, spec: BoardSpec) => BoardSpec) | undefined;
 
 	/** The picture of a shown board, for the agent that drew it; nothing when no host shows it or it does not answer. */
-	image(id: string, timeoutMs?: number): Promise<string | undefined> {
-		return this.host?.image?.(id, timeoutMs) ?? Promise.resolve(undefined);
+	image(id: string, timeoutMs?: number, step?: number): Promise<string | undefined> {
+		return this.host?.image?.(id, timeoutMs, step) ?? Promise.resolve(undefined);
+	}
+
+	/** The user's moves and notes on a canvas board; empty when no host keeps them. */
+	overrides(id: string): Overrides {
+		return this.host?.overrides?.(id) ?? {};
 	}
 
 	setHost(host: BoardHost | undefined) {

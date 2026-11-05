@@ -12,7 +12,7 @@ export interface ToolDef {
 	annotations: { title: string; readOnlyHint: boolean; destructiveHint: boolean; idempotentHint: boolean; openWorldHint: boolean };
 }
 
-export const BOARD_KINDS = ['flow', 'plan', 'class', 'er', 'sequence', 'architecture', 'state'] as const;
+export const BOARD_KINDS = ['flow', 'plan', 'class', 'er', 'sequence', 'architecture', 'state', 'canvas'] as const;
 export const BOARD_LEVELS = ['context', 'container', 'component'] as const;
 export const NODE_SHAPES = ['rect', 'round', 'diamond', 'cylinder', 'actor', 'cloud', 'initial', 'final', 'choice'] as const;
 export const CHANGE_MARKS = ['added', 'removed', 'changed'] as const;
@@ -35,11 +35,105 @@ const TARGET = {
 
 const ro = (title: string, idempotent = true): ToolDef['annotations'] => ({ title, readOnlyHint: true, destructiveHint: false, idempotentHint: idempotent, openWorldHint: false });
 
+export const ELEMENT_TYPES = ['rect', 'ellipse', 'diamond', 'text', 'frame', 'path', 'arrow', 'table', 'json', 'chart', 'matrix', 'code'] as const;
+export const CANVAS_COLORS = ['accent', 'teal', 'amber', 'green', 'violet', 'red', 'ink', 'muted', 'card', 'canvas'] as const;
+export const ELEMENT_ORIGINS = ['source', 'illustrative', 'runtime'] as const;
+
+const num = (description: string) => ({ type: 'number', description });
+const color = (description: string) => ({ type: 'string', description: `${description} A name (${CANVAS_COLORS.join(', ')}) follows the theme; #rrggbb does not (lint hint).` });
+const origin = { type: 'string', enum: [...ELEMENT_ORIGINS], description: 'Where the thing comes from: source (it is in the code or the data), illustrative (made up to teach), runtime (observed while running: give `source` too). Say it on every value you show.' };
+const link = {
+	type: 'object',
+	description: 'What a click opens: a code `symbol` (checked against the index, fills file and line), a `file` (+ `line`) inside the workspace, or another `board` id to zoom into.',
+	properties: { symbol: str('A real code symbol, "OrderService.Place".'), file: str('Workspace file.'), line: int('1-based line.'), board: str('Id of another board.') },
+	additionalProperties: false,
+};
+const port = {
+	type: 'object',
+	description: 'A typed input or output row inside a rect.',
+	properties: { id: str('Unique in the element; an arrow names it in `port`.'), name: str('e.g. "ids".'), type: str('e.g. "int[4]".'), value: str('A short value, e.g. "[12, 40, 7, 3]".'), origin, link },
+	required: ['name'],
+};
+const end = {
+	description: 'An element id; or {"el": id, "side": top|right|bottom|left, "port": port id}; or a free point {"x": n, "y": n}.',
+	oneOf: [
+		{ type: 'string' },
+		{ type: 'object', properties: { el: str('Element id.'), side: { type: 'string', enum: ['top', 'right', 'bottom', 'left'] }, port: str('Port id of that rect.') }, required: ['el'] },
+		{ type: 'object', properties: { x: { type: 'number' }, y: { type: 'number' } }, required: ['x', 'y'] },
+	],
+};
+const schemaNode = (children: unknown) => ({
+	type: 'object',
+	properties: { name: str('Field name.'), type: str('Its type, "float[768]".'), origin, link, unknown: { type: 'boolean', description: 'The type is known, the value is not: drawn as "?".' }, ...(children ? { children } : {}) },
+	required: ['name', 'type'],
+});
+const SCHEMA_TREE = schemaNode({ type: 'array', description: 'Nested fields (up to 6 levels).', items: schemaNode(undefined) });
+const range = { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 };
+
+/** The data each element type carries, in a sub-object named after the type. */
+const ELEMENT_DATA = {
+	frameData: { type: 'object', description: 'frame: how it places its children (a frame with children that have x/y is absolute).', properties: { layout: { type: 'string', enum: ['row', 'column', 'grid'] }, columns: int('Grid columns (default 3).'), gap: num('Space between children (default 16).'), pad: num('Space inside the border (default 14).'), align: { type: 'string', enum: ['start', 'center', 'stretch'] }, collapsed: { type: 'boolean', description: 'Drawn as one small box until a step opens it.' } } },
+	path: { type: 'object', description: 'path: `points` [[x, y], ...] relative to the element (at least 2), or `d` SVG path data.', properties: { points: { type: 'array', items: { type: 'array', items: { type: 'number' }, minItems: 2, maxItems: 2 } }, d: str('SVG path data, commands and numbers only.'), closed: { type: 'boolean' }, smooth: { type: 'boolean' } } },
+	arrow: {
+		type: 'object',
+		description: 'arrow: joins two elements (or points). Routed around the others, never through text.',
+		properties: {
+			from: end, to: end,
+			route: { type: 'string', enum: ['straight', 'elbow', 'curve'], description: 'elbow (default) runs along the gaps.' },
+			head: { type: 'string', enum: ['arrow', 'open', 'none', 'both'] },
+			at: num('Where the label sits, 0..1 along the line.'),
+			data: { type: 'object', description: 'What travels along the arrow, drawn as a badge: {"type": "float", "shape": "[4, 768]"}.', properties: { type: str('Type.'), shape: str('Shape.') } },
+		},
+		required: ['from', 'to'],
+	},
+	table: { type: 'object', description: 'table: records with columns.', properties: { columns: { type: 'array', items: { type: 'object', properties: { key: str('Field of each row.'), label: str('Header.'), align: { type: 'string', enum: ['left', 'right'] }, mono: { type: 'boolean' }, link: { type: 'boolean', description: 'Drawn in the link colour.' } }, required: ['key'] } }, rows: { type: 'array', items: { type: 'object' }, description: 'At most 40 kept.' }, maxRows: int('Rows drawn (default 8).') }, required: ['rows'] },
+	json: { type: 'object', description: 'json: a tree of a `value`, of a typed `schema` (names and types, no values), or both (values under their types).', properties: { value: { description: 'Any JSON value (at most 200 KB).' }, schema: SCHEMA_TREE, open: int('Levels drawn open (default 2).'), maxItems: int('Entries shown per object or array (default 8).') } },
+	chart: { type: 'object', description: 'chart: bar (a group per category), line, scatter, or points2d (a scatter of named points, e.g. a 2D projection of vectors).', properties: { kind: { type: 'string', enum: ['bar', 'line', 'scatter', 'points2d'] }, series: { type: 'array', description: 'At most 6; in a bar or line chart every series has the same number of points.', items: { type: 'object', properties: { label: str('Series name.'), points: { type: 'array', description: 'Numbers ([3, 2, 1]: x is the index) or pairs ([[0, 3], [1, 2]]).', items: {} }, labels: { type: 'array', items: { type: 'string' }, description: 'Category names, or point names for points2d.' }, color: color('Series colour.') }, required: ['label', 'points'] } }, axes: { type: 'object', properties: { x: { type: 'object', properties: { label: str('Axis name.'), range } }, y: { type: 'object', properties: { label: str('Axis name.'), range } } } } }, required: ['kind', 'series'] },
+	matrix: { type: 'object', description: 'matrix: numbers as a heat map; for a vector use a 1 x n matrix. At most 24 x 24 cells are drawn: say the real shape in `dims`.', properties: { cells: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'Rows of numbers, all the same length.' }, rowLabels: { type: 'array', items: { type: 'string' } }, colLabels: { type: 'array', items: { type: 'string' } }, dims: str('The true shape, e.g. "4 x 768".'), scale: { type: 'string', enum: ['diverging', 'sequential'], description: 'diverging: negative blue, positive red (default); sequential: light to strong.' }, range, showValues: { type: 'boolean', description: 'Numbers in the cells (default for up to 8 x 8).' } }, required: ['cells'] },
+	code: { type: 'object', description: 'code: at most 12 lines, coloured (C-like, Python, SQL). Give `text`, or `file` + `lines` and Insilode reads them (inside the workspace).', properties: { file: str('Workspace file.'), lines: { type: 'array', items: { type: 'integer', minimum: 1 }, minItems: 2, maxItems: 2, description: '[first, last], 1-based.' }, text: str('The code; wins over `file`.'), language: str('python, sql, or leave out for C-like.'), highlight: { type: 'array', items: { type: 'integer' }, description: 'Line numbers to mark.' } } },
+} as const;
+
+/** The data key each type must carry; shapes (rect, ellipse, diamond, text, frame) carry none. */
+const REQUIRED_DATA: Partial<Record<(typeof ELEMENT_TYPES)[number], string>> = { path: 'path', arrow: 'arrow', table: 'table', json: 'json', chart: 'chart', matrix: 'matrix', code: 'code' };
+
+const ELEMENTS_SCHEMA = {
+	type: 'array',
+	description: 'kind canvas only: what is drawn, at most 300. Frames (type "frame") hold other elements by `frame` and lay them out as a row, a column or a grid: prefer them to coordinates. Each element has an `id`, a `type` and the sub-object of that type.',
+	items: {
+		type: 'object',
+		properties: {
+			id: str('Unique within the board; arrows, `frame` and steps refer to it.'),
+			type: { type: 'string', enum: [...ELEMENT_TYPES], description: 'rect: a box with label, detail, an icon and typed inputs/output · ellipse · diamond · text: free text · frame: a group · path: a line or shape · arrow · table · json · chart · matrix · code.' },
+			frame: str('Id of the frame this element sits in; omit for the root.'),
+			x: num('Absolute place inside the frame; leave out and the layout places it. Mixing placed and unplaced children in one frame lints.'),
+			y: num('See x.'),
+			w: num('Width; a default fits the content.'),
+			h: num('Height; a default fits the content.'),
+			label: str('Main text (`code` spans allowed).'),
+			detail: str('A second, smaller line.'),
+			style: { type: 'object', properties: { fill: color('Fill.'), stroke: color('Border or line.'), text: color('Text.'), line: { type: 'string', enum: ['solid', 'dashed', 'dotted'] }, weight: { type: 'string', enum: ['normal', 'bold'] }, size: { type: 'string', enum: ['s', 'm', 'l'] }, opacity: { type: 'number', minimum: 0, maximum: 1 } } },
+			link,
+			origin,
+			source: str('Where a `runtime` value was observed: "test output", "log line 42".'),
+			note: str('A note shown as an "i" on the element.'),
+			span: int('Grid columns this element takes.'),
+			kind: str('rect: a colour for a role (service, repository, entity, dto, enum, interface, class, external, actor, decision, note).'),
+			icon: str('rect: an icon name: database, server, cloud, user, users, file, folder, code, terminal, globe, lock, key, queue, mail, bell, clock, gear, search, chart, cpu, box, layers, link, bolt, shield, check, x, warning, info, play, brain, text, grid, image, api, git, cache, disk, tag, flag, star, device.'),
+			inputs: { type: 'array', description: 'rect: typed input rows (at most 12).', items: port },
+			output: port,
+			members: { type: 'array', description: 'rect: lines of code-like text under the label, [{"text": "id: UUID"}] (at most 12).', items: { type: 'object', properties: { text: str('One line.'), kind: { type: 'string', enum: ['field', 'method', 'property'] } }, required: ['text'] } },
+			...ELEMENT_DATA,
+		},
+		required: ['id', 'type'],
+		oneOf: ELEMENT_TYPES.map(t => ({ properties: { type: { type: 'string', enum: [t] } }, ...(REQUIRED_DATA[t] ? { required: [REQUIRED_DATA[t]] } : {}) })),
+	},
+} as const;
+
 export const BOARD_SCHEMA = {
 	type: 'object',
 	description: 'The board to draw.',
 	properties: {
-		kind: { type: 'string', enum: [...BOARD_KINDS], description: 'flow: how a request/process runs · plan: ordered steps to do · class: classes and their relations · er: tables/entities · sequence: messages between actors in order (give every edge an `order`) · architecture: layers/services · state: the states of one thing and its transitions. An unknown kind is drawn as flow, and the answer says so.' },
+		kind: { type: 'string', enum: [...BOARD_KINDS], description: 'flow: how a request/process runs · plan: ordered steps to do · class: classes and their relations · er: tables/entities · sequence: messages between actors in order (give every edge an `order`) · architecture: layers/services · state: the states of one thing and its transitions · canvas: a free drawing (frames, shapes, arrows and data widgets: table, json, chart, matrix, code) to teach a concept or explain code, built from `elements` instead of `nodes` and `edges`. An unknown kind is drawn as flow, and the answer says so.' },
 		title: str('Short title shown above the diagram: the question it answers.'),
 		description: str('Optional one or two sentences.'),
 		direction: { type: 'string', enum: ['LR', 'TB'], description: 'Left-to-right (default for flows) or top-to-bottom (default for plans).' },
@@ -62,6 +156,9 @@ export const BOARD_SCHEMA = {
 					nodes: { type: 'array', items: { type: 'string' }, description: 'Node ids to light up.' },
 					edges: { type: 'array', items: { type: 'array', items: { type: 'string' }, minItems: 2, maxItems: 2 }, description: 'Edges to light up as [from, to] node ids.' },
 					focus: str('Group (or node) id to open for this step.'),
+					show: { type: 'array', items: { type: 'string' }, description: 'canvas: the element ids drawn in this step (leave out: all). Nothing moves between steps, so the picture builds up where it will stay; list every element to show, a frame does not bring its children.' },
+					open: { type: 'array', items: { type: 'string' }, description: 'canvas: collapsed frame ids to open for this step.' },
+					lit: { type: 'array', items: { type: 'string' }, description: 'canvas: element ids at full strength while the rest dims; an arrow lights when both its ends do.' },
 				},
 				required: ['title'],
 			},
@@ -161,6 +258,10 @@ export const BOARD_SCHEMA = {
 				required: ['id', 'label'],
 			},
 		},
+		purpose: { type: 'string', enum: ['concept', 'code'], description: 'canvas: concept = teaching an idea (say `origin` on every value: source, illustrative or runtime) · code = explaining real code (link elements to symbols and files).' },
+		layout: { type: 'string', enum: ['row', 'column', 'grid'], description: 'canvas: how the root places its elements (default grid).' },
+		columns: int('canvas: grid columns of the root (default 3).'),
+		elements: ELEMENTS_SCHEMA,
 	},
 	required: ['title'],
 } as const;
@@ -244,7 +345,7 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'draw_board',
-		description: 'Draw a diagram that Insilode shows to the user next to the editor, like an artifact. Use it in plan mode to show the flow or architecture you designed, when explaining a design, or to lay out a multi-step plan the user can follow. The answer carries a LINT list (dropped items, unknown ids, orphans, too many nodes, crossings): fix what it names by calling again with the same `id`. Rules: one question per board, said in `title`, about 15-20 visible nodes at most (split, or collapse `groups`) · pick the kind by the question: how does it run -> sequence (order matters) or flow, what is it made of -> architecture or class, how is data stored -> er, what states can it be in -> state, what will we do -> plan, what changed -> `base` · ground nodes: take names from find_symbol or flow_text and give `symbol` (and `file`) for real code, leave it off for proposed things · label edges with verbs or payloads, not "calls" · group by layer or service, 2 levels at most · edge `kind` carries meaning (reads vs writes, extends vs uses) · number messages with `order` · then EXPLAIN it with `steps` (3-10, each lights some nodes and edges with a caption) instead of a paragraph in chat. Kinds: flow, plan (ordered steps with status), class, er (tables), sequence, architecture (with `level` context/container/component for C4), state. Give every node a unique id and a short label; link nodes to code with symbol or file (+ line); connect them with edges; no coordinates, layout is automatic. Passing the same `id` again replaces that board (the previous version is kept for "what changed"), so redraw instead of drawing a second copy. The `diagram_guide` prompt has the full advice. Example: {"id":"order-flow","board":{"kind":"flow","title":"Place order","nodes":[{"id":"api","label":"POST /orders","kind":"entry","file":"src/OrdersController.cs","line":24},{"id":"svc","label":"OrderService.Place","kind":"service"},{"id":"db","label":"orders","kind":"entity"}],"edges":[{"from":"api","to":"svc"},{"from":"svc","to":"db","kind":"writes","label":"insert"}]}}. For a plan use kind "plan" with step nodes in order joined by "next" edges, then tick them off with update_board while you work.',
+		description: 'Draw a diagram that Insilode shows to the user next to the editor, like an artifact. Use it in plan mode to show the flow or architecture you designed, when explaining a design, or to lay out a multi-step plan the user can follow. The answer carries a LINT list (dropped items, unknown ids, orphans, too many nodes, crossings): fix what it names by calling again with the same `id`. Rules: one question per board, said in `title`, about 15-20 visible nodes at most (split, or collapse `groups`) · pick the kind by the question: how does it run -> sequence (order matters) or flow, what is it made of -> architecture or class, how is data stored -> er, what states can it be in -> state, what will we do -> plan, what changed -> `base` · ground nodes: take names from find_symbol or flow_text and give `symbol` (and `file`) for real code, leave it off for proposed things · label edges with verbs or payloads, not "calls" · group by layer or service, 2 levels at most · edge `kind` carries meaning (reads vs writes, extends vs uses) · number messages with `order` · then EXPLAIN it with `steps` (3-10, each lights some nodes and edges with a caption) instead of a paragraph in chat. Kinds: flow, plan (ordered steps with status), class, er (tables), sequence, architecture (with `level` context/container/component for C4), state. Give every node a unique id and a short label; link nodes to code with symbol or file (+ line); connect them with edges; no coordinates, layout is automatic. Passing the same `id` again replaces that board (the previous version is kept for "what changed"), so redraw instead of drawing a second copy. The `diagram_guide` prompt has the full advice. Example: {"id":"order-flow","board":{"kind":"flow","title":"Place order","nodes":[{"id":"api","label":"POST /orders","kind":"entry","file":"src/OrdersController.cs","line":24},{"id":"svc","label":"OrderService.Place","kind":"service"},{"id":"db","label":"orders","kind":"entity"}],"edges":[{"from":"api","to":"svc"},{"from":"svc","to":"db","kind":"writes","label":"insert"}]}}. For a plan use kind "plan" with step nodes in order joined by "next" edges, then tick them off with update_board while you work. For kind "canvas" (a free drawing: teach a concept such as text -> tokens -> embedding matrix, or explain real code and architecture) draw `elements` instead of nodes: frames that lay out their children, rects with typed inputs/outputs, arrows that carry a data type/shape badge, and widgets (table, json, chart, matrix, code); say `purpose` first, give every shown value an `origin`, show the story step by step with `steps[].show/lit`. The answer then carries the final box of every element, the lint, and a picture: look at it and fix what is crowded with update_board `elements`.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -256,7 +357,10 @@ export const TOOLS: ToolDef[] = [
 					required: ['mermaid'],
 				},
 				id: str('Stable name for the board (letters, digits, - _ . :). Reuse it to replace the board; omit for a new one.'),
-				image: { type: 'boolean', description: 'Default true: the answer carries a picture of the board as Insilode shows it, so you can check the layout and fix it with the same id. Pass false to skip it (a plan you only tick off, a quick redraw).' },
+				image: {
+					description: 'Default true: the answer carries a picture of the board as Insilode shows it, so you can check the layout and fix it with the same id. Pass false to skip it (a plan you only tick off, a quick redraw). A canvas board also takes {"step": n} (1-based): the picture of that step\'s scene.',
+					oneOf: [{ type: 'boolean' }, { type: 'object', properties: { step: int('The step to draw, 1-based.') }, required: ['step'], additionalProperties: false }],
+				},
 			},
 			additionalProperties: false,
 		},
@@ -299,7 +403,7 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'update_board',
-		description: 'Update a board you drew with draw_board without redrawing it: set the status of a node (todo, doing, done, skipped, blocked), its note and/or its change mark (added, removed, changed); pass several nodes at once in `updates`; or light a route with `highlight` (e.g. to answer "what about the cache?" by lighting the path to it). Use it to tick plan steps as you work so the user sees progress on the board.',
+		description: 'Update a board you drew with draw_board without redrawing it: set the status of a node (todo, doing, done, skipped, blocked), its note and/or its change mark (added, removed, changed); pass several nodes at once in `updates`; or light a route with `highlight` (e.g. to answer "what about the cache?" by lighting the path to it). Use it to tick plan steps as you work so the user sees progress on the board. On a canvas board pass `elements` instead: patches [{"id": "a", "label": "new"}] merge into that element, {"id": "a", "remove": true} removes it (and the arrows that end there), an unknown id adds an element. The answer then carries the lint, the boxes and a picture again.',
 		inputSchema: {
 			type: 'object',
 			properties: {
@@ -322,11 +426,23 @@ export const TOOLS: ToolDef[] = [
 					description: 'Replaces the highlighted routes of the board ([] clears them): [{"path":["api","svc","db"],"label":"happy path"}].',
 					items: { type: 'object', properties: { path: { type: 'array', items: { type: 'string' }, description: 'Node ids in order.' }, label: str('Name of the route.') }, required: ['path'] },
 				},
+				elements: {
+					type: 'array',
+					description: 'Canvas boards: element patches (at most 100). {"id": "a", ...fields} merges the fields into element a (`style` merges one level, other fields are replaced), {"id": "a", "remove": true} removes it, a new id adds an element (give it `type` and its data).',
+					items: { type: 'object', properties: { id: str('Element id.'), remove: { type: 'boolean', description: 'true removes the element.' } }, required: ['id'] },
+				},
+				image: { type: 'boolean', description: 'Canvas boards: default true, the answer carries a picture; false skips it.' },
 			},
 			required: ['id'],
 			additionalProperties: false,
 		},
 		annotations: ro('Update a board node'),
+	},
+	{
+		name: 'read_board',
+		description: 'Read a board back: its spec (for a canvas board the elements), where every canvas element ended up after layout, and what the USER did to it by hand: the elements they moved ({id: {x, y}}) and the notes they pinned ({id: text}). Use it when the user says they moved something or left a note on the board, before you redraw it, so their changes are not lost and you can answer their notes. Pass the board `id` draw_board returned.',
+		inputSchema: { type: 'object', properties: { id: str('Board id returned by draw_board.') }, required: ['id'], additionalProperties: false },
+		annotations: ro('Read a board'),
 	},
 	{
 		name: 'tour',
