@@ -1,8 +1,8 @@
 /*---------------------------------------------------------------------------------------------
  *  Insilode: the Agents page (HTML, CSS and the script that draws it). No `vscode` here, so the page can be rendered
  *  outside the editor too (the website puts it in an iframe and sends it the same messages). It receives
- *  AgentsPageMessage (agentsData.ts) and posts AgentsAction (agentsMessage.ts) through acquireVsCodeApi().postMessage,
- *  or window.parent.postMessage when there is no VS Code around it. agentsPanel.ts gives it to the webview and answers.
+ *  AgentsPageMessage (agentsData.ts) and posts AgentsAction (agentsMessage.ts) through acquireVsCodeApi().postMessage
+ *  (the website's shim defines one too). agentsPanel.ts gives it to the webview and answers.
  *
  *  It is the wide sibling of the dock (dockPage.ts): the same rows, drawn as a board (or a list) with a detail panel for
  *  the selected agent. Text from a row only ever reaches the page through textContent (the h() helper below): the only
@@ -177,7 +177,8 @@ ${AVATAR_CSS}
 
 /** The page's script. Plain JavaScript in String.raw (no backticks and no dollar-brace in it), so it can be tested as text. */
 const SCRIPT = String.raw`
-const api = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : { postMessage: m => window.parent.postMessage(m, '*') };
+// Without an acquireVsCodeApi (neither VS Code nor the website's shim) the page only draws: it never posts to a window it cannot name.
+const api = typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi() : { postMessage: () => undefined };
 const post = m => api.postMessage(m);
 const MARK = { claude: ${JSON.stringify(ICON.claude)}, codex: ${JSON.stringify(ICON.codex)} };
 ${AVATAR_SCRIPT}

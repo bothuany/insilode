@@ -103,9 +103,9 @@ test('the inline script parses and posts ready', () => {
 	assert.deepEqual(p.posted, [{ type: 'ready' }])
 })
 
-test('outside VS Code it posts to the parent window instead', () => {
+test('without acquireVsCodeApi it posts to no window at all', () => {
 	const p = boot({ vscodeApi: false })
-	assert.deepEqual(p.parentPosted, [[{ type: 'ready' }, '*']])
+	assert.deepEqual(p.parentPosted, [])
 })
 
 test('an empty list shows the friendly prompt with both start buttons', () => {
