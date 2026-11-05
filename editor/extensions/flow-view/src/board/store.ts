@@ -19,6 +19,8 @@ export interface BoardHost {
 	image?(id: string, timeoutMs?: number, step?: number): Promise<string | undefined>;
 	/** What the user did to a canvas board by hand (moves, notes). */
 	overrides?(id: string): Overrides;
+	/** Forgets those: the id now names a board this window has not drawn before. */
+	forgetOverrides?(id: string): void;
 }
 
 /** What a host shows next to the board: the board compared with its previous draw, for the "what changed" switch. */
@@ -103,6 +105,14 @@ export class BoardStore {
 	/** The user's moves and notes on a canvas board; empty when no host keeps them. */
 	overrides(id: string): Overrides {
 		return this.host?.overrides?.(id) ?? {};
+	}
+
+	/**
+	 * Moves and notes outlive the window but boards do not: a board drawn under an id this store does not hold is a new
+	 * drawing (maybe another session's), so what a user once did to an earlier board of that name must not land on it.
+	 */
+	forgetOverrides(id: string): void {
+		this.host?.forgetOverrides?.(id);
 	}
 
 	setHost(host: BoardHost | undefined) {

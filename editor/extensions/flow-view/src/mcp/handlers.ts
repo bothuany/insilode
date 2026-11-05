@@ -1225,6 +1225,10 @@ export class AgentTools {
 		for (const el of (spec.elements ?? []).filter(e => e.link?.board && e.link.board !== wanted && !this.d.boards.get(e.link.board)).slice(0, 4)) {
 			found.push(`element \`${el.id}\` zooms into board "${el.link!.board}", which is not drawn yet: draw it next with that id, or the element has nothing to open.`);
 		}
+		if (!replaced && wanted) {
+			// An id this window has not drawn: whatever a user moved or noted on an earlier board of that name is not about this one.
+			this.d.boards.forgetOverrides(wanted);
+		}
 		const id = await this.d.boards.set(spec, { id: wanted, origin: 'agent' });
 		const dark = ![vscode.ColorThemeKind.Light, vscode.ColorThemeKind.HighContrastLight].includes(vscode.window.activeColorTheme.kind);
 		const rendered = renderCanvas(spec, { dark, overrides: this.d.boards.overrides(id), step: index });

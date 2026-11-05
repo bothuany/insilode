@@ -137,20 +137,37 @@ export function CanvasView({ spec, painted, palette, options, selected, apiRef, 
     dragRef.current = d
     setDrag(d)
   }
+  // A drag lays the whole board out again (layout, widgets, every arrow's route), so the picture follows the pointer at most
+  // once per frame rather than on every pointermove. A drag only happens while the tab is visible, so the frame callback runs.
+  const frameReq = useRef<number | undefined>(undefined)
   const onHitMove = (e: RPointerEvent) => {
     const d = dragRef.current
     if (!d) return
     const dx = e.clientX - d.sx, dy = e.clientY - d.sy
     if (!d.moved && Math.hypot(dx, dy) < DRAG_PX) return
     const k = viewRef.current.k
-    const next = { ...d, moved: true, x: Math.max(0, Math.round(d.rel.x + dx / k)), y: Math.max(0, Math.round(d.rel.y + dy / k)) }
-    dragRef.current = next
-    setDrag(next)
+    dragRef.current = { ...d, moved: true, x: Math.max(0, Math.round(d.rel.x + dx / k)), y: Math.max(0, Math.round(d.rel.y + dy / k)) }
+    if (frameReq.current === undefined) {
+      frameReq.current = requestAnimationFrame(() => {
+        frameReq.current = undefined
+        setDrag(dragRef.current)
+      })
+    }
   }
-  const onHitUp = (e: RPointerEvent) => {
+  const endDrag = () => {
+    if (frameReq.current !== undefined) cancelAnimationFrame(frameReq.current)
+    frameReq.current = undefined
     const d = dragRef.current
     dragRef.current = undefined
     setDrag(undefined)
+    return d
+  }
+  useEffect(() => () => { if (frameReq.current !== undefined) cancelAnimationFrame(frameReq.current) }, [])
+  // A link click on a frame waits a moment: a double click on the header collapses the frame and must not also open the link.
+  const linkTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(linkTimer.current), [])
+  const onHitUp = (e: RPointerEvent) => {
+    const d = endDrag()
     if (!d) return
     if (d.moved) {
       onMove(d.id, d.x, d.y, d.hash)
@@ -161,9 +178,19 @@ export function CanvasView({ spec, painted, palette, options, selected, apiRef, 
     const el = elOf.get(d.id)
     const pl = painted.layout.boxes.get(d.id)
     const link = el && pl ? linkAt(el, pl.box, toBoard(e)) : undefined
-    if (link?.file) onOpen(link.file, link.line ?? 1)
-    else if (link?.board) onZoom(link.board)
+    const follow = () => {
+      if (link?.file) onOpen(link.file, link.line ?? 1)
+      else if (link?.board) onZoom(link.board)
+    }
+    clearTimeout(linkTimer.current)
+    if (el?.type === 'frame') {
+      if (e.detail < 2) linkTimer.current = setTimeout(follow, 260)
+    } else {
+      follow()
+    }
   }
+  // The browser took the pointer away (a touch gesture, the window lost focus): the drag ends where it was, unsaved.
+  const onHitCancel = () => { endDrag() }
 
   const onBgDown = (e: RPointerEvent) => {
     if (e.button !== 0) return
@@ -235,10 +262,13 @@ export function CanvasView({ spec, painted, palette, options, selected, apiRef, 
                 onPointerDown={e => onHitDown(e, el.id)}
                 onPointerMove={onHitMove}
                 onPointerUp={onHitUp}
+                onPointerCancel={onHitCancel}
+                onLostPointerCapture={() => { if (dragRef.current) onHitCancel() }}
                 onPointerEnter={() => enter(el.id)}
                 onPointerLeave={leave}
-                onDoubleClick={e => {
+                onDoubleClick={() => {
                   if (el.type !== 'frame') return
+                  clearTimeout(linkTimer.current)
                   onToggleFrame(el.id)
                 }}
               ><title>{describe(el, notes?.[el.id])}</title></rect>

@@ -42,6 +42,7 @@ function setup(png) {
 		show: () => { }, update: () => { },
 		image: async (id, ms, step) => { asked.push({ id, ms, step }); return typeof png === 'function' ? png() : png },
 		overrides: id => kept[id] ?? {},
+		forgetOverrides: id => { delete kept[id] },
 	})
 	const t = new tools.AgentTools({ boards, skeleton: undefined, log: { warn() { } } })
 	return { t, boards, asked, kept }
@@ -174,4 +175,14 @@ test('read_board: the spec, the boxes with the user\'s moves, and what they move
 	const f = JSON.parse(textOf(await t.call('read_board', { id: 'f' })))
 	assert.equal(f.spec.nodes.length, 1)
 	assert.equal(f.boxes, undefined)
+})
+
+test('draw_board canvas: an id this window has not drawn starts without the moves and notes of an earlier board of that name', async () => {
+	const { t, kept } = setup('p')
+	kept.orders = { notes: { api: 'from a board drawn before the window reloaded' } }
+	await t.call('draw_board', { id: 'orders', board: board(), image: false })
+	assert.deepEqual(JSON.parse(textOf(await t.call('read_board', { id: 'orders' }))).overrides, { moves: {}, notes: {} })
+	kept.orders = { notes: { api: 'noted on this drawing' } }
+	await t.call('draw_board', { id: 'orders', board: board(), image: false })
+	assert.deepEqual(JSON.parse(textOf(await t.call('read_board', { id: 'orders' }))).overrides.notes, { api: 'noted on this drawing' }, 'a redraw in the same window keeps them')
 })

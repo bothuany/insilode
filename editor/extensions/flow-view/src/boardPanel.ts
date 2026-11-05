@@ -189,6 +189,7 @@ export class BoardPanel implements vscode.Disposable {
 			update: (id, spec, extra?: BoardExtra) => (this.tabs.has(`board:${id}`) ? this.show(spec, { key: `board:${id}`, preserveFocus: true, since: extra?.since, boards: extra?.boards }) : undefined),
 			image: (id, timeoutMs, step) => this.image(`board:${id}`, timeoutMs, step),
 			overrides: id => this.overrides.get(id),
+			forgetOverrides: id => this.overrides.forget(id),
 		};
 	}
 

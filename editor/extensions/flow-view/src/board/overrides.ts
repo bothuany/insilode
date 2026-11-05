@@ -26,26 +26,23 @@ type All = Record<string, Overrides>;
 export class OverridesStore {
 	constructor(private readonly keep: Keep) { }
 
-	private all(): All {
+	// Entries, not a plain object indexed by board id: a board may be called `__proto__` (cleanBoardId allows it), and
+	// assigning that key on an object would set its prototype instead of storing the board.
+	private all(): [string, Overrides][] {
 		const v = this.keep.get<All>(KEY);
-		return v && typeof v === 'object' ? v : {};
+		return v && typeof v === 'object' ? Object.entries(v) : [];
 	}
 
 	private write(id: string, o: Overrides | undefined) {
-		const all = { ...this.all() };
-		delete all[id]; // re-inserted last: the oldest boards are the ones forgotten
+		const rest = this.all().filter(([k]) => k !== id); // re-inserted last: the oldest boards are the ones forgotten
 		if (o && (Object.keys(o.moves ?? {}).length || Object.keys(o.notes ?? {}).length)) {
-			all[id] = o;
+			rest.push([id, o]);
 		}
-		const ids = Object.keys(all);
-		for (const old of ids.slice(0, Math.max(0, ids.length - MAX_BOARDS))) {
-			delete all[old];
-		}
-		void this.keep.update(KEY, all);
+		void this.keep.update(KEY, Object.fromEntries(rest.slice(Math.max(0, rest.length - MAX_BOARDS))));
 	}
 
 	get(id: string): Overrides {
-		return this.all()[id] ?? {};
+		return this.all().find(([k]) => k === id)?.[1] ?? {};
 	}
 
 	/** Stores a move; false when the numbers are not a place on a drawing. */

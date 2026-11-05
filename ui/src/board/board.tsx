@@ -301,7 +301,8 @@ function BoardView() {
   /** The board as the export and the agent's picture draw it: with the user's moves and notes, optionally one step's scene, never the viewer's own flips. */
   const canvasSvg = (step?: number) => {
     const s = step === undefined ? undefined : spec.steps?.[step]
-    return canvasToSvg(paintCanvas(cspec!, readCanvasPalette(), { overrides: ovr, ...sceneOf(s) }), readCanvasPalette())
+    const p = readCanvasPalette()
+    return canvasToSvg(paintCanvas(cspec!, p, { overrides: ovr, ...sceneOf(s) }), p)
   }
   const onCanvasMove = useCallback((id: string, x: number, y: number, hash: string) => {
     setOvr(prev => ({ ...prev, moves: { ...prev.moves, [id]: { x, y, hash } } }))

@@ -163,7 +163,10 @@ not command ids: the Semgrep allowlist is unaffected; the webview-security-revie
 
 ## Lint (all on the host, `board-canvas/lint.ts`)
 
-Errors (element dropped): unknown frame/arrow/port id, arrow to itself, frame cycle or depth > 3, ragged matrix,
+Placed at the root with a note (not dropped, so nothing the agent drew disappears): an unknown frame id, a frame cycle
+(a frame nested deeper than 3 is drawn collapsed);
+removing a frame with `update_board` moves its elements up to its own frame and the answer says so. Errors (element
+dropped): unknown arrow/port end, arrow to itself, ragged matrix,
 series length mismatch. Warnings: code > 12 lines or file missing, mixed flow/absolute frame, unknown symbol
 (today's groundBoard), arrow through text, overlapping boxes, element outside its frame, `nodes`/`edges` on a
 canvas step. Info: hex colour, `purpose: code` with no link, `origin: runtime` without `source`, unknown icon,

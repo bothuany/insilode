@@ -233,3 +233,39 @@ test('canvas board: the store compare keeps a canvas board whole (no blank tab, 
 	assert.equal(shownBy.at(-1)[1].since, undefined, 'no "what changed" switch for a canvas board')
 	assert.equal(s.get('c').previous.elements.length, 6, 'the previous draw is kept')
 })
+
+test('canvas board: a board called __proto__ keeps its moves and notes like any other', () => {
+	const keep = memento()
+	const o = new overrides.OverridesStore(keep)
+	assert.ok(o.move('__proto__', 'a', 10, 20, 'h'))
+	assert.ok(o.note('__proto__', 'a', 'kept'))
+	assert.deepEqual(o.get('__proto__'), { moves: { a: { x: 10, y: 20, hash: 'h' } }, notes: { a: 'kept' } })
+	assert.deepEqual(JSON.parse(JSON.stringify(keep.m.get('flow.board.overrides'))).__proto__.notes, { a: 'kept' }, 'stored as an own key')
+	o.forget('__proto__')
+	assert.deepEqual(o.get('__proto__'), {})
+})
+
+test('canvas board: removing a frame moves its elements up to its own frame, and says so', () => {
+	const { spec } = canvas.parseCanvasBoard({ kind: 'canvas', title: 'T', elements: [
+		{ id: 'outer', type: 'frame', label: 'Outer' },
+		{ id: 'inner', type: 'frame', label: 'Inner', frame: 'outer' },
+		{ id: 'a', type: 'rect', label: 'A', frame: 'inner' },
+		{ id: 'b', type: 'rect', label: 'B', frame: 'inner' },
+	] })
+	const { raw, changed } = canvas.patchElements(spec, [{ id: 'inner', remove: true }])
+	assert.deepEqual(raw.elements.filter(e => e.type === 'rect').map(e => e.frame), ['outer', 'outer'])
+	assert.match(changed.join('; '), /removed `inner` \(its 2 elements moved to frame `outer`\)/)
+	const again = canvas.parseCanvasBoard(raw)
+	assert.deepEqual(again.errors, [])
+	assert.deepEqual(again.notes, [], 'no element names a missing frame')
+})
+
+test('canvas board: a code widget keeps only the 12 lines it draws, however wide the range', () => {
+	const lines = Array.from({ length: 400 }, (_, i) => `line ${i + 1}`).join('\n')
+	const { spec } = canvas.parseCanvasBoard({ kind: 'canvas', title: 'T', elements: [{ id: 'c', type: 'code', code: { file: 'big.ts', lines: [5, 300] } }] })
+	canvas.fillCode(spec, () => lines, f => `/w/${f}`)
+	const code = spec.elements[0].code
+	assert.equal(code.text.split('\n').length, 12)
+	assert.equal(code.text.split('\n')[0], 'line 5')
+	assert.deepEqual(code.lines, [5, 16])
+})

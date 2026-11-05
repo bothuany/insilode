@@ -146,7 +146,9 @@ export function fillCode(spec: BoardSpec, read: (file: string) => string | undef
 			found.push(`element \`${el.id}\`: lines ${from}-${to} are past the end of ${el.code.file} (${all.length} lines).`);
 			continue;
 		}
-		el.code = { ...el.code, text: all.slice(from - 1, Math.min(to, all.length)).join('\n'), lines: [from, Math.min(to, all.length)] };
+		// Only the lines the widget draws are kept: a wide range would carry the file into the spec, every redraw and read_board.
+		const last = Math.min(to, all.length, from + 11);
+		el.code = { ...el.code, text: all.slice(from - 1, last).join('\n'), lines: [from, last] };
 		el.link = { ...el.link, file: abs, line: el.link?.line ?? from };
 	}
 	return found;
@@ -166,7 +168,14 @@ export function patchElements(spec: BoardSpec, patches: ElementPatch[]): { raw: 
 	for (const p of patches) {
 		const at = list.findIndex(e => e.id === p.id);
 		if (p.remove === true) {
-			if (at >= 0) { list.splice(at, 1); changed.push(`removed \`${p.id}\``); }
+			if (at >= 0) {
+				const [gone] = list.splice(at, 1);
+				// The children of a removed frame move up to its own frame (or the root), and the answer says so.
+				const up = typeof gone.frame === 'string' ? gone.frame : undefined;
+				const kids = list.filter(e => e.frame === p.id);
+				for (const k of kids) k.frame = up;
+				changed.push(`removed \`${p.id}\`${kids.length ? ` (its ${kids.length} element${kids.length === 1 ? '' : 's'} moved to ${up ? `frame \`${up}\`` : 'the root'})` : ''}`);
+			}
 			else changed.push(`\`${p.id}\` is not on the board, nothing to remove`);
 			continue;
 		}
