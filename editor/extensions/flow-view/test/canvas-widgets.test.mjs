@@ -243,3 +243,10 @@ test('a teaching board: text to vector, in frames, with typed ports and a matrix
 	assert.deepEqual(lint.lintCanvas(parsed.spec, painted).filter(f => f.level === 'warning'), [])
 	golden('teaching', paint.toSvg(painted, paint.LIGHT))
 })
+
+test('a scene hides an element from the reader: it keeps its place but is not hittable', () => {
+	const spec = { title: 'T', elements: [{ id: 'a', type: 'rect', label: 'A' }, { id: 'b', type: 'rect', label: 'B' }] }
+	const painted = paint.paintCanvas(spec, paint.DARK, { show: new Set(['a']) })
+	assert.ok(painted.layout.boxes.has('b'), 'hidden elements keep their place in the layout')
+	assert.deepEqual(paint.hittable(painted).map(p => p.el.id), ['a'])
+})

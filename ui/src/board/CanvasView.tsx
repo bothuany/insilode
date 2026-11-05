@@ -6,7 +6,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRe
 import { DIM, type CanvasElement, type CanvasSpec, type Link, type Overrides } from '../../../board-canvas/canvas'
 import { moveHash, rowBoxes, type Box } from '../../../board-canvas/layout'
 import { textWidth } from '../../../board-canvas/measure'
-import { paintCanvas, type Painted, type PaintOptions, type Palette, type Primitive } from '../../../board-canvas/paint'
+import { hittable, paintCanvas, type Painted, type PaintOptions, type Palette, type Primitive } from '../../../board-canvas/paint'
 
 export interface CanvasApi {
   fit(): void
@@ -122,7 +122,8 @@ export function CanvasView({ spec, painted, palette, options, selected, apiRef, 
     return { x: (e.clientX - r.left - viewRef.current.x) / viewRef.current.k, y: (e.clientY - r.top - viewRef.current.y) / viewRef.current.k }
   }
 
-  const placed = useMemo(() => [...live.layout.boxes.values()].sort((a, b) => a.depth - b.depth), [live])
+  // An element the scene hides keeps its place but is not there to hit, hover, drag or note.
+  const placed = useMemo(() => hittable(live).sort((a, b) => a.depth - b.depth), [live])
   const elOf = useMemo(() => new Map(spec.elements.map(e => [e.id, e])), [spec])
 
   const onHitDown = (e: RPointerEvent, id: string) => {
@@ -192,7 +193,7 @@ export function CanvasView({ spec, painted, palette, options, selected, apiRef, 
   useEffect(() => () => clearTimeout(hoverTimer.current), [])
 
   const noteTarget = editing ?? (drag ? undefined : hover ?? selected)
-  const noteBox = noteTarget ? live.layout.boxes.get(noteTarget)?.box : undefined
+  const noteBox = noteTarget && !live.hidden.has(noteTarget) ? live.layout.boxes.get(noteTarget)?.box : undefined
   const openNote = (id: string) => {
     setDraft(notes?.[id] ?? '')
     setEditing(id)
@@ -215,7 +216,7 @@ export function CanvasView({ spec, painted, palette, options, selected, apiRef, 
           <g key={openKey} className="cv-fade">
             {live.primitives.map((p, i) => <g key={i} data-el={p.id}><Prim p={p} /></g>)}
           </g>
-          {selected && live.layout.boxes.get(selected) && <rect className="cv-sel" x={live.layout.boxes.get(selected)!.box.x - 3} y={live.layout.boxes.get(selected)!.box.y - 3} width={live.layout.boxes.get(selected)!.box.w + 6} height={live.layout.boxes.get(selected)!.box.h + 6} rx={9} fill="none" />}
+          {selected && !live.hidden.has(selected) && live.layout.boxes.get(selected) && <rect className="cv-sel" x={live.layout.boxes.get(selected)!.box.x - 3} y={live.layout.boxes.get(selected)!.box.y - 3} width={live.layout.boxes.get(selected)!.box.w + 6} height={live.layout.boxes.get(selected)!.box.h + 6} rx={9} fill="none" />}
           {placed.map(pl => {
             const el = pl.el
             // An open frame is hit on its header strip only, so its empty area still pans the board; a collapsed one is one small box.

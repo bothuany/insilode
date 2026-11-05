@@ -33,6 +33,11 @@ export interface Painted {
 
 const DIMMED = 0.28;
 
+/** The elements the reader can point at in this scene: a hidden element keeps its place in the layout but must not be hit, hovered or dragged. */
+export function hittable(painted: Painted): Placed[] {
+	return [...painted.layout.boxes.values()].filter(pl => !painted.hidden.has(pl.el.id));
+}
+
 export function paintCanvas(spec: CanvasSpec, p: Palette, o: PaintOptions = {}): Painted {
 	const layout = layoutCanvas(spec, o);
 	const out: Primitive[] = [];
