@@ -58,7 +58,8 @@ export const chart: Widget<El> = {
 		const kind = el.chart.kind;
 		const categorical = kind === 'bar' || (kind === 'line' && pts.every(l => l.every((q, i) => q.x === i)));
 		const legendH = all.length > 1 ? 18 : 0;
-		const plot = { x: box.x + LEFT, y: top + legendH + 6, w: box.w - LEFT - RIGHT, h: box.h - (top - box.y) - legendH - FOOT - 6 };
+		const yLabel = el.chart.axes?.y?.label ? 12 : 0;
+		const plot = { x: box.x + LEFT, y: top + legendH + 6 + yLabel, w: box.w - LEFT - RIGHT, h: box.h - (top - box.y) - legendH - FOOT - 6 - yLabel };
 		const ys = pts.flat().map(q => q.y), xs = pts.flat().map(q => q.x);
 		const lo = ys.length ? Math.min(...ys) : 0, hi = ys.length ? Math.max(...ys) : 1;
 		const yr = el.chart.axes?.y?.range ?? (kind === 'bar' ? niceRange(Math.min(0, lo), Math.max(0, hi)) : niceRange(lo, hi));
@@ -107,7 +108,7 @@ export const chart: Widget<El> = {
 			});
 		}
 		if (el.chart.axes?.x?.label) out.push({ kind: 'text', x: plot.x + plot.w / 2, y: box.y + box.h - 6, text: el.chart.axes.x.label, size: LABEL_PX, fill: p.muted, anchor: 'middle' });
-		if (el.chart.axes?.y?.label) out.push({ kind: 'text', x: box.x + PAD, y: plot.y - 4, text: el.chart.axes.y.label, size: LABEL_PX, fill: p.muted });
+		if (el.chart.axes?.y?.label) out.push({ kind: 'text', x: box.x + PAD, y: plot.y - 8, text: el.chart.axes.y.label, size: LABEL_PX, fill: p.muted });
 		return [...prims, ...out];
 	},
 };

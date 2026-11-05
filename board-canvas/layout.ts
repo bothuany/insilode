@@ -40,6 +40,8 @@ export interface CanvasLayout {
 export interface LayoutOptions {
 	/** Frames to show expanded in addition to the spec (a scene's `open`). */
 	open?: ReadonlySet<string>;
+	/** Frames whose collapsed state the viewer flipped (a double click on the header): view only, never stored. A scene's `open` still wins. */
+	flip?: ReadonlySet<string>;
 	overrides?: Overrides;
 }
 
@@ -82,7 +84,7 @@ export function layoutCanvas(spec: CanvasSpec, o: LayoutOptions = {}): CanvasLay
 	const frames = new Map<string | null, Frame>();
 	const frameOf = (el: CanvasElement): Frame['data'] => {
 		const d = el.type === 'frame' ? el.frameData ?? {} : {};
-		return { layout: d.layout ?? 'row', columns: d.columns ?? 3, gap: d.gap ?? DIM.gap, pad: d.pad ?? DIM.pad, align: d.align ?? 'start', collapsed: !!d.collapsed && !o.open?.has(el.id) };
+		return { layout: d.layout ?? 'row', columns: d.columns ?? 3, gap: d.gap ?? DIM.gap, pad: d.pad ?? DIM.pad, align: d.align ?? 'start', collapsed: (!!d.collapsed !== !!o.flip?.has(el.id)) && !o.open?.has(el.id) };
 	};
 	frames.set(null, { el: null, children: [], data: { layout: spec.layout ?? 'grid', columns: spec.columns ?? 3, gap: DIM.gap, pad: 0, align: 'start', collapsed: false } });
 	for (const el of spec.elements) if (el.type === 'frame') frames.set(el.id, { el, children: [], data: frameOf(el) });
