@@ -4,7 +4,7 @@
 // outside of the obstacles. Labels sit on the longest segment. Pure, so the host and the webview draw the same lines.
 
 import { DIM, type ArrowData, type CanvasElement, type End, type Side } from './canvas';
-import type { Box, CanvasLayout } from './layout';
+import { rowBoxes, type Box, type CanvasLayout } from './layout';
 
 export interface Pt { x: number; y: number }
 
@@ -22,11 +22,15 @@ export interface Route {
 
 const f = (n: number) => Math.round(n * 10) / 10;
 
-function endBox(end: End, l: CanvasLayout): { box: Box; id?: string } | { pt: Pt } | undefined {
+function endBox(end: End, l: CanvasLayout): { box: Box; id?: string; port?: Side } | { pt: Pt } | undefined {
 	if (typeof end === 'object' && 'x' in end) return { pt: { x: end.x, y: end.y } };
 	const id = typeof end === 'string' ? end : end.el;
 	const p = l.boxes.get(id) ?? (l.rep.has(id) ? l.boxes.get(l.rep.get(id)!) : undefined);
-	return p ? { box: p.box, id: p.el.id } : undefined;
+	if (!p) return undefined;
+	// An end that names a port is the row of that port: an input is entered on the left, the output left on the right.
+	const portId = typeof end === 'object' && 'el' in end ? end.port : undefined;
+	const row = portId ? rowBoxes(p.el, p.box).find(r => r.id === portId) : undefined;
+	return row ? { box: row.box, id: p.el.id, port: row.output ? 'right' : 'left' } : { box: p.box, id: p.el.id };
 }
 
 const centre = (b: Box): Pt => ({ x: b.x + b.w / 2, y: b.y + b.h / 2 });
@@ -68,8 +72,8 @@ export function routeArrow(input: RouteInput, l: CanvasLayout): Route | RouteSki
 	const par = input.par ?? 0, pars = input.pars ?? 1;
 	const off = (par - (pars - 1) / 2) * DIM.arrowOffset;
 
-	const wantFrom = typeof input.arrow.from === 'object' && 'side' in input.arrow.from ? input.arrow.from.side : undefined;
-	const wantTo = typeof input.arrow.to === 'object' && 'side' in input.arrow.to ? input.arrow.to.side : undefined;
+	const wantFrom = (typeof input.arrow.from === 'object' && 'side' in input.arrow.from ? input.arrow.from.side : undefined) ?? ('port' in a ? a.port : undefined);
+	const wantTo = (typeof input.arrow.to === 'object' && 'side' in input.arrow.to ? input.arrow.to.side : undefined) ?? ('port' in b ? b.port : undefined);
 	const fromSide = 'box' in a ? sideOf(a.box, 'box' in b ? b.box : { ...b.pt, w: 0, h: 0 }, wantFrom) : undefined;
 	const toSide = 'box' in b ? sideOf(b.box, 'box' in a ? a.box : { ...a.pt, w: 0, h: 0 }, wantTo) : undefined;
 	const start = 'box' in a ? anchor(a.box, fromSide!, off) : a.pt;

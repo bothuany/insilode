@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="291" height="168" viewBox="0 0 291 168">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8b8b8b"/></marker>
+<marker id="o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M1 1L9 5L1 9" fill="none" stroke="#8b8b8b" stroke-width="1.4"/></marker></defs>
+<rect width="291" height="168" fill="#181818"/>
+<g transform="translate(24 24)">
+<rect x="0" y="0" width="243" height="120" rx="8" fill="#222222" stroke="#2c2c2c"/>
+<text x="10" y="16" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="12" font-weight="600" fill="#d4d4d4">Bills</text>
+<rect x="1" y="24" width="241" height="26" rx="0" fill="#2c2c2c" stroke="none"/>
+<text x="10" y="41" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="11" font-weight="600" text-anchor="start" fill="#8b8b8b">id</text>
+<text x="10" y="65" font-family="Consolas, 'JetBrains Mono', Menlo, monospace" xml:space="preserve" font-size="11" text-anchor="start" fill="#d4d4d4">b-1</text>
+<text x="10" y="87" font-family="Consolas, 'JetBrains Mono', Menlo, monospace" xml:space="preserve" font-size="11" text-anchor="start" fill="#d4d4d4">b-2</text>
+<text x="86" y="41" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="11" font-weight="600" text-anchor="start" fill="#8b8b8b">customer</text>
+<text x="86" y="65" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="11" text-anchor="start" fill="#6f86ff">Ada Lovelace</text>
+<text x="86" y="87" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="11" text-anchor="start" fill="#6f86ff">Alan Turing</text>
+<text x="233" y="41" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="11" font-weight="600" text-anchor="end" fill="#8b8b8b">total</text>
+<text x="233" y="65" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="11" text-anchor="end" fill="#d4d4d4">120.5</text>
+<text x="233" y="87" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="11" text-anchor="end" fill="#d4d4d4">87</text>
+<rect x="1" y="69" width="241" height="1" rx="0" fill="#2c2c2c" stroke="none" opacity="0.6"/>
+<text x="10" y="109" font-family="'Segoe UI', system-ui, sans-serif" xml:space="preserve" font-size="11" fill="#8b8b8b">+1 more row</text>
+</g></svg>
