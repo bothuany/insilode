@@ -207,6 +207,7 @@ test('moves: applied when the frame hash matches, dropped and reported when it d
 	assert.equal(stale.boxes.get('b').box.x, 160 + 16, 'back where the layout puts it')
 	const noted = paint.paintCanvas(spec, paint.DARK, { overrides: { notes: { a: 'ask Ada' } } })
 	assert.ok(noted.primitives.some(p => p.kind === 'text' && p.text === 'ask Ada'))
+	assert.ok(noted.layout.h > paint.paintCanvas(spec, paint.DARK).layout.h, 'a sticky below the last row is inside the picture')
 	assert.deepEqual(paint.boxesOf(moved).b, { x: 300, y: 90, w: 160, h: 64 })
 })
 

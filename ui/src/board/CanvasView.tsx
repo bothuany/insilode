@@ -3,7 +3,7 @@
 // widgets) is board-canvas's, the same code the host runs for the picture an agent gets; this file only draws it and turns
 // pointer events into moves, notes and opens. No foreignObject: the SVG is also what the export and the PNG are made of.
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject, type PointerEvent as RPointerEvent } from 'react'
-import type { CanvasElement, CanvasSpec, Link, Overrides } from '../../../board-canvas/canvas'
+import { DIM, type CanvasElement, type CanvasSpec, type Link, type Overrides } from '../../../board-canvas/canvas'
 import { moveHash, rowBoxes, type Box } from '../../../board-canvas/layout'
 import { textWidth } from '../../../board-canvas/measure'
 import { paintCanvas, type Painted, type PaintOptions, type Palette, type Primitive } from '../../../board-canvas/paint'
@@ -218,7 +218,8 @@ export function CanvasView({ spec, painted, palette, options, selected, apiRef, 
           {selected && live.layout.boxes.get(selected) && <rect className="cv-sel" x={live.layout.boxes.get(selected)!.box.x - 3} y={live.layout.boxes.get(selected)!.box.y - 3} width={live.layout.boxes.get(selected)!.box.w + 6} height={live.layout.boxes.get(selected)!.box.h + 6} rx={9} fill="none" />}
           {placed.map(pl => {
             const el = pl.el
-            const header = el.type === 'frame' && !pl.collapsed
+            // An open frame is hit on its header strip only, so its empty area still pans the board; a collapsed one is one small box.
+            const open = el.type === 'frame' && !pl.collapsed
             return (
               <rect
                 key={el.id}
@@ -228,9 +229,8 @@ export function CanvasView({ spec, painted, palette, options, selected, apiRef, 
                 x={pl.box.x}
                 y={pl.box.y}
                 width={pl.box.w}
-                height={pl.box.h}
+                height={open ? Math.min(DIM.frameHead, pl.box.h) : pl.box.h}
                 fill="transparent"
-                style={header ? { pointerEvents: 'visibleStroke' } : undefined}
                 onPointerDown={e => onHitDown(e, el.id)}
                 onPointerMove={onHitMove}
                 onPointerUp={onHitUp}
@@ -238,7 +238,7 @@ export function CanvasView({ spec, painted, palette, options, selected, apiRef, 
                 onPointerLeave={leave}
                 onDoubleClick={e => {
                   if (el.type !== 'frame') return
-                  if (pl.collapsed || toBoard(e).y - pl.box.y < 28) onToggleFrame(el.id)
+                  onToggleFrame(el.id)
                 }}
               ><title>{describe(el, notes?.[el.id])}</title></rect>
             )

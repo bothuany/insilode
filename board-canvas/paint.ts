@@ -62,7 +62,12 @@ export function paintCanvas(spec: CanvasSpec, p: Palette, o: PaintOptions = {}):
 		const prims: Primitive[] = [];
 		paintElement(pl, p, prims);
 		const note = o.overrides?.notes?.[pl.el.id];
-		if (note) paintNote(pl, note, p, prims);
+		if (note) {
+			// A sticky hangs below its element, outside the extent the layout computed: the picture grows to hold it.
+			const end = paintNote(pl, note, p, prims);
+			layout.w = Math.max(layout.w, end.x);
+			layout.h = Math.max(layout.h, end.y);
+		}
 		tag(prims, pl.el, !isLit(pl.el));
 	}
 
@@ -122,12 +127,13 @@ const portText = (arrow: string, port: { name: string; type?: string; value?: st
 	`${arrow} ${port.name}${port.type ? `: ${port.type}` : ''}${port.value ? ` = ${port.value}` : ''}${port.origin ? `  ${ORIGIN_TAG[port.origin]}` : ''}`;
 
 /** The note a user pinned to an element: a small sticky under it, wrapped to 190px. */
-function paintNote(pl: Placed, note: string, p: Palette, out: Primitive[]) {
+function paintNote(pl: Placed, note: string, p: Palette, out: Primitive[]): Pt {
 	const lines = wrap(note, FONT_PX.s, 190).slice(0, 6);
 	const w = Math.max(...lines.map(l => textWidth(l, FONT_PX.s))) + 16, h = lines.length * LINE_H.s + 10;
 	const x = pl.box.x, y = pl.box.y + pl.box.h + 6;
 	out.push({ kind: 'rect', x, y, w, h, rx: 4, fill: mix(p.card, p.amber, 0.22), stroke: p.amber });
 	lines.forEach((l, i) => out.push({ kind: 'text', x: x + 8, y: y + 8 + FONT_PX.s + i * LINE_H.s - 2, text: l, size: FONT_PX.s, fill: p.ink }));
+	return { x: x + w, y: y + h };
 }
 
 function paintOrigin(pl: Placed, p: Palette, out: Primitive[]) {

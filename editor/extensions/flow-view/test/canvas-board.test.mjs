@@ -8,7 +8,7 @@ import { join } from 'node:path'
 import { cleanup, load } from './bundle.mjs'
 import { ROOT } from './helpers.mjs'
 
-let canvas, overrides, store, tools, prompts, parse
+let canvas, overrides, store, tools, prompts, parse, compare
 before(async () => {
 	canvas = await load('src/board/canvas.ts')
 	overrides = await load('src/board/overrides.ts')
@@ -16,6 +16,7 @@ before(async () => {
 	tools = await load('src/mcp/tools.ts')
 	prompts = await load('src/mcp/prompts.ts')
 	parse = await load('../../../board-canvas/parse.ts')
+	compare = await load('src/board/compare.ts')
 })
 after(cleanup)
 
@@ -214,4 +215,21 @@ test('canvas board: ui/src/board/spec.ts is flow-view\'s spec.ts but for the pat
 	assert.equal(read('../../../ui/src/board/spec.ts'), read('src/board/spec.ts'))
 	assert.match(readFileSync(join(ROOT, 'src/board/spec.ts'), 'utf8'), /from '\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/board-canvas\/canvas'/)
 	assert.match(readFileSync(join(ROOT, '../../../ui/src/board/spec.ts'), 'utf8'), /from '\.\.\/\.\.\/\.\.\/board-canvas\/canvas'/)
+})
+
+test('canvas board: the store compare keeps a canvas board whole (no blank tab, no "Changes" diff)', async () => {
+	const a = canvas.parseCanvasBoard(base()).spec
+	const b = canvas.parseCanvasBoard({ ...base(), elements: [...base().elements, { id: 'x', type: 'text', label: 'new' }] }).spec
+	assert.equal(compare.hasChanges(compare.compareBoards(a, b)), false, 'graph changes only: a canvas board has none')
+	const shown = compare.compareBoards(a, b)
+	assert.equal(shown.kind, 'canvas')
+	assert.equal(shown.elements.length, b.elements.length, 'the elements survive the compare')
+	const shownBy = []
+	const s = new store.BoardStore()
+	s.setHost({ show: (id, spec, extra) => { shownBy.push([spec, extra]) }, update: () => { } })
+	await s.set(a, { id: 'c' })
+	await s.set(b, { id: 'c' })
+	assert.equal(shownBy.at(-1)[0].elements.length, 7)
+	assert.equal(shownBy.at(-1)[1].since, undefined, 'no "what changed" switch for a canvas board')
+	assert.equal(s.get('c').previous.elements.length, 6, 'the previous draw is kept')
 })
