@@ -1814,7 +1814,15 @@ export class Agents implements vscode.Disposable {
 	private readonly limits = new LimitsSender(l => Promise.resolve(vscode.commands.executeCommand('flowHarness.reportLimits', l)));
 	private limitsRetry: NodeJS.Timeout | undefined;
 
+	private latest: UsageLimits | undefined;
+
+	/** The plan's usage limits as a CLI last reported them, for the Agents page. */
+	get latestLimits(): UsageLimits | undefined {
+		return this.latest;
+	}
+
 	private reportLimits(limits: UsageLimits) {
+		this.latest = limits;
 		void this.limits.offer(limits).then(outcome => {
 			// A failed send (flow-harness still starting) tries again shortly; a repeat of what went through does not.
 			if (outcome === 'failed' && !this.limitsRetry) {
