@@ -233,6 +233,12 @@
         "title": "Hide the Agent Status Island",
         "category": "Insilode",
         "enablement": "flow.agents.desktop.available"
+      },
+      {
+        "command": "flow.agents.openPage",
+        "title": "Open Agents Page",
+        "category": "Insilode",
+        "icon": "$(sparkle)"
       }
     ],
     "keybindings": [
@@ -240,6 +246,17 @@
         "command": "flow.agents.newClaude",
         "key": "ctrl+shift+;",
         "mac": "cmd+shift+;"
+      },
+      {
+        "command": "flow.agents.openPage",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a",
+        "when": "!isLinux || !editorTextFocus || editorReadonly"
+      },
+      {
+        "command": "-workbench.action.openAgentsWindow",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a"
       }
     ],
     "configuration": {
@@ -658,7 +675,16 @@
           "when": "view == flow.agents",
           "group": "navigation"
         }
+      ],
+      "titleBar/center": [
+        {
+          "command": "flow.agents.openPage",
+          "group": "navigation"
+        }
       ]
+    },
+    "configurationDefaults": {
+      "chat.titleBar.openInAgentsWindow.enabled": false
     }
   },
   "scripts": {

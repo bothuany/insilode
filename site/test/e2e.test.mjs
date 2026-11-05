@@ -453,7 +453,7 @@ test('the pages can be found: every page in the sitemap has its title, descripti
 	let i = 2
 	while (i < card.length && !(card[i] === 0xff && card[i + 1] >= 0xc0 && card[i + 1] <= 0xc2)) i += 2 + card.readUInt16BE(i + 2)
 	assert.deepEqual([card.readUInt16BE(i + 7), card.readUInt16BE(i + 5)], [1200, 630], 'og.jpg is 1200x630')
-	for (const part of ['canvas.html', 'pages/dock.html', 'pages/island.html']) {
+	for (const part of ['canvas.html', 'pages/dock.html', 'pages/agents.html', 'pages/island.html']) {
 		assert.match(await (await fetch(new URL(part, url))).text(), /<meta name="robots" content="noindex"/, `${part} asks not to be indexed`)
 	}
 })
