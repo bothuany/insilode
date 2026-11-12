@@ -117,6 +117,7 @@ const META: Record<string, Meta> = {
 	'flow.codeLens': ['canvas', 'Flows', 'Insilode link above every method'],
 	'flow.showTests': ['canvas', 'Flows', 'Show test code in flows'],
 	'flow.lspResolution': ['canvas', 'Flows', 'Resolve calls with the language server'],
+	'flow.exclude': ['canvas', 'Flows', 'Folders left out of flows'],
 	'flow.types.dtoSuffixes': ['canvas', 'Type diagrams', 'DTO name suffixes'],
 	'flow.types.includeEntities': ['canvas', 'Type diagrams', 'Draw entities'],
 	'flow.types.includeEnums': ['canvas', 'Type diagrams', 'Draw enums'],

@@ -18,11 +18,14 @@ import { isExcludedDir, langOf, type FileFacts } from './model';
 import { extractGo, extractPhp, extractRuby, extractRust } from './others';
 import { extractPython } from './python';
 import type { TsNode } from './ts';
+import { excluder } from './userExclude';
 
 interface Init {
 	roots: string[];
 	wasmDir: string;
 	cacheFile: string;
+	/** `flow.exclude`: folders the user left out, even tracked ones. */
+	exclude: string[];
 }
 
 const CACHE_VERSION = 5;
@@ -36,7 +39,8 @@ const BUILD = (() => {
 })();
 const MAX_BYTES = 600_000;
 
-const { roots, wasmDir, cacheFile } = workerData as Init;
+const { roots, wasmDir, cacheFile, exclude } = workerData as Init;
+const userExcluded = excluder(exclude ?? []);
 const project = new Project(roots);
 /** Untracked paths git ignores under the roots (build output, generated code, vendored checkouts): never indexed. */
 let ignored: ReadonlySet<string> = new Set();
@@ -82,7 +86,7 @@ function walkDir(dir: string, out: Found, depth = 0) {
 			continue;
 		}
 		const full = path.join(dir, e.name);
-		if (isIgnored(full, ignored)) {
+		if (isIgnored(full, ignored) || userExcluded(full, roots)) {
 			continue;
 		}
 		if (e.isDirectory()) {
@@ -379,7 +383,7 @@ parentPort!.on('message', async (m: { id: number; op: string; args: unknown[] })
 			case 'definition': result = project.definitionAt(m.args[0] as Parameters<Project['definitionAt']>[0]); break;
 			case 'changed': {
 				for (const file of m.args as string[]) {
-					if (isIgnored(file, ignored)) {
+					if (isIgnored(file, ignored) || userExcluded(file, roots)) {
 						project.delete(file); // ignored since it was indexed, or never indexed: either way not part of the project
 						continue;
 					}
@@ -424,7 +428,7 @@ parentPort!.on('message', async (m: { id: number; op: string; args: unknown[] })
 				// An editor buffer the developer is still typing in: the index reads it as the file for now. The mtime never equals a
 				// file's, so this is never taken for a cached parse; the next save (a 'changed') reads the disk again.
 				const [file, text] = m.args as [string, string];
-				const facts = isIgnored(file, ignored) ? undefined : parseFile(file, -1, text);
+				const facts = isIgnored(file, ignored) || userExcluded(file, roots) ? undefined : parseFile(file, -1, text);
 				if (facts) {
 					project.set(facts);
 				}

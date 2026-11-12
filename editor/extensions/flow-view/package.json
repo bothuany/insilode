@@ -393,6 +393,12 @@
           "default": true,
           "description": "Show a \"Insilode\" link above every method."
         },
+        "flow.exclude": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "markdownDescription": "Folders Insilode leaves out of flows, endpoints and solutions, even when git tracks them (a legacy project, a vendored module). Each entry is a folder relative to the workspace folder (`legacy-java`, `services/old`) or a glob (`**/legacy/**`); `/` and `\\` both work. The Endpoints view adds folders here with its Exclude button."
+        },
         "flow.lspResolution": {
           "type": "boolean",
           "default": true,
