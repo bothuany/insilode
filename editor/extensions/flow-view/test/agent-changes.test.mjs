@@ -167,7 +167,7 @@ test('keepCard: the card keeps its hunks, the rest of the file still shows, and 
 	assert.equal(await diffOf(changes, file, 2, 4), undefined, 'a is kept')
 	assert.equal((await diffOf(changes, file, 6, 8)).plus, 1, 'b still shows')
 	// Lines added above the kept card do not bring it back.
-	writeFileSync(file, lines('// header', 'class A {', '  a() {', '    one changed', '  }', 'class B {', '  b() {', '    two changed', '  }'))
+	writeFileSync(file, lines('header()', 'class A {', '  a() {', '    one changed', '  }', 'class B {', '  b() {', '    two changed', '  }'))
 	assert.equal(await diffOf(changes, file, 3, 5), undefined)
 	assert.equal((await diffOf(changes, file, 1, 1)).plus, 1, 'the new line shows as a change of its own')
 	await changes.keepCard(file, 0, 100)

@@ -10,6 +10,7 @@ import { execFile } from 'child_process';
 import { promises as fs } from 'fs';
 import { promisify } from 'util';
 import * as path from 'path';
+import { structuredPatch } from 'diff';
 import * as vscode from 'vscode';
 import { innermost, type Analyzer } from '../analyzer';
 import { entryName, type Endpoints, type Entry, type Source } from '../backends';
@@ -22,6 +23,7 @@ import { describeCandidate, matchSymbols, symbolQuery, type SymbolCandidate } fr
 import { annotate, architectureFromGraph, checkScope, erFromTables, partialIndexNotes, sequenceFromFlow, stateFromEnum, strings, type FromCodeKind, type Generated } from '../board/fromCode';
 import { cleanBoardId, type BoardStore } from '../board/store';
 import type { ChangeSet, ChangeSetTrace } from '../changeSet';
+import { isTestPath, realHunks } from '../diffNoise';
 import { POLY_LANGUAGES, type PolyIndex } from '../poly/client';
 import type { FlowProvider, FlowTarget, ImpactResult } from '../providers';
 import { changeMark, diffOpening, GitStatus, statusesByFile } from './changes';
@@ -508,7 +510,11 @@ export class AgentTools {
 	 */
 	async changesInFlow(changes?: Changes): Promise<{ ok: boolean; opened: boolean; message: string }> {
 		const { list, since, notes } = changes ?? await this.collectChanges();
-		const code = list.filter(r => r.modified && (CODE_FILE.test(r.uri.fsPath) || isMigrationPath(r.uri.fsPath)));
+		const showTests = vscode.workspace.getConfiguration('flow').get<boolean>('showTests', false);
+		const all = list.filter(r => r.modified && (CODE_FILE.test(r.uri.fsPath) || isMigrationPath(r.uri.fsPath)));
+		// Test files are dropped before anything is tracked or traced, so they count nowhere (flow.showTests keeps them).
+		const code = showTests ? all : all.filter(r => !isTestPath(vscode.workspace.asRelativePath(r.uri, false)));
+		const testsHidden = all.length - code.length;
 		if (!code.length) {
 			return { ok: false, opened: false, message: ['No changed source files to show on the flow canvas.', ...notes].join(' ') };
 		}
@@ -517,11 +523,33 @@ export class AgentTools {
 			before: r.original ? await Promise.resolve(vscode.workspace.openTextDocument(r.original)).then(d => d.getText(), () => '') : undefined,
 		})));
 		await this.d.trackChanges(entries, since);
+		// A file whose every hunk is a comment or whitespace has no changed method: it is left out of the trace and counted.
+		let noiseOnly = 0;
+		const traced = new Set(code.map(r => r.uri.fsPath));
+		for (const e of entries) {
+			if (e.before === undefined || e.before === '') {
+				continue;
+			}
+			const now = await Promise.resolve(vscode.workspace.openTextDocument(vscode.Uri.file(e.file))).then(d => d.getText(), () => undefined);
+			const eol = (t: string) => t.split('\r\n').join('\n');
+			const [a, b] = [eol(e.before), now === undefined ? undefined : eol(now)];
+			if (b !== undefined && a !== b) {
+				if (!realHunks(e.file, a, b, structuredPatch('a', 'b', a, b, '', '', { context: 0 }).hunks).length) {
+					traced.delete(e.file);
+					noiseOnly++;
+				}
+			}
+		}
+		const hidden = [
+			testsHidden ? `${testsHidden} test ${testsHidden === 1 ? 'file' : 'files'}` : '',
+			noiseOnly ? `${noiseOnly} comment-only or whitespace-only ${noiseOnly === 1 ? 'file' : 'files'}` : '',
+		].filter(Boolean).join(' and ');
+		const shown = code.filter(r => traced.has(r.uri.fsPath));
 		const label = since ? `Changes since ${since}` : 'Uncommitted changes';
-		const opened = `Opened "${label}" on the flow canvas: ${code.length} changed source file${code.length === 1 ? '' : 's'}, every flow they reach cut down to the changed methods (green added, red removed lines).`;
+		const opened = `Opened "${label}" on the flow canvas: ${shown.length} changed source file${shown.length === 1 ? '' : 's'}, every flow they reach cut down to the changed methods (green added, red removed lines).`;
 		let trace: ChangeSetTrace;
 		try {
-			trace = await within(this.d.showChanges({ label, files: code.map(r => r.uri.fsPath) }), 40_000, 'tracing the changes');
+			trace = await within(this.d.showChanges({ label, files: shown.map(r => r.uri.fsPath), hidden: hidden ? `${hidden} hidden` : undefined }), 40_000, 'tracing the changes');
 		} catch (e) {
 			return { ok: true, opened: true, message: `${opened} Which endpoints they reach is not known yet: ${(e as Error).message}.` };
 		}

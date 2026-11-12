@@ -23,6 +23,8 @@ export interface ChangeSet {
 	label: string;
 	/** The changed source files. */
 	files: string[];
+	/** What the change view left out, for the root card ("3 test files and 5 comment-only changes hidden"). */
+	hidden?: string;
 }
 
 export interface ChangeSetDeps {
