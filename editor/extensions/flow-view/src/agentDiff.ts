@@ -8,6 +8,7 @@ import { execFile } from 'child_process';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { realHunks } from './diffNoise';
 import { chooseCommandBaseline, hunksBetween, keepInRange, looksBinary, reviewable, type Hunk, type HeadText } from './changedMethods';
 import { rangeOfHunk, rangesFromHunks, rangeTouches, spanDiff, undoEdit, type LineRange } from './mcp/changedMethods';
 import type { FlowNode } from './providers';
@@ -444,7 +445,8 @@ export class AgentChanges implements vscode.Disposable {
 		this.commandFiles.delete(file);
 	}
 
-	private async hunks(file: string): Promise<Hunk[]> {
+	/** `real` leaves out comment-only and whitespace-only hunks (what a card shows); Keep and Undo take them all. */
+	private async hunks(file: string, real = false): Promise<Hunk[]> {
 		const base = this.baselines.get(file);
 		if (base === undefined) {
 			return [];
@@ -454,7 +456,8 @@ export class AgentChanges implements vscode.Disposable {
 			this.forget(file); // reverted elsewhere (chat Undo, git): nothing to show
 			return [];
 		}
-		return hunksBetween(base, now);
+		const all = hunksBetween(base, now);
+		return real ? realHunks(file, base, now, all) : all;
 	}
 
 	/** A file's change during one prompt: from before that prompt to before the next one that touched it. */
@@ -468,7 +471,7 @@ export class AgentChanges implements vscode.Disposable {
 		// the agent finished are not part of what this prompt did.
 		const later = this.turns.slice(i + 1).find(t => t.before.has(file));
 		const to = later ? later.before.get(file)! : this.turns[i].after.get(file) ?? norm(await currentText(file).catch(() => ''));
-		return from === to ? [] : structuredPatch('a', 'b', from, to, '', '', { context: 0 }).hunks;
+		return from === to ? [] : realHunks(file, from, to, structuredPatch('a', 'b', from, to, '', '', { context: 0 }).hunks);
 	}
 
 	/**
@@ -485,7 +488,7 @@ export class AgentChanges implements vscode.Disposable {
 			return undefined;
 		}
 		const now = norm(await fs.readFile(f, 'utf8').catch(() => ''));
-		return rangesFromHunks(from === now ? [] : structuredPatch('a', 'b', from, now, '', '', { context: 0 }).hunks);
+		return rangesFromHunks(from === now ? [] : realHunks(f, from, now, structuredPatch('a', 'b', from, now, '', '', { context: 0 }).hunks));
 	}
 
 	/** The prompts that changed something, oldest first, with what each changed. */
@@ -624,7 +627,7 @@ export class AgentChanges implements vscode.Disposable {
 			const file = n.file ? fileKey(n.file) : undefined;
 			if (file && tracked(file)) {
 				if (!cache.has(file)) {
-					cache.set(file, turnId === undefined ? await this.hunks(file) : await this.turnHunks(turnId, file));
+					cache.set(file, turnId === undefined ? await this.hunks(file, true) : await this.turnHunks(turnId, file));
 				}
 				const d = this.cardDiff(cache.get(file)!, n.startLine, n.endLine);
 				if (d && gitTurn(file)) {

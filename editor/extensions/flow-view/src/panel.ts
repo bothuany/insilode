@@ -12,6 +12,7 @@ import { saveTourWithNotice } from './tourSave';
 import type { AgentChanges } from './agentDiff';
 import { askInDock } from './askAgent';
 import { refreshPlan } from './changeSet';
+import { isTestPath } from './diffNoise';
 import { Command } from './commands';
 import { engineOf, type Engine } from './cursorMessage';
 import { agentContext } from './harness';
@@ -61,11 +62,8 @@ const WAIT_ALLOWED = new Set<string>(WAIT_COMMANDS);
 
 const normalize = (s: string) => s.replace(/\r\n/g, '\n');
 
-/** Test code: a test project folder (Foo.Tests, Foo.Test.Unit, tests/, __tests__/) or a test file name. */
-const TEST_DIR = /[\\/](?:[^\\/]*[.-]tests?(?:[.-][^\\/]*)?|tests?|__tests__|spec)[\\/]/i;
-const TEST_FILE = /(?:[a-z0-9_]Tests?|[.-](?:test|spec))\.\w+$/;
 /** Judged by the path inside the workspace: a checkout that itself lives under `tests/` is not all test code. */
-const isTest = (file: string) => TEST_DIR.test('/' + vscode.workspace.asRelativePath(file, false).replace(/\\/g, '/')) || TEST_FILE.test(file);
+const isTest = (file: string) => isTestPath(vscode.workspace.asRelativePath(file, false));
 
 /** A file the canvas may ask about: inside a workspace folder, spelled the way VS Code spells it. */
 function workspaceFile(file: unknown): string | undefined {
