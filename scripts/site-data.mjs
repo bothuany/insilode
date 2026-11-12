@@ -149,12 +149,14 @@ const hunksOf = (before, after) => flowViewDeps('diff').structuredPatch('a', 'b'
 function cardDiff(hunks, start, end) {
 	const d = { added: [], removed: [], plus: 0, minus: 0 }
 	for (const h of hunks) {
-		const from = h.newLines ? h.newStart : h.newStart + 1
-		const to = h.newLines ? h.newStart + h.newLines - 1 : h.newStart
-		if (to < start || from > end) {
+		// jsdiff's newStart for a pure deletion is the line after the gap, so the gap is [newStart - 1, newStart] and both sides must be in the card (the host's rangeTouches).
+		const touches = h.newLines
+			? start <= h.newStart + h.newLines - 1 && h.newStart <= end
+			: start <= h.newStart - 1 && h.newStart <= end
+		if (!touches) {
 			continue
 		}
-		let line = from
+		let line = h.newStart
 		let pending = []
 		for (const l of h.lines) {
 			if (l.startsWith('-')) {

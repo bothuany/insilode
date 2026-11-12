@@ -13,7 +13,13 @@ export function rangesOf(lines: readonly number[], max = 3): [number, number][] 
   return out.slice(0, max)
 }
 
-const dotted = (label: string) => label.replace(/\s*▸\s*/g, '.')
+/**
+ * The line a removed row is addressed by: the line it sits above (`after` is the line before it), the last line of the card for
+ * rows at its end. The card marks the row with it (`data-del`) and a highlight of that line reaches it.
+ */
+export const removedAt = (after: number, endLine: number) => Math.min(after + 1, endLine)
+
+const dotted =(label: string) => label.replace(/\s*▸\s*/g, '.')
 
 function stepOfChange(n: FlowNode): TourStep {
   const d = n.diff!
@@ -23,7 +29,8 @@ function stepOfChange(n: FlowNode): TourStep {
     title: label,
     caption: `${what}: ${d.plus} ${d.plus === 1 ? 'line' : 'lines'} added, ${d.minus} removed.`,
     at: { file: n.file ?? '', startLine: n.startLine, endLine: n.endLine, label },
-    highlights: rangesOf(d.added),
+    // Removed lines are lit too, through the line they sit above: a card that only lost lines still has something to point at.
+    highlights: rangesOf([...d.added, ...d.removed.map(r => removedAt(r.after, n.endLine))]),
     state: 'ok',
   }
 }

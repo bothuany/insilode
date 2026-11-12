@@ -1,11 +1,12 @@
 import type { Edge, Node } from '@xyflow/react'
-import { chipsFor, NO_CHIPS, type CardChips, type ChipRow, type ChipsView } from './chips'
+import { chipsFor, NO_CHIPS, type CardChips, type ChipRow, type ChipsView } from './chips.ts'
 import type { FlowEdge, FlowNode, Kind } from './types'
 
-export const LINE_H = 18
+export const LINE_H = 20
 export const HEADER_H = 44
 export const CODE_PAD = 6
-const CHAR_W = 7.25
+/** One character of the 13px code font, measured (canvas measureText over 100 glyphs: JetBrains Mono and Courier-like fonts 7.8px, Consolas 7.15px). The widest, so a line is never cut. */
+export const CHAR_W = 7.8
 const PAD = 16
 const GAP = 90
 const VGAP = 18
@@ -70,9 +71,21 @@ export interface FrameData extends Record<string, unknown> {
 /** Dedent method source so cards don't waste width on class-level indentation. */
 export function toLines(node: FlowNode): CodeLine[] {
   if (!node.code) return []
-  const raw = node.code.replace(/\t/g, '    ').replace(/\r/g, '').split('\n')
+  const indent = indentOf(node)
+  return node.code.replace(/\t/g, '    ').replace(/\r/g, '').split('\n').map((t, i) => ({ no: node.startLine + i, text: t.slice(indent) }))
+}
+
+/** How many columns the card takes off every line: the least indent of its non-blank lines, tabs counted as four spaces. */
+function indentOf(node: FlowNode) {
+  const raw = (node.code ?? '').replace(/\t/g, '    ').replace(/\r/g, '').split('\n')
   const indent = Math.min(...raw.filter(l => l.trim()).map(l => l.length - l.trimStart().length))
-  return raw.map((t, i) => ({ no: node.startLine + i, text: t.slice(Number.isFinite(indent) ? indent : 0) }))
+  return Number.isFinite(indent) ? indent : 0
+}
+
+/** A removed line drawn like the lines around it: tabs as four spaces, and the card's dedent (never more than the line has). */
+function dedentRemoved(line: string, indent: number) {
+  const t = line.replace(/\t/g, '    ').replace(/\r/g, '')
+  return t.slice(Math.min(indent, t.length - t.trimStart().length))
 }
 
 const COMPACT_OVER = 18
@@ -87,7 +100,8 @@ export function toRows(node: FlowNode, lines: CodeLine[], full: boolean): Row[] 
     // An agent change is shown in full, with removed lines in place, so nothing is hidden in a gap.
     const rows: Row[] = []
     const removedAfter = new Map(node.diff.removed.map(r => [r.after, r.lines]))
-    const pushRemoved = (after: number) => (removedAfter.get(after) ?? []).forEach((del, i) => rows.push({ del, after, i }))
+    const indent = indentOf(node)
+    const pushRemoved = (after: number) => (removedAfter.get(after) ?? []).forEach((del, i) => rows.push({ del: dedentRemoved(del, indent), after, i }))
     pushRemoved(node.startLine - 1)
     for (const l of lines) {
       rows.push(l)
@@ -136,7 +150,8 @@ function schemaSize(node: FlowNode) {
 function cardSize(lines: CodeLine[], rows: Row[], editing = false, review = false, node?: FlowNode, chipsH = 0) {
   if (node?.schema) return schemaSize(node)
   if (!lines.length) return { w: 260, h: HEADER_H }
-  const longest = Math.max(...lines.map(l => l.text.length))
+  // Removed rows count too: a long one must not be cut at the card's edge.
+  const longest = Math.max(...lines.map(l => l.text.length), ...rows.map(r => ('del' in r ? r.del.length : 0)))
   return {
     w: editing ? Math.min(editMaxW, Math.max(560, longest * CHAR_W + 70)) : Math.min(720, Math.max(320, longest * CHAR_W + 70)),
     h: HEADER_H + chipsH + (editing ? lines.length : rows.length) * LINE_H + CODE_PAD * 2 + (editing ? EDIT_EXTRA : review ? REVIEW_H : 0),
@@ -294,7 +309,7 @@ export function layoutCallers(up: FlowNode, rootKey: string, rootY: number, hidd
           lines,
           rows,
           full: full.has(caller.key),
-          compactable: lines.length > 18,
+          compactable: lines.length > COMPACT_OVER,
           selected: caller.key === selectedKey,
           touched: !!caller.file && touched.has(caller.file),
           editing: ed,
