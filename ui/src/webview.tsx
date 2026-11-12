@@ -10,10 +10,12 @@ import '@xyflow/react/dist/style.css'
 import './styles.css'
 import './webview.css'
 import { placeOf, type CardChips, type ChipsView, type Detail, type TypeTree } from './chips'
-import { HEADER_H, initialHidden, layout, layoutCallers, setEditMaxWidth, type EditTarget } from './layout'
+import { CODE_PAD, HEADER_H, LINE_H, initialHidden, layout, layoutCallers, setEditMaxWidth, type CardData, type EditTarget } from './layout'
 import { definitionInFile, notify, registerIde } from './ide'
 import { ActionsCtx, LANG_BY_EXT, nodeTypes, recolor, type CanvasActions, type Caret } from './nodes'
 import { cardAt, samePath } from './tour/cards'
+import { ChangesRail, FindBox } from './review/ChangesRail'
+import { cycle, findCards, groupByFile, nextUnviewed, stepKey, toggled } from './review/nav'
 import { PointAsk, selectedLines, type Pointing } from './tour/PointAsk'
 import { SelectionBar, type Picked, type SelectionAction } from './tour/SelectionBar'
 import { useTourPlayer } from './tour/TourPlayer'
@@ -52,8 +54,6 @@ let seq = 0
 const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
 /** A host that never answers (a crashed analyzer, a dropped message) must not leave a spinner or a pending Map entry forever. */
 const REQUEST_TIMEOUT_MS = 120_000
-/** Below this zoom a card's code is too small to read: a flow that only fits smaller opens at its start instead. */
-const READABLE_ZOOM = 0.55
 /** The agent name of the Git-changes view's step (flow-view's GIT_AGENT): uncommitted work, not an agent's. */
 const GIT_AGENT = 'Git'
 function request<T>(op: string, payload: Record<string, unknown>): Promise<T> {
@@ -421,31 +421,8 @@ function Flow() {
     return { nodes: [...d.nodes, ...u.nodes], edges: [...d.edges, ...u.edges] }
   }, [down, up, hidden, full, showUp, editing, selected, canvasW, chipsView])
 
-  // Fit the whole flow when it is still readable. A flow runs left to right, so a long one fitted whole is a strip of
-  // unreadable cards: then show its start (the leftmost card, a caller when callers are on) at a zoom where code
-  // can be read, and the rest is a pan to the right. The fit button does the same as opening a flow.
-  const frame = useCallback(() => {
-    const el = document.querySelector('.wv-canvas') as HTMLElement | null
-    const cards = getNodes().filter(n => n.type === 'card')
-    if (!el || !cards.length) return
-    const minX = Math.min(...cards.map(n => n.position.x))
-    const maxX = Math.max(...cards.map(n => n.position.x + (Number(n.style?.width) || 0)))
-    const minY = Math.min(...cards.map(n => n.position.y))
-    const maxY = Math.max(...cards.map(n => n.position.y + (Number(n.style?.height) || 0)))
-    const fit = Math.min(el.clientWidth / (maxX - minX + 80), el.clientHeight / (maxY - minY + 80))
-    if (fit >= READABLE_ZOOM) {
-      fitView({ padding: 0.1, maxZoom: 1, duration: 250 })
-      return
-    }
-    const zoom = 0.85
-    setCenter(minX - 40 + el.clientWidth / zoom / 2, minY - 40 + el.clientHeight / zoom / 2, { zoom, duration: 250 })
-  }, [getNodes, fitView, setCenter])
-
-  useEffect(() => {
-    if (!down) return
-    const t = setTimeout(frame, 50)
-    return () => clearTimeout(t)
-  }, [down?.symbolId, showUp]) // eslint-disable-line react-hooks/exhaustive-deps
+  // The fit button fits the whole flow, however small that makes it. Opening a flow does not: it lands at 100% on a card (below).
+  const frame = useCallback(() => fitView({ padding: 0.1, maxZoom: 1, duration: 250 }), [fitView])
 
   // Callers turned on and there are none: say so, or the chip seems to do nothing.
   useEffect(() => {
@@ -498,7 +475,7 @@ function Flow() {
         setTimeout(() => {
           const card = getNode(key)
           if (!card) return
-          const lineY = at ? HEADER_H + (at.line - n.startLine) * 18 : 160
+          const lineY = at ? HEADER_H + CODE_PAD + (at.line - n.startLine) * LINE_H : 160
           const el = document.querySelector('.wv-canvas') as HTMLElement
           // A card wider than the canvas keeps its left edge (line numbers, indentation) in view.
           const w = Number(card.style?.width) || 560
@@ -517,7 +494,7 @@ function Flow() {
         const el = document.querySelector('.wv-canvas') as HTMLElement
         const w = Number(card.style?.width) || 400
         const chipsH = (card.data as { chipsH?: number }).chipsH ?? 0
-        setCenter(card.position.x + Math.min(w / 2, el.clientWidth / 2 - 24), card.position.y + HEADER_H + chipsH + (line - n.startLine) * 18, { zoom: 1, duration: 260 })
+        setCenter(card.position.x + Math.min(w / 2, el.clientWidth / 2 - 24), card.position.y + HEADER_H + chipsH + CODE_PAD + (line - n.startLine) * LINE_H, { zoom: 1, duration: 260 })
       },
       chipToggle: (key, path, typeId) => {
         setChipOpen(o => {
@@ -641,6 +618,71 @@ function Flow() {
   const isReview = tour.state.tour?.source === 'review'
   const reviewNode = isReview && turn === undefined && tour.cardKey ? (find(down, tour.cardKey) ?? find(up, tour.cardKey)) : null
 
+  // ---- moving through the changed cards outside the tour (review/nav.ts) ----------------------------------
+  // "Viewed" is kept in memory: this page keeps no persisted state of its own, and a reload is a new look at the changes anyway.
+  const [viewed, setViewed] = useState<ReadonlySet<string>>(new Set())
+  const [navCurrent, setNavCurrent] = useState<string | null>(null)
+  const [flash, setFlash] = useState<string | null>(null)
+  const [railOpen, setRailOpen] = useState(true)
+  const [finding, setFinding] = useState<{ query: string; index: number } | null>(null)
+  const nodesRef = useRef(nodes)
+  nodesRef.current = nodes
+  const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(flashTimer.current), [])
+  /** Centre a card at 100% (a card wider or taller than the canvas keeps its top left in view); `mark` outlines it for a moment. */
+  const goTo = useCallback(
+    (key: string, mark = true) => {
+      const card = nodesRef.current.find(n => n.id === key && n.type === 'card')
+      const el = document.querySelector('.wv-canvas') as HTMLElement | null
+      if (!card || !el) return
+      const w = Number(card.style?.width) || 400
+      const h = Number(card.style?.height) || 200
+      setCenter(card.position.x + Math.min(w / 2, el.clientWidth / 2 - 24), card.position.y + Math.min(h / 2, el.clientHeight / 2 - 40), { zoom: 1, duration: 250 })
+      if (!mark) return
+      setNavCurrent(key)
+      setFlash(key)
+      clearTimeout(flashTimer.current)
+      flashTimer.current = setTimeout(() => setFlash(null), 1400)
+    },
+    [setCenter],
+  )
+  const changedKeys = useMemo(() => changed.map(n => n.key), [changed])
+  const railGroups = useMemo(() => groupByFile(changed), [changed])
+  const cardNames = useMemo(() => nodes.filter(n => n.type === 'card').map(n => ({ key: n.id, label: (n.data as CardData).node.label })), [nodes])
+  const found = useMemo(() => findCards(cardNames, finding?.query ?? ''), [cardNames, finding?.query])
+  const navRef = useRef({ on: false, keys: changedKeys, current: navCurrent, viewed })
+  navRef.current = { on: !!down && tour.state.tour === null, keys: changedKeys, current: navCurrent, viewed }
+  // Opening a flow lands at 100% on its root card, or on the first changed card of a change set.
+  const changedRef = useRef(changed)
+  changedRef.current = changed
+  useEffect(() => {
+    if (!down) return
+    const t = setTimeout(() => goTo((target.target.kind === 'changes' ? changedRef.current[0]?.key : undefined) ?? down.key, false), 50)
+    return () => clearTimeout(t)
+  }, [down?.symbolId, showUp]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const s = navRef.current
+      if (!s.on || e.ctrlKey || e.altKey || e.metaKey || editingRef.current) return
+      const t = e.target
+      if (t instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable || t.closest('.monaco-editor'))) return
+      if (e.key === '/') setFinding({ query: '', index: 0 })
+      else if (e.key === ']' || e.key === '[') {
+        const k = stepKey(s.keys, s.current, e.key === ']' ? 1 : -1)
+        if (k === undefined) return
+        goTo(k)
+      } else if (e.key === 'v') {
+        if (!s.current || !s.keys.includes(s.current)) return
+        setViewed(v => (v.has(s.current!) ? v : toggled(v, s.current!)))
+        const k = nextUnviewed(s.keys, s.current, new Set(s.viewed).add(s.current))
+        if (k !== undefined) goTo(k)
+      } else return
+      e.preventDefault()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [goTo])
+
   const undoFrom = async (id: number) => {
     const res = await request<{ ok: boolean; message?: string }>('undoFrom', { turn: id })
     if (!res.ok) setStatus(res.message ?? 'Could not undo the changes.')
@@ -667,6 +709,7 @@ function Flow() {
   const pointCss = pointing && (pointing.startLine > 0 && pointing.endLine - pointing.startLine < 400)
     ? `.react-flow__node[data-id="${pointing.key.replace(/["\\]/g, '\\$&')}"] .ln:is(${Array.from({ length: pointing.endLine - pointing.startLine + 1 }, (_, i) => `[data-line="${pointing.startLine + i}"]`).join(',')}) { background: color-mix(in srgb, var(--fl-signal) 20%, transparent); box-shadow: inset 2px 0 0 var(--fl-signal) }`
     : ''
+  const flashCss = flash ? `.react-flow__node[data-id="${flash.replace(/["\\]/g, '\\$&')}"] .card { outline: 2px solid var(--fl-signal); outline-offset: 3px; }` : ''
   const proposedCss = proposed.map(n => `.react-flow__node[data-id="${n.key}"] .card { outline: 1.5px dashed var(--fl-signal); outline-offset: 3px; }`).join('\n')
 
   // Bring the first marked card into view, so the question in the dialog has its answer on screen.
@@ -720,7 +763,7 @@ function Flow() {
   }
   return (
     <div className={`wv${tour.touring ? ' wv-touring' : ''}`}>
-      <style>{traceCss + proposedCss + pointCss + tour.css}</style>
+      <style>{traceCss + proposedCss + pointCss + flashCss + tour.css}</style>
       <header className="wv-bar">
         <div className="wv-title" title={target.label}>
           <span className="owner">{owner}</span>
@@ -845,6 +888,36 @@ function Flow() {
           </ReactFlow>
         </ActionsCtx.Provider>
         {gaze.overlay}
+        {changed.length > 0 && tour.state.tour === null && (
+          <ChangesRail
+            groups={railGroups}
+            count={changed.length}
+            current={navCurrent}
+            viewed={viewed}
+            open={railOpen}
+            onToggle={() => setRailOpen(o => !o)}
+            onPick={k => goTo(k)}
+            onViewed={k => setViewed(v => toggled(v, k))}
+          />
+        )}
+        {finding && tour.state.tour === null && (
+          <FindBox
+            query={finding.query}
+            total={found.length}
+            index={finding.index}
+            onQuery={q => {
+              setFinding({ query: q, index: 0 })
+              const first = findCards(cardNames, q)[0]
+              if (first) goTo(first.key, false)
+            }}
+            onStep={dir => {
+              const i = cycle(found.length, finding.index, dir)
+              setFinding({ ...finding, index: i })
+              if (found[i]) goTo(found[i].key, false)
+            }}
+            onClose={() => setFinding(null)}
+          />
+        )}
         {tour.captionLayer}
         <SelectionBar hidden={!!pointing || !!editing} onAct={selectionAct} />
         {pointing && (

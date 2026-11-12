@@ -43,10 +43,6 @@ html, body, #root { margin: 0; height: 100%; background: var(--bg); color: var(-
 .fold { flex: none; min-width: 26px; height: 22px; padding: 0 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--text); cursor: pointer; font: 11px var(--mono); }
 .fold:hover { border-color: #4f9cf7; }
 
-.code { font: 12px/18px var(--mono); }
-.ln { display: flex; align-items: center; white-space: pre; padding-right: 22px; position: relative; }
-.ln .gutter { width: 40px; flex: none; padding-right: 10px; text-align: right; color: #4a5263; user-select: none; }
-.ln .src { overflow: hidden; }
 .ln.call { cursor: pointer; background: #ffffff07; }
 .ln.call:hover { background: #4f9cf71f; }
 .ln .marker { position: absolute; right: 7px; font-size: 10px; }

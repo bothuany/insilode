@@ -5,6 +5,7 @@ import { CODE_PAD, HEADER_H, KIND_COLOR, LINE_H, SCHEMA_MAX, SCHEMA_OPS_H, SCHEM
 import { chipList, linkOf, ROW_H, STRIP_H, type CardChips, type ChipRow, type TypeLink } from './chips'
 import { bindEditor, hoverCode, leaveCode, wordAtPoint } from './ide'
 import { cardLabel, cutNote } from './impact/cardLabel'
+import { removedAt } from './tour/review'
 import type { DbSchema, FlowNode, Kind } from './types'
 
 /** Where a click on a card's code landed, in file coordinates (1-based), so editing starts right there. */
@@ -170,7 +171,7 @@ function CardEditor({ nodeKey, code, file, startLine, endLine, caret, onSave, on
       value: code,
       language: langOf(file),
       minimap: { enabled: false },
-      fontSize: 12,
+      fontSize: 13,
       lineHeight: LINE_H,
       fontFamily: getComputedStyle(document.documentElement).getPropertyValue('--fl-mono') || undefined,
       lineNumbers: n => String(n + startLine - 1),
@@ -481,7 +482,10 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
   const { node, lines, rows, full, compactable, calls, selected, touched, editing, chips, chipRows, chipsOpen, chipsH } = data
   const actions = useContext(ActionsCtx)
   const color = KIND_COLOR[node.kind]
-  const html = useColorized(lines.map(l => l.text).join('\n'), langOf(node.file))
+  const lang = langOf(node.file)
+  const html = useColorized(lines.map(l => l.text).join('\n'), lang)
+  const delHtml = useColorized(rows.flatMap(r => ('del' in r ? [r.del] : [])).join('\n'), lang)
+  let delNo = 0
   const callByLine = new Map<number, typeof calls>()
   for (const c of calls) callByLine.set(c.edge.callLine, [...(callByLine.get(c.edge.callLine) ?? []), c])
   const hiddenCount = calls.filter(c => c.hidden).length
@@ -612,13 +616,17 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
       {!editing && rows.length > 0 && (
         <div className="code nodrag nopan" style={{ paddingTop: CODE_PAD, paddingBottom: CODE_PAD }}>
           {rows.map(r => {
-            if ('del' in r)
+            if ('del' in r) {
+              // Coloured by the same colourizer as the lines around it, one batch for all of the card's removed rows.
+              const at = delNo++
               return (
-                <div key={`d${r.after}-${r.i}`} className="ln del" style={{ height: LINE_H }}>
-                  <span className="gutter" />
-                  <span className="src">{r.del}</span>
+                // `data-del` is the line the row sits above, so a highlight of that line (the tour's) reaches it; it has no `data-line`, which would make it a line to ask about.
+                <div key={`d${r.after}-${r.i}`} data-del={removedAt(r.after, node.endLine)} className="ln del" style={{ height: LINE_H }}>
+                  <span className="gutter"><i className="sign" aria-label="removed">−</i></span>
+                  {delHtml ? <span className="src" dangerouslySetInnerHTML={{ __html: delHtml[at] ?? '' }} /> : <span className="src">{r.del}</span>}
                 </div>
               )
+            }
             if (!('no' in r))
               return (
                 <div key={`g${r.from}`} className="ln gap" style={{ height: LINE_H }} onClick={e => still(e) && actions.toggleFull(node.key)}>
@@ -630,11 +638,12 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
             const lineCalls = callByLine.get(l.no)
             const i = l.no - node.startLine
             const callee = lineCalls?.[0].edge.node
+            const added = !!node.diff?.added.includes(l.no)
             return (
               <div
                 key={l.no}
                 data-line={l.no}
-                className={`ln${lineCalls ? ' call' : ''}${node.diff?.added.includes(l.no) ? ' add' : ''}`}
+                className={`ln${lineCalls ? ' call' : ''}${added ? ' add' : ''}`}
                 style={{ height: LINE_H, ...(callee ? ({ '--c': KIND_COLOR[callee.kind] } as CSSProperties) : {}) }}
                 onClick={e => editAt(e, l.no)}
                 onMouseEnter={callee ? () => actions.trace?.(node.key, callee.key) : undefined}
@@ -644,7 +653,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
                   if (callee) actions.trace?.(null)
                 }}
               >
-                <span className="gutter">{l.no}</span>
+                <span className="gutter">{added && <i className="sign" aria-label="added">+</i>}{l.no}</span>
                 {html ? <span className="src" dangerouslySetInnerHTML={{ __html: html[i] ?? '' }} /> : <span className="src">{l.text}</span>}
                 {lineCalls && callee && (
                   <button
