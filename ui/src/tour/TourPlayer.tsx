@@ -407,10 +407,13 @@ export function useTourPlayer(env: TourEnv & { changed: FlowNode[] }) {
       // The wires into and out of it stay readable, so the reader still sees where the card sits in the flow.
       for (const e of env.edges) if (e.source === spot || e.target === spot) rules.push(`.wv-touring .react-flow__edge[data-testid="rf__edge-${q(e.id)}"] { opacity: .75 }`)
       const lines = highlightedLines(step.highlights)
-      if (lines.length) rules.push(`.wv-touring .react-flow__node[data-id="${k}"] .ln:is(${lines.flatMap(n => [`[data-line="${n}"]`, `[data-del="${n}"]`]).join(',')}) { background: color-mix(in srgb, var(--tour-ink) 20%, transparent); box-shadow: inset 2px 0 0 var(--tour-ink) }`)
+      const lit = 'background: color-mix(in srgb, var(--tour-ink) 20%, transparent); box-shadow: inset 2px 0 0 var(--tour-ink) }'
+      if (lines.length) rules.push(`.wv-touring .react-flow__node[data-id="${k}"] .ln:is(${lines.map(n => `[data-line="${n}"]`).join(',')}) { ${lit}`)
+      // A removed row has no line of its own, so a review lights all of the card's removed rows (they are part of its change) and no unchanged line is lit for them.
+      if (tour?.source === 'review') rules.push(`.wv-touring .react-flow__node[data-id="${k}"] .ln[data-del] { ${lit}`)
     }
     return rules.join('\n')
-  }, [touring, step, spot, env.edges])
+  }, [touring, step, spot, env.edges, tour?.source])
 
   /** A click on a card the tour is not at: the reader looked away, so the spotlight lifts. The click itself goes on. */
   const onClickCapture = (e: React.MouseEvent) => {

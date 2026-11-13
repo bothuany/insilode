@@ -1,7 +1,7 @@
 import { memo, useContext, useEffect, useRef, useState, createContext, type CSSProperties, type MouseEvent, type PointerEvent } from 'react'
 import { Handle, Position, useStore, type NodeProps, type Node } from '@xyflow/react'
 import * as monaco from 'monaco-editor'
-import { CODE_PAD, HEADER_H, KIND_COLOR, LINE_H, SCHEMA_MAX, SCHEMA_OPS_H, SCHEMA_ROW, type CardData, type FrameData } from './layout'
+import { CODE_PAD, HEADER_H, headerH, isChangeRoot, KIND_COLOR, subLines, LINE_H, SCHEMA_MAX, SCHEMA_OPS_H, SCHEMA_ROW, type CardData, type FrameData } from './layout'
 import { chipList, linkOf, ROW_H, STRIP_H, type CardChips, type ChipRow, type TypeLink } from './chips'
 import { bindEditor, hoverCode, leaveCode, wordAtPoint } from './ide'
 import { cardLabel, cutNote } from './impact/cardLabel'
@@ -561,7 +561,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
       <Handle type="target" position={Position.Left} id="in" style={{ top: HEADER_H / 2 }} />
       <div
         className="card-head"
-        style={{ height: HEADER_H }}
+        style={{ height: headerH(node) }}
         onClick={e => still(e) && (node.code || schema?.file) && actions.reveal?.(node.key)}
         onDoubleClick={() => (node.code || schema?.file) && actions.open(node.key)}
         title={node.code ? 'Click to show in the editor, double-click to open it' : schema?.file ? 'Click to show the entity, double-click to open it' : undefined}
@@ -572,7 +572,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
             {owner && <span className="owner">{owner}.</span>}
             <span className="member">{member}</span>
           </div>
-          <div className={`sub${node.truncated ? ' has-cut' : ''}`}>
+          <div className={`sub${node.truncated ? ' has-cut' : ''}${subLines(node) > 1 ? ' wrap' : ''}`} title={isChangeRoot(node) ? node.sub : undefined}>
             {/* A flow cut at its size limit says it on the cards that were cut, in words, so a short flow never passes for a whole one. */}
             {node.truncated ? <span className="cut" title="The flow was cut at its size limit: the calls below this card are not drawn.">{cutNote(node.truncated)}</span> : null}
             <span className="sub-text">{schema ? `${schema.entity} in ${schema.context}${changeNote(node.tableChange)}` : node.kind === 'db' && /SaveChanges/.test(node.label) ? 'Saves tracked changes' : file ? `${file}:${node.startLine}` : node.sub}</span>

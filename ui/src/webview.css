@@ -122,6 +122,9 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 /* The cut note comes first on the sub line, so a long file name never pushes it out of the card. */
 .sub.has-cut { display: flex; gap: 6px; }
 .sub .sub-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The change-set root's summary wraps to 3 lines (its full text is the title); the card's height follows (headerH in layout.ts). */
+.sub.wrap { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; white-space: normal; line-height: 14px; }
+.sub.wrap .sub-text { white-space: normal; }
 .sub .cut { flex: none; font-weight: 600; color: var(--fl-text); text-decoration: underline dashed; text-underline-offset: 2px; }
 /* Trouble with the flow that is drawn (a failed refresh, failed callers): a strip over the canvas, the flow stays. */
 .wv-notes { position: absolute; z-index: 14; top: 8px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; width: max-content; max-width: calc(100% - 24px); }
@@ -133,9 +136,10 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .code { flex: 1; min-height: 0; font: 13px/20px var(--fl-mono); overflow: hidden; }
 .ln { display: flex; align-items: center; white-space: pre; padding-right: 10px; position: relative; }
 /* Line numbers are read, not decoration: the theme's own colour is too dim on a card, so they take the text colour at reduced strength. */
-.ln .gutter { width: 52px; flex: none; padding-right: 12px; text-align: right; color: color-mix(in srgb, var(--fl-text) 65%, transparent); user-select: none; position: relative; }
+/* 68px = GUTTER_W in layout.ts: the sign (left 6px, about 8px wide), a gap, 5 digits of 7.8px, 10px of padding. Stretched to the row, so the sign of a removed row (the gutter's only content, and out of flow) has the row's height to sit in. */
+.ln .gutter { width: 68px; flex: none; align-self: stretch; padding-right: 10px; text-align: right; color: color-mix(in srgb, var(--fl-text) 65%, transparent); user-select: none; position: relative; }
 /* The + or − of a changed row, in the gutter's left edge. */
-.ln .gutter .sign { position: absolute; left: 7px; font-style: normal; font-weight: 700; }
+.ln .gutter .sign { position: absolute; left: 6px; top: 0; line-height: 20px; font-style: normal; font-weight: 700; }
 .ln .src { overflow: hidden; flex: 1; min-width: 0; }
 .card.editable .ln:not(.gap):not(.del) { cursor: text; }
 .card.editable .ln:not(.gap):not(.del):hover { background: var(--vscode-editor-lineHighlightBackground, #ffffff08); }
