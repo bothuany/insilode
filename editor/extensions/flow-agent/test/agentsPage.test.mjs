@@ -394,6 +394,21 @@ test('a project that closes drops out of the sidebar and clears its selection', 
 	assert.match(p.body.byClass('detail')[0].textContent, /Select an agent/)
 })
 
+test('the counters count the other open projects too; with none here the empty block is one line; a project without sessions is listed', () => {
+	const p = boot()
+	p.data([], { peers: peers().concat([{ key: 'ffffffffffff', name: 'idle-app', rows: [] }]) })
+	const counts = p.body.byClass('count').map(c => c.textContent)
+	assert.deepEqual(counts, ['1Needs you', '1Working', '0Done'], 'peers: one working, one waiting, one ended')
+	assert.equal(p.body.byClass('empty').length, 0, 'the large block gives way to one line')
+	assert.match(p.text(), /No agents running in this window/)
+	const t = p.body.byClass('side')[0].textContent
+	assert.match(t, /idle-app.*No sessions/)
+	assert.equal(p.body.byClass('side')[0].byClass('shead').filter(h => /idle-app/.test(h.textContent))[0].button('Open in IDE') !== undefined, true)
+	// Nobody anywhere: the large prompt stays.
+	p.data([], { peers: [] })
+	assert.match(p.text(), /No agents running\./)
+})
+
 // Writes the page and a sample of what it draws to the temp folder, for a person to open; nothing here opens a window.
 test('the page renders a sample board', () => {
 	const p = boot()

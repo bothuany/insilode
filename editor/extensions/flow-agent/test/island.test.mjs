@@ -81,10 +81,27 @@ test('displays: a rectangle belongs to the display that holds most of it', () =>
 	assert.equal(i.displayForRect({ x: 0, y: 0, width: 10, height: 10 }, []), undefined)
 })
 
+test('displays: a rectangle in the menu bar band of the second display (outside every work area) belongs to that display', () => {
+	// A laptop's menu bar is above its work area: the island attached there overlaps nothing, and must not fall to the first display.
+	const ext = { id: 1, workArea: { x: 0, y: -1080, width: 1920, height: 1080 }, bounds: { x: 0, y: -1080, width: 1920, height: 1080 } }
+	const mac = { id: 2, workArea: { x: 100, y: 38, width: 1512, height: 944 }, bounds: { x: 100, y: 0, width: 1512, height: 982 } }
+	assert.equal(i.displayForRect({ x: 700, y: 0, width: 300, height: 30 }, [ext, mac]).id, 2)
+	assert.equal(i.displayForRect({ x: 700, y: 0, width: 300, height: 30 }, [mac, ext]).id, 2)
+	assert.equal(i.displayForRect({ x: 700, y: -1070, width: 300, height: 30 }, [mac, ext]).id, 1)
+})
+
 test('visibility: no agents hides, by its setting', () => {
 	assert.equal(i.islandVisible({ hasAgents: true, autoHide: { noAgents: true } }), true)
 	assert.equal(i.islandVisible({ hasAgents: false, autoHide: { noAgents: true } }), false)
 	assert.equal(i.islandVisible({ hasAgents: false, autoHide: { noAgents: false } }), true)
+})
+
+test('visibility: an island that is only for the others, with none to show, hides whatever no-agents says', () => {
+	const off = { noAgents: false }
+	assert.equal(i.islandVisible({ hasAgents: false, autoHide: off, othersOnly: true }), false)
+	assert.equal(i.islandVisible({ hasAgents: false, autoHide: off, othersOnly: false }), true, 'no focus rule in play: the empty pill is what the user asked for')
+	assert.equal(i.islandVisible({ hasAgents: true, autoHide: off, othersOnly: true }), true)
+	assert.equal(i.islandVisible({ hasAgents: false, autoHide: { noAgents: true }, othersOnly: false }), false)
 })
 
 test('agents: with no Insilode window focused all show; with one focused only the others working or waiting do', () => {
