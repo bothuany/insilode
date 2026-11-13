@@ -16,6 +16,7 @@ import { watchGazeSetting } from './gazeHost';
 import { registerPlaceholderModels } from './models';
 import { AttentionNotifier } from './notify';
 import { renameFromPalette, removeFromPalette, swapFromPalette } from './paletteActions';
+import { Peers } from './peers';
 import { pickAgent } from './pick';
 import { PrEvents } from './prEvents';
 import { startOrResume } from './resume';
@@ -56,13 +57,15 @@ export function activate(context: vscode.ExtensionContext) {
 	const agents = new Agents(context, log);
 	agents.start().catch(e => log.error(`Agents: start failed: ${(e as Error).message}`));
 	const worktrees = new WorktreeRows(agents);
-	const dock = new AgentsDock(agents, worktrees);
-	const page = new AgentsPanel(agents, worktrees);
+	const peers = new Peers(agents, worktrees);
+	const dock = new AgentsDock(agents, worktrees, peers);
+	const page = new AgentsPanel(agents, worktrees, peers);
 	const router = new AskRouter(context, agents);
 	context.subscriptions.push(
 		agents,
 		router,
 		worktrees,
+		peers,
 		dock,
 		page,
 		vscode.commands.registerCommand(OPEN_AGENTS_PAGE, () => page.open()),

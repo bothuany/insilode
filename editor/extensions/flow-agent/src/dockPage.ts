@@ -149,6 +149,17 @@ ${AVATAR_CSS}
 .pr:hover { background: var(--hover); }
 .pr .ck.pass { color: var(--done); } .pr .ck.fail { color: var(--danger-text); } .pr .ck.pending { color: var(--blocked); }
 .pr.merged { color: var(--custom); } .pr.closed { color: var(--muted); }
+.peers h3 { margin: 14px 2px 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.peer { margin: 0 0 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; }
+.peer .ph, .peer .prow { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.peer .pn { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.peer .prow { padding: 3px 0; font-size: 12px; }
+.peer .pnm { flex: none; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.peer .pact { flex: 1; min-width: 0; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.peer .dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+.peer .dot.working { background: var(--working); } .peer .dot.needs { background: var(--blocked); } .peer .dot.done { background: var(--done); }
+.peer button { min-height: 22px; padding: 0 7px; border: 1px solid var(--line); border-radius: 5px; background: transparent; font: 11px/1.5 var(--vscode-font-family, system-ui); cursor: pointer; }
+.peer button:hover { background: var(--hover); }
 </style></head><body>
 <div class="new">
 	<div class="split"><button type="button" class="go" data-cli="claude" title="Start Claude Code in a new terminal, or resume an earlier session">${ICON.claude}Claude</button><button type="button" class="chev" data-menu="claude" aria-haspopup="menu" aria-expanded="false" aria-controls="menu" aria-label="More ways to start Claude Code" title="In a worktree, or resume a session">&#9662;</button></div>
@@ -160,7 +171,7 @@ ${AVATAR_CSS}
 <script>
 const vscode = acquireVsCodeApi();
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-let data = { list: [], now: Date.now() };
+let data = { list: [], now: Date.now(), peers: [] };
 ${AVATAR_SCRIPT}
 // What the avatar shows: a question, an approval or an unread error first, then the state.
 const avState = s => s.state === 'ended' ? 'idle' : s.attention === 'approval' || s.attention === 'question' || s.attention === 'error' ? s.attention : s.attention === 'done' ? 'done' : s.state === 'blocked' ? 'approval' : s.state === 'working' || s.state === 'starting' ? 'working' : 'idle';
@@ -198,12 +209,21 @@ function skeletonButton(s) {
 	if (!s.skeletonAvailable) { return ''; }
 	return '<div class="explain sk"><button type="button" class="act" aria-pressed="' + (s.skeletonOn ? 'true' : 'false') + '" data-act="sk" data-on="' + (s.skeletonOn ? 'off' : 'on') + '" data-tip="' + esc(SK_TIP + (s.skeletonOn ? ' On: click to turn it off.' : ' Off: click to turn it on.')) + '" aria-description="' + esc(SK_TIP) + '">Skeleton</button>' + stageHtml(s) + '</div>';
 }
+// The agents of other open windows, grouped under their project. All text goes through esc(); the buttons name the project by the key the host sent.
+const peerDot = r => r.state === 'ended' ? 'idle' : r.attention === 'approval' || r.attention === 'question' || r.attention === 'error' ? 'needs' : r.state === 'working' || r.state === 'starting' ? 'working' : r.attention === 'done' || r.state === 'done' ? 'done' : 'idle';
+function peersHtml() {
+	const ps = (data.peers || []).filter(p => p.rows.some(r => r.state !== 'ended'));
+	if (!ps.length) { return ''; }
+	return '<div class="peers"><h3>Other projects</h3>' + ps.map(p => '<div class="peer" data-key="' + esc(p.key) + '"><div class="ph"><span class="pn">' + esc(p.name) + '</span><button type="button" data-peer="ide" aria-label="Open ' + esc(p.name) + ' in its window" title="Bring up that project window">Open in IDE</button></div>'
+		+ p.rows.filter(r => r.state !== 'ended').map(r => '<div class="prow" data-id="' + esc(r.id) + '"><i class="dot ' + peerDot(r) + '"></i><span class="pnm">' + esc(r.name) + '</span><span class="pact">' + esc(r.need || r.activity || LABEL[r.state] || '') + '</span>'
+			+ (r.flows ? '<button type="button" data-peer="flow" aria-label="Open the flow of ' + esc(r.name) + '" title="Open the flow canvas for its changes">Open flow</button>' : '') + '</div>').join('') + '</div>').join('') + '</div>';
+}
 function render() {
 	const el = document.getElementById('list');
 	if (!data.list.length) {
 		el.innerHTML = '<p class="empty"><b>No agents running.</b><br>Start one above. It runs in a terminal like always; here you see at a glance which one is working, which one waits for you and which one is done.</p>'
 			+ '<div class="legend"><span><i style="background:var(--working)"></i>Working</span><span><i style="background:var(--blocked)"></i>Needs you</span><span><i style="background:var(--done)"></i>Done</span></div>'
-			+ '<p class="foot">Prefer the chat panel? <button id="chat">Turn it back on</button></p>';
+			+ '<p class="foot">Prefer the chat panel? <button id="chat">Turn it back on</button></p>' + peersHtml();
 		const c = document.getElementById('chat'); if (c) c.onclick = () => vscode.postMessage({ type: 'chat' });
 		return;
 	}
@@ -283,12 +303,19 @@ function render() {
 			+ (sized ? '<button type="button" class="ctx' + level + '" data-act="xray" aria-label="Context ' + pct + '% full: what fills it?" title="Context ' + pct + '% full: what fills it?"><i style="width:' + pct + '%"></i></button>' : '')
 			+ tools
 			+ '</div>';
-	}).join('');
+	}).join('') + peersHtml();
 	el.querySelectorAll('.av[data-k]').forEach(a => { const old = kept.get(a.dataset.k); if (old) { a.replaceWith(old); } });
 }
 // One handler for the whole list. Every control is a real button that names what it does (data-act); a click on the row's own text (not on a
 // button) opens the agent for the mouse, while the keyboard reaches the same through the row's main button. The id is the row's, never the button's.
 document.getElementById('list').addEventListener('click', e => {
+	const peer = e.target.closest('.peer');
+	if (peer) {
+		const pb = e.target.closest('button[data-peer]');
+		const prow = pb && pb.closest('.prow');
+		if (pb) { vscode.postMessage(Object.assign({ type: 'peer', action: pb.dataset.peer, key: peer.dataset.key }, prow ? { id: prow.dataset.id } : {})); }
+		return;
+	}
 	const row = e.target.closest('.agent');
 	if (!row) { return; }
 	const id = row.dataset.id;

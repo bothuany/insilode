@@ -11,6 +11,7 @@ import { readAvatar } from './desktopModel';
 import { dockAction } from './dockMessage';
 import { dockHtml } from './dockPage';
 import { renameFromPalette } from './paletteActions';
+import type { Peers } from './peers';
 import { savedAgents } from './pick';
 import { startOrResume } from './resume';
 import type { WorktreeRows } from './worktreeActions';
@@ -22,9 +23,10 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 	private paint = 0;
 	private readonly changes: vscode.Disposable[];
 
-	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows) {
+	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows, private readonly peers?: Peers) {
 		this.changes = [
 			agents.onDidChange(() => this.post()),
+			...(peers ? [peers.onDidChange(() => this.post())] : []),
 			...(worktrees ? [worktrees.onDidChange(() => this.post())] : []),
 			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst')) && this.post()),
 		];
@@ -64,6 +66,7 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 				case 'pick': return void vscode.commands.executeCommand('flow.agents.new');
 				case 'chat': return void vscode.commands.executeCommand('flow.settings', 'flow.agents.showChat');
 				case 'sk': return void this.agents.setSkeletonOn(m.id, m.on);
+				case 'peer': return void this.peers?.act(m.action, m.key, m.id);
 			}
 		});
 		view.onDidChangeVisibility(() => view.visible && this.post());
@@ -99,7 +102,7 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 			}
 			const list = buildRows(this.agents, this.worktrees, stages, savedAgents());
 			const avatar = readAvatar(vscode.workspace.getConfiguration('flow.agents').get('avatar'));
-			void this.view?.webview.postMessage({ type: 'data', list, now: Date.now(), avatar });
+			void this.view?.webview.postMessage({ type: 'data', list, now: Date.now(), avatar, peers: this.peers?.view().peers ?? [] });
 		}, 60);
 	}
 }
