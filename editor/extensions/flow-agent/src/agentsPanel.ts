@@ -12,6 +12,7 @@ import type { AgentsPageData, AgentsPageMessage, AgentsPageTail } from './agents
 import { agentsAction } from './agentsMessage';
 import { agentsHtml } from './agentsPage';
 import { readAvatar } from './desktopModel';
+import type { Peers } from './peers';
 import { renameFromPalette } from './paletteActions';
 import { savedAgents } from './pick';
 import { startOrResume } from './resume';
@@ -27,14 +28,39 @@ export class AgentsPanel implements vscode.Disposable {
 	private paint = 0;
 	private listeners: vscode.Disposable[] = [];
 
-	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows) {}
+	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows, private readonly peers?: Peers) {}
 
-	/** Opens the page, or brings the open one to the front. */
+	/**
+	 * Opens the page, or brings the open one to the front. On the desktop it opens in a window of its own (flowAgent.agentsPage.location,
+	 * default "window"); in the web UI, which has no second window, and with "tab" it stays an editor tab. One panel, so a second
+	 * call reveals the same page wherever it lives now.
+	 */
 	open(): void {
 		if (this.panel) {
 			this.panel.reveal();
 			return;
 		}
+		this.create();
+		if (vscode.env.uiKind === vscode.UIKind.Desktop && vscode.workspace.getConfiguration('flowAgent.agentsPage').get<string>('location', 'window') !== 'tab') {
+			void this.intoWindow(this.panel);
+		}
+	}
+
+	/** Moves the active editor into a new window, once the page is the active editor: the command moves whichever one is active, so a slow open must not move another tab. */
+	private async intoWindow(panel: vscode.WebviewPanel | undefined) {
+		if (panel && !panel.active) {
+			await new Promise<void>(resolve => {
+				const done = () => { d.dispose(); clearTimeout(t); resolve(); };
+				const d = panel.onDidChangeViewState(e => e.webviewPanel.active && done());
+				const t = setTimeout(done, 3000);
+			});
+		}
+		if (panel && panel.active && panel === this.panel) {
+			await Promise.resolve(vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow')).catch(() => undefined);
+		}
+	}
+
+	private create(): void {
 		const panel = vscode.window.createWebviewPanel('flow.agentsPage', 'Agents', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
 		this.panel = panel;
 		panel.iconPath = new vscode.ThemeIcon('sparkle') as unknown as vscode.WebviewPanel['iconPath'];
@@ -44,6 +70,7 @@ export class AgentsPanel implements vscode.Disposable {
 			panel.webview.onDidReceiveMessage(raw => this.onMessage(raw)),
 			this.agents.onDidChange(repaint),
 			...(this.worktrees ? [this.worktrees.onDidChange(repaint)] : []),
+			...(this.peers ? [this.peers.onDidChange(repaint)] : []),
 			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst') || e.affectsConfiguration('flow.agents.custom')) && this.post()),
 			// A hidden page is not repainted (it keeps its state anyway): it catches up the moment it shows again.
 			panel.onDidChangeViewState(e => e.webviewPanel.visible && this.post()),
@@ -106,6 +133,8 @@ export class AgentsPanel implements vscode.Disposable {
 				return custom && custom.name === m.name ? void this.agents.spawn('custom', undefined, custom) : undefined;
 			}
 			case 'kept': return void vscode.commands.executeCommand('flow.agents.keptWorktrees');
+			// Another window's project or session: looked up by key and id in what this window read (peers.ts), never a path.
+			case 'peer': return void this.peers?.act(m.action, m.key, m.id);
 		}
 	}
 
@@ -153,6 +182,9 @@ export class AgentsPanel implements vscode.Disposable {
 				kept: this.agents.keptWorktrees.map(k => ({ agent: k.agent, branch: k.branch, base: k.base, folder: path.basename(k.path) })),
 				limits: this.agents.latestLimits,
 				customs: customs.map(a => a.name),
+				project: { name: vscode.workspace.workspaceFolders?.[0]?.name ?? 'This window' },
+				peers: this.peers?.view().peers ?? [],
+				recent: this.peers?.view().recent ?? [],
 			};
 			this.send(data);
 		}, 60);

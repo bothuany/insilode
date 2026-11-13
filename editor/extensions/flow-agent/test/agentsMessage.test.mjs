@@ -50,6 +50,28 @@ test('bad replies, indexes and ids are dropped', () => {
 	assert.equal(a.agentsAction({ type: 'tail', id: '' }), undefined)
 })
 
+test('a peer message names a project by storage key and a session by id, never a path or a command', () => {
+	const key = '0123456789ab'
+	assert.deepEqual(a.agentsAction({ type: 'peer', action: 'ide', key }), { type: 'peer', action: 'ide', key })
+	assert.deepEqual(a.agentsAction({ type: 'peer', action: 'ide', key, id: 's1', extra: 1 }), { type: 'peer', action: 'ide', key, id: 's1' })
+	assert.deepEqual(a.agentsAction({ type: 'peer', action: 'flow', key, id: 's1' }), { type: 'peer', action: 'flow', key, id: 's1' })
+	assert.equal(a.agentsAction({ type: 'peer', action: 'ide', key: 'empty-0123456789ab' }).key, 'empty-0123456789ab')
+	for (const bad of [
+		{ type: 'peer', action: 'flow', key }, // a flow needs a session
+		{ type: 'peer', action: 'reply', key, id: 's1' }, // only two actions travel
+		{ type: 'peer', action: 'ide', key: 'C:\\Users\\me\\project' },
+		{ type: 'peer', action: 'ide', key: '../../etc' },
+		{ type: 'peer', action: 'ide', key: '0123456789AB' },
+		{ type: 'peer', action: 'ide', key: 5 },
+		{ type: 'peer', action: 'ide', key, id: 5 },
+		{ type: 'peer', action: 'ide', key, id: '' },
+		{ type: 'peer', action: 'ide', key, id: 'x'.repeat(201) },
+		{ type: 'peer', key },
+	]) {
+		assert.equal(a.agentsAction(bad), undefined, JSON.stringify(bad))
+	}
+})
+
 test('the dock-only chat link and anything unknown are dropped', () => {
 	assert.equal(a.agentsAction({ type: 'chat' }), undefined)
 	for (const m of [null, undefined, 'tail', 42, [], {}, { type: 1 }, { type: 'runCommand', id: 'x' }, { type: 'constructor', id: 'a' }]) {
