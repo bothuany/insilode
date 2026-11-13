@@ -39,17 +39,44 @@ test('currentExcluder: follows the setting', () => {
 	assert.equal(setting.currentExcluder()(at('legacy', 'a.ts'), [W]), false)
 })
 
-test('excluder: wildcards in a row are one, and a pattern over the caps is ignored', () => {
+test('excluder: wildcards in a row are one, and a pattern over the length cap is ignored', () => {
 	const deep = at(...Array.from({ length: 60 }, () => 'a'), 'b.ts')
-	const many = Array.from({ length: 12 }, () => 'a').join('/**/') // 11 wildcards
+	const many = Array.from({ length: 12 }, () => 'a').join('/**/')
 	const t = Date.now()
-	assert.equal(ex.excluder([many])(deep, [W]), false, 'more than 8 wildcards: ignored')
+	assert.equal(ex.excluder([many])(deep, [W]), true, 'many wildcards are matched, not skipped')
 	assert.equal(ex.excluder(['**/***/**/**/zzz/**'])(deep, [W]), false)
 	assert.equal(ex.excluder(['a/' + 'x'.repeat(400)])(at('a', 'x'.repeat(400)), [W]), false, 'over 300 characters: ignored')
 	assert.ok(Date.now() - t < 1000, 'no polynomial backtracking')
 	assert.equal(ex.excluder(['a/***/b.ts'])(at('a', 'q', 'b.ts'), [W]), true, '*** works as **')
 	assert.equal(ex.excluder(['**/**/**/a/b.ts'])(at('x', 'a', 'b.ts'), [W]), true)
 })
+
+test('excluder: a hostile pattern cannot backtrack, and folders, globs and slash styles behave', () => {
+	const a100 = 'a'.repeat(100);
+	const t = Date.now();
+	assert.equal(ex.excluder(['**a**a**a**a**a**a**a**b'])(at(a100), [W]), false);
+	assert.equal(ex.excluder([Array.from({ length: 30 }, () => '*a*a*a*b').join('/')])(at(...Array.from({ length: 30 }, () => a100.slice(0, 40))), [W]), false);
+	assert.equal(ex.excluder(['**/a*a*a*a*a*a*a*b/**'])(at(...Array.from({ length: 25 }, () => a100.slice(0, 40))), [W]), false);
+	assert.ok(Date.now() - t < 100, `took ${Date.now() - t} ms`);
+	assert.equal(ex.excluder(['**a**a**a**a**a**a**a**b'])(at('xaxaxaxaxaxaxaxb'), [W]), true, 'a ** inside a segment is a *');
+	const f = (pattern, ...p) => ex.excluder([pattern])(at(...p), [W]);
+	assert.equal(f('legacy', 'legacy', 'a.ts'), true, 'everything under a plain folder');
+	assert.equal(f('legacy', 'legacy'), true, 'the folder itself');
+	assert.equal(f('legacy', 'legacy-tools', 'a.ts'), false, 'not a sibling with a common prefix');
+	assert.equal(f('legacy', 'x', 'legacy', 'a.ts'), false, 'a plain folder is anchored at the root');
+	assert.equal(f('services/old', 'services', 'old', 'a.ts'), true);
+	assert.equal(f('services\\old\\','services', 'old', 'a.ts'), true, 'backslashes');
+	assert.equal(f('**/legacy/**', 'legacy'), true, 'at the root, the folder itself');
+	assert.equal(f('**/legacy/**', 'a', 'b', 'legacy', 'c', 'd.ts'), true, 'at any depth');
+	assert.equal(f('**/legacy/**', 'a', 'legacy-tools', 'd.ts'), false);
+	assert.equal(f('src/*/gen', 'src', 'x', 'gen', 'a.ts'), true);
+	assert.equal(f('src/*/gen', 'src', 'gen', 'a.ts'), false, 'a * is one segment');
+	assert.equal(f('a/**/b', 'a', 'b', 'c.ts'), true, '** takes zero segments');
+	assert.equal(f('a/**/b', 'a', 'x', 'y', 'b', 'c.ts'), true);
+	assert.equal(f('v?', 'v1', 'a.ts'), true);
+	assert.equal(f('v?', 'v10', 'a.ts'), false);
+	assert.equal(f('LEGACY', 'legacy', 'a.ts'), process.platform === 'win32', 'case blind on Windows only');
+});
 
 test('excludablePattern: a folder whose name holds * or ? is refused, others are named relative to the root', () => {
 	assert.equal(ex.excludablePattern(at('services', 'old'), [W]), 'services/old')

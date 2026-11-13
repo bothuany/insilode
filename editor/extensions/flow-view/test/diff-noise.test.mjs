@@ -159,11 +159,21 @@ test('realHunks: a URL in JSX text is no comment, so its change is kept', () => 
 	assert.equal(real('a.tsx', h, h.replace('http://x', 'http://y')).length, 1, 'a string')
 })
 
-test('realHunks: real comments in a JSX file are still noise', () => {
+test('realHunks: a file with any JSX keeps every hunk, comment-only ones too', () => {
 	const a = text('const x = 1;', '// note', 'const A = () => <br />;', 'const B = () => [', '  {/* why */}', '  <br />,', '];')
-	assert.equal(real('a.tsx', a, a.replace('// note', '// other note')).length, 0, 'comment line')
-	assert.equal(real('a.tsx', a, a.replace('x = 1;', 'x = 1; // c')).length, 0, 'after a statement')
-	assert.equal(real('a.tsx', a, a.replace('{/* why */}', '{/* because */}')).length, 0, 'jsx comment')
+	assert.equal(real('a.tsx', a, a.replace('// note', '// other note')).length, 1, 'comment line')
+	assert.equal(real('a.tsx', a, a.replace('x = 1;', 'x = 1; // c')).length, 1, 'after a statement')
+	assert.equal(real('a.tsx', a, a.replace('{/* why */}', '{/* because */}')).length, 1, 'jsx comment')
+	// A `//` after a `}` in JSX text is content: the closing tag on another line must not make it a comment.
+	const j = text('const A = () => (', '  <p>', '    {home} // {page.title}', '  </p> // end', ')')
+	assert.equal(real('a.tsx', j, j.replace('page.title', 'page.secret')).length, 1, 'JSX text after a }')
+})
+
+test('realHunks: a comment-only change in a JS or TS file without JSX is still noise', () => {
+	const a = text('const x = 1;', '// note', 'const y = 2; // c', 'const z = a < b;')
+	assert.equal(real('a.ts', a, a.replace('// note', '// other note')).length, 0, 'comment line')
+	assert.equal(real('a.ts', a, a.replace('// c', '// d')).length, 0, 'after a statement')
+	assert.equal(real('a.js', a, a.replace('y = 2', 'y = 3')).length, 1, 'code still counts')
 })
 
 test('realHunks: for an unknown language indentation is content, trailing whitespace is not', () => {

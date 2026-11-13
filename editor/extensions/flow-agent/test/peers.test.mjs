@@ -216,3 +216,14 @@ test('the own file is rewritten when it is missing or left by a dead process, no
 	writeFileSync(file, '{garbled')
 	assert.equal(await p.needsRepublish(file), true)
 })
+
+test('a write that failed is published again by the next poll, even though the file still carries this windows pid', async () => {
+	const { dir } = storage()
+	const file = join(dir(ownKey), 'rows.json')
+	writeFileSync(file, JSON.stringify({ pid: process.pid, rows: ['previous'] }))
+	let published = p.publishedAfter('previous', true)
+	assert.equal(await p.mustRepublish(published, file), false, 'written and still ours: nothing to do')
+	published = p.publishedAfter('new', false)
+	assert.equal(published, '', 'a failed write remembers nothing')
+	assert.equal(await p.mustRepublish(published, file), true, 'the stale file is replaced by the next poll')
+})

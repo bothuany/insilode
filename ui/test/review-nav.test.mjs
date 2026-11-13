@@ -1,7 +1,7 @@
 // The review navigation outside the tour, and how a card draws its removed lines. Pure files, run under plain Node (`npm test` in ui/).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cycle, findCards, groupByFile, keepViewed, navKeyAction, nextUnviewed, splitName, stepKey, toggled } from '../src/review/nav.ts'
+import { cycle, findAfterReload, findCards, groupByFile, keepViewed, navKeyAction, nextUnviewed, splitName, stepKey, toggled } from '../src/review/nav.ts'
 import { CHAR_W, GUTTER_W, LINE_H, toLines, toRows, layout } from '../src/layout.ts'
 import { rangesOf, removedAt, tourFromChanges } from '../src/tour/review.ts'
 
@@ -130,6 +130,18 @@ test('a viewed tick survives a reload only for the same card with the same diff'
   const after = new Map([['a', '{"plus":1}'], ['b', '{"plus":5}'], ['d', '{"plus":3}']])
   assert.deepEqual([...keepViewed(new Set(['a', 'b', 'c', 'd', 'x']), before, after)], ['a'])
   assert.equal(keepViewed(new Set(['a']), new Map(), after).size, 0)
+})
+
+test('the find box survives a reload of the same cards, clamped, and closes for other cards', () => {
+  const cards = [{ key: 'a', label: 'A ▸ Alpha' }, { key: 'b', label: 'B ▸ Alpha2' }, { key: 'c', label: 'C ▸ Other' }]
+  const ids = new Set(['a', 'b', 'c'])
+  assert.deepEqual(findAfterReload({ query: 'alp', index: 1 }, ids, [...cards]), { query: 'alp', index: 1 }, 'the same cards keep query and index')
+  assert.deepEqual(findAfterReload({ query: 'alp', index: 5 }, ids, cards), { query: 'alp', index: 1 }, 'index clamped to the last match')
+  assert.deepEqual(findAfterReload({ query: 'zzz', index: 3 }, ids, cards), { query: 'zzz', index: 0 }, 'no matches: index 0')
+  assert.equal(findAfterReload({ query: 'alp', index: 0 }, ids, cards.slice(0, 2)), null, 'a card gone')
+  assert.equal(findAfterReload({ query: 'alp', index: 0 }, ids, [...cards, { key: 'd', label: 'D ▸ New' }]), null, 'a card added')
+  assert.equal(findAfterReload({ query: 'alp', index: 0 }, ids, [cards[0], cards[1], { key: 'x', label: 'X ▸ Y' }]), null, 'a card replaced')
+  assert.equal(findAfterReload(null, ids, cards), null, 'no box stays none')
 })
 
 test('the change-set root wraps its summary and its card grows with the lines', () => {

@@ -15,7 +15,7 @@ import { definitionInFile, notify, registerIde } from './ide'
 import { ActionsCtx, LANG_BY_EXT, nodeTypes, recolor, type CanvasActions, type Caret } from './nodes'
 import { cardAt, samePath } from './tour/cards'
 import { ChangesRail, FindBox } from './review/ChangesRail'
-import { cycle, findCards, groupByFile, keepViewed, navKeyAction, nextUnviewed, stepKey, toggled } from './review/nav'
+import { cycle, findAfterReload, findCards, groupByFile, keepViewed, navKeyAction, nextUnviewed, stepKey, toggled } from './review/nav'
 import { PointAsk, selectedLines, type Pointing } from './tour/PointAsk'
 import { SelectionBar, type Picked, type SelectionAction } from './tour/SelectionBar'
 import { useTourPlayer } from './tour/TourPlayer'
@@ -656,16 +656,19 @@ function Flow() {
   const changedRef = useRef(changed)
   changedRef.current = changed
   // A new graph (a reload, a new change set) drops what no longer holds: a tick or the current card survives only when the same
-  // card has the same diff, and the find box closes (its index belongs to the old matches).
+  // card has the same diff, and the find box closes only when the cards themselves changed (a reload of the same flow keeps the query).
   const seenDiffs = useRef(new Map<string, string>())
+  const seenCards = useRef<ReadonlySet<string>>(new Set())
   useEffect(() => {
     const before = seenDiffs.current
     const after = new Map(changedRef.current.map(n => [n.key, JSON.stringify(n.diff)]))
     seenDiffs.current = after
     setViewed(v => keepViewed(v, before, after))
     setNavCurrent(c => (c !== null && before.has(c) && before.get(c) === after.get(c) ? c : null))
-    setFinding(null)
-  }, [down, up])
+    const cardsBefore = seenCards.current
+    seenCards.current = new Set(cardNames.map(c => c.key))
+    setFinding(f => findAfterReload(f, cardsBefore, cardNames))
+  }, [down, up]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!down) return
     const t = setTimeout(() => goTo((target.target.kind === 'changes' ? changedRef.current[0]?.key : undefined) ?? down.key, false), 50)

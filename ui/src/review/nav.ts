@@ -95,6 +95,20 @@ export function keepViewed(viewed: ReadonlySet<string>, before: ReadonlyMap<stri
   return new Set([...viewed].filter(k => before.has(k) && before.get(k) === after.get(k)))
 }
 
+/**
+ * The find box after the graph came again. A new set of cards closes it (its index belonged to the old matches); the same cards
+ * (the host reloads the flow on any file change on disk) keep the query, with the index clamped into the matches there are now.
+ */
+export function findAfterReload<T extends { key: string; label: string }>(
+  finding: { query: string; index: number } | null,
+  before: ReadonlySet<string>,
+  cards: readonly T[],
+): { query: string; index: number } | null {
+  const keys = new Set(cards.map(c => c.key))
+  if (!finding || keys.size !== before.size || [...keys].some(k => !before.has(k))) return null
+  return { query: finding.query, index: Math.max(0, Math.min(finding.index, findCards(cards, finding.query).length - 1)) }
+}
+
 export type NavAction = 'next' | 'prev' | 'viewed' | 'find'
 
 /** What each key does. The letters need no AltGr, so every layout can type them; `]`, `[` and `/` are kept for those who can. */

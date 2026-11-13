@@ -10,7 +10,7 @@ import * as vscode from 'vscode';
 import { buildRows } from './agentRows';
 import type { Agents } from './agents';
 import type { PeerProject, RecentProject } from './agentsData';
-import { isKey, needsRepublish, readProjects, slimRow, takeRequests, writeJson, writeRequest, type PeerFound, type RecentFound } from './peersCore';
+import { isKey, mustRepublish, publishedAfter, readProjects, slimRow, takeRequests, writeJson, writeRequest, type PeerFound, type RecentFound } from './peersCore';
 import type { WorktreeRows } from './worktreeActions';
 
 const POLL_MS = 5000;
@@ -83,8 +83,9 @@ export class Peers implements vscode.Disposable {
 			return;
 		}
 		const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? '';
-		// Published only once written: after a failure the poll (scan) tries again, or the others keep a stale state such as "working".
-		await writeJson(this.rowsFile, { folder, name: folder ? path.basename(folder) : 'Window without a folder', pid: process.pid, updatedAt: Date.now(), rows }).then(() => { this.published = body; }, () => undefined);
+		// Remembered only once written: after a failure nothing is remembered, so the poll (scan) publishes again, or the others keep a stale state such as "working".
+		const written = await writeJson(this.rowsFile, { folder, name: folder ? path.basename(folder) : 'Window without a folder', pid: process.pid, updatedAt: Date.now(), rows }).then(() => true, () => false);
+		this.published = publishedAfter(body, written);
 	}
 
 	private schedule() {
@@ -102,7 +103,7 @@ export class Peers implements vscode.Disposable {
 			}
 		}
 		// Our own file went missing (a window on the same folder removed it) or failed to write: publish again.
-		if (!this.published || await needsRepublish(this.rowsFile)) {
+		if (await mustRepublish(this.published, this.rowsFile)) {
 			this.published = '';
 			this.schedulePublish();
 		}

@@ -193,6 +193,13 @@ export async function needsRepublish(file: string, pid = process.pid, alive: (pi
 	return typeof found !== 'number' || (found !== pid && !alive(found));
 }
 
+/** The body this window remembers as published after a write: none when it failed, or the file keeps the previous state and nothing would ever retry. */
+export const publishedAfter = (body: string, written: boolean): string => (written ? body : '');
+
+/** Whether the poll has to publish: nothing is remembered as published (the last write failed), or the file on disk is not ours any more. */
+export const mustRepublish = async (published: string, file: string, pid = process.pid, alive: (pid: number) => boolean = pidAlive): Promise<boolean> =>
+	!published || needsRepublish(file, pid, alive);
+
 const RENAME_TRIES = 5;
 
 /**

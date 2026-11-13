@@ -55,7 +55,7 @@ const AFTER_KEYWORD = /(?:^|[^\w$])(?:return|typeof|case|in|of|delete|void|throw
 /**
  * Removes comments with a scanner that knows the language's string literals (so `"http://x"` is no comment) and keeps every
  * newline, so line numbers stay those of the original. A block comment becomes one space. Undefined when the scanner is not
- * sure (an unterminated literal, an unclosed comment): the caller then treats nothing as noise. A language it does not know
+ * sure (an unterminated literal, an unclosed comment, JSX): the caller then treats nothing as noise. A language it does not know
  * is returned as it is.
  */
 export function stripComments(text: string, ext: string): Stripped | undefined {
@@ -64,28 +64,13 @@ export function stripComments(text: string, ext: string): Stripped | undefined {
 	if (!lang) {
 		return { text, literal };
 	}
+	// JSX text is not a string literal and cannot be told from code without a parser: `{home} // {page.title}` is content, not a
+	// comment. A file with a JSX marker is never understood here, so none of its hunks is hidden.
+	if ((ext === 'js' || ext === 'jsx' || ext === 'ts' || ext === 'tsx') && /<\/|\/>/.test(text)) {
+		return undefined;
+	}
 	const n = text.length;
-	// JSX text is not a string literal, so `http://a.com` in it would read as a comment: in a file that has JSX tags a
-	// `//` or `/*` only counts as a comment where it clearly is one (`clearComment`), else the scanner is unsure.
 	const out: string[] = [];
-	const jsx = (ext === 'js' || ext === 'jsx' || ext === 'ts' || ext === 'tsx') && /<\/|\/>/.test(text);
-	const clearComment = (at: number): boolean => {
-		if (!jsx) {
-			return true;
-		}
-		const eol = text.indexOf('\n', at);
-		if (/<\/|\/>/.test(text.slice(at, eol < 0 ? n : eol))) {
-			return false; // a tag closes on the same line: this is JSX text
-		}
-		// A comment after code that ended a statement or opened a block (earlier comments do not count), not after what may be JSX text.
-		for (let k = out.length - 1; k >= 0; k--) {
-			const seen = out[k].trimEnd();
-			if (seen) {
-				return ';{}'.includes(seen[seen.length - 1]);
-			}
-		}
-		return true;
-	};
 	const templates: number[] = []; // per open `${`: how many `{` are open inside it
 	let i = 0;
 	let line = 0;
@@ -128,18 +113,12 @@ export function stripComments(text: string, ext: string): Stripped | undefined {
 			continue;
 		}
 		if (lang.line === '#' ? c === '#' : c === '/' && text[i + 1] === '/') {
-			if (!clearComment(i)) {
-				return undefined;
-			}
 			while (i < n && text[i] !== '\n') {
 				i++;
 			}
 			continue;
 		}
 		if (lang.block && c === '/' && text[i + 1] === '*') {
-			if (!clearComment(i)) {
-				return undefined;
-			}
 			let depth = 1;
 			i += 2;
 			while (i < n && depth) {

@@ -16,45 +16,66 @@ export function normalizePattern(p: string): string {
 	return p.trim().replace(/\\/g, '/').replace(/^(\.\/)+/, '').replace(/^\/+|\/+$/g, '');
 }
 
-/** shortcut: only `*`, `**` and `?` are globs (no braces or classes), upgrade when someone asks for them. */
-function toRegExp(pattern: string): RegExp {
-	// A trailing `/**` also matches the folder itself, so the walk can skip it without entering.
-	const tail = pattern.endsWith('/**');
-	const body = tail ? pattern.slice(0, -3) : pattern;
-	let re = '';
-	for (let i = 0; i < body.length; i++) {
-		const c = body[i];
-		if (c === '*' && body[i + 1] === '*') {
-			if (body[i + 2] === '/') {
-				re += '(?:.*/)?';
-				i += 2;
-			} else {
-				re += '.*';
-				i += 1;
-			}
-		} else if (c === '*') {
-			re += '[^/]*';
-		} else if (c === '?') {
-			re += '[^/]';
+/**
+ * `*` and `?` inside one segment: the linear two-pointer wildcard match, which only ever falls back to the last `*`, so a hostile
+ * pattern costs pattern length x segment length at worst and never backtracks exponentially.
+ */
+function segmentMatches(p: string, s: string): boolean {
+	let pi = 0;
+	let si = 0;
+	let star = -1;
+	let mark = 0;
+	while (si < s.length) {
+		if (p[pi] === '*') {
+			star = pi++;
+			mark = si;
+		} else if (pi < p.length && (p[pi] === '?' || p[pi] === s[si])) {
+			pi++;
+			si++;
+		} else if (star >= 0) {
+			pi = star + 1;
+			si = ++mark;
 		} else {
-			re += c.replace(/[.+^${}()|[\]\\]/g, '\\$&');
+			return false;
 		}
 	}
-	// A plain folder name matches by prefix of segments (below), so `legacy` never matches `legacy-tools`.
-	return new RegExp(`^${re}${tail ? '(?:/.*)?' : ''}$`, process.platform === 'win32' ? 'i' : '');
+	while (p[pi] === '*') {
+		pi++;
+	}
+	return pi === p.length;
 }
 
-/** Settings are user input and a glob becomes a backtracking regex per file: a pattern past these caps is ignored. */
-const MAX_PATTERN = 300;
-const MAX_WILDCARDS = 8;
+/** shortcut: only `*`, `**` and `?` are globs (no braces or classes), upgrade when someone asks for them. */
+function compile(pattern: string): (segs: readonly string[]) => boolean {
+	const win = process.platform === 'win32';
+	// A `**` that is not a whole segment is a `*`: only a whole segment may span folders.
+	const pat = (win ? pattern.toLowerCase() : pattern).split('/').filter(Boolean).map(p => (p === '**' ? p : p.replace(/\*+/g, '*')));
+	// A plain folder name matches the folder and everything below it (the caller tries every prefix), so `legacy` never matches
+	// `legacy-tools`. reach[j]: the first i pattern segments can match the first j path segments; `**` takes zero or more of them.
+	return segs => {
+		const parts = win ? segs.map(s => s.toLowerCase()) : segs;
+		let reach = [true, ...parts.map(() => false)];
+		for (const p of pat) {
+			const next = [false, ...parts.map(() => false)];
+			for (let j = 0; j <= parts.length; j++) {
+				next[j] = p === '**' ? reach[j] || (j > 0 && next[j - 1]) : j > 0 && reach[j - 1] && segmentMatches(p, parts[j - 1]);
+			}
+			reach = next;
+		}
+		return reach.some((r, j) => r && j > 0);
+	};
+}
 
-/** Consecutive wildcards mean one (`***` is `**`, `**` + `/**` is `**`), so they cannot multiply the backtracking. */
-const collapse = (p: string) => p.replace(/\*{3,}/g, '**').replace(/(?:\*\*\/){2,}/g, '**/');
-const usable = (p: string) => p.length <= MAX_PATTERN && (p.match(/[*?]+/g)?.length ?? 0) <= MAX_WILDCARDS;
+/** Settings are user input: a pattern past this length is ignored. */
+const MAX_PATTERN = 300;
+
+/** Three or more `*` in a row mean `**`. */
+const collapse = (p: string) => p.replace(/\*{3,}/g, '**');
+const usable = (p: string) => p.length <= MAX_PATTERN;
 
 export function excluder(patterns: readonly string[]): Excluder {
-	const res = patterns.filter(p => typeof p === 'string').map(normalizePattern).filter(Boolean).map(collapse).filter(usable).map(toRegExp);
-	if (!res.length) {
+	const matchers = patterns.filter(p => typeof p === 'string').map(normalizePattern).filter(Boolean).map(collapse).filter(usable).map(compile);
+	if (!matchers.length) {
 		return NONE;
 	}
 	return (fsPath, roots) => {
@@ -64,14 +85,7 @@ export function excluder(patterns: readonly string[]): Excluder {
 				continue;
 			}
 			const segs = rel.split(/[\\/]/);
-			let prefix = '';
-			for (const s of segs) {
-				prefix = prefix ? `${prefix}/${s}` : s;
-				if (res.some(r => r.test(prefix))) {
-					return true;
-				}
-			}
-			return false;
+			return matchers.some(m => m(segs));
 		}
 		return false;
 	};
