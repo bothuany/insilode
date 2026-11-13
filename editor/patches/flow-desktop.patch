@@ -936,7 +936,7 @@ index 0000000..51814a1
 +		}
 +		const id = String(display.id);
 +		this.lastDropAt = Date.now();
-+		this.store ={ ...this.store, spots: { ...this.store.spots, [id]: rectToSpot(rect, display.workArea) }, last: id };
++		this.store = { ...this.store, spots: { ...this.store.spots, [id]: rectToSpot(rect, display.workArea) }, last: id };
 +		this.saveStore();
 +		this.render();
 +	}

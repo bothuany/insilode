@@ -117,3 +117,15 @@ test('the change set re-traces only the flows whose files changed between two as
 	await set.graph()
 	assert.deepEqual(traced.sort(), ['a', 'a', 'b'], 'only the flow that shows a.ts is traced again')
 })
+
+test('the change set root says what the view left out', async () => {
+	const set = new m.ChangeSetProvider({
+		stat: disk({ '/a.ts': 100 }).stat,
+		now: () => 1000,
+		impactOf: async () => ({ files: 1, flows: [], changed: [], tables: [], more: 0 }),
+		providerFor: () => ({ graph: async t => card(t.id, '/a.ts') }),
+		annotate: async () => undefined,
+	})
+	set.use({ label: 'Changes since main', files: ['/a.ts'], hidden: '2 test files hidden' })
+	assert.match((await set.graph()).sub, /1 changed file · 0 endpoints · 2 test files hidden/)
+})

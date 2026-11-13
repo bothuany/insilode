@@ -268,6 +268,7 @@ export class ChangeSetProvider implements FlowProvider {
 			impact.more ? `${impact.more} endpoints not drawn` : '',
 			left ? `${left} methods not drawn` : '',
 			failed ? `${failed} could not be traced` : '',
+			set.hidden ?? '',
 			!branches.length && !failed ? 'no changed method found (the code index or C# analyzer may still be loading)' : '',
 			impact.note ?? '',
 		].filter(Boolean).join(' · ');
