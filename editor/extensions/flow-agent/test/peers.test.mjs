@@ -3,7 +3,8 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { rename as renameAsync } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -83,12 +84,12 @@ const ownKey = 'aaaaaaaaaaaa'
 test('a snapshot whose process is gone is not shown; a live one is', async () => {
 	const { root, dir } = storage()
 	writeFileSync(join(dir(key()), 'rows.json'), JSON.stringify(snap({ pid: 4242 })))
-	const dead = await p.readProjects(root, ownKey, () => false)
-	assert.equal(dead.peers.length, 0)
 	const alive = await p.readProjects(root, ownKey, pid => pid === 4242)
 	assert.equal(alive.peers.length, 1)
 	assert.equal(alive.peers[0].key, key())
 	assert.equal(alive.peers[0].rows[0].name, 'Claude')
+	const dead = await p.readProjects(root, ownKey, () => false)
+	assert.equal(dead.peers.length, 0)
 	assert.equal(p.pidAlive(process.pid), true)
 	assert.equal(p.pidAlive(2 ** 22 + 12345), false)
 })
@@ -109,6 +110,7 @@ test('this window is skipped, and an oversized or garbled file is ignored', asyn
 test('a closed project with a project.json and sessions is listed as recent; one without is not', async () => {
 	const { root, dir } = storage()
 	const d = dir(key())
+	mkdirSync(folder(), { recursive: true })
 	writeFileSync(join(d, 'project.json'), JSON.stringify({ folder: folder(), name: 'project-a' }))
 	writeFileSync(join(d, 'sessions.json'), JSON.stringify({ token: 'secret', sessions: [{ id: '1', name: 'Fix login', transcript: '/x' }, { id: '2' }, { name: 5 }] }))
 	const r = await p.readProjects(root, ownKey, () => true)
@@ -143,4 +145,74 @@ test('a request is a reveal or a flow for a known session: anything else is drop
 	assert.ok(got.every(r => r.id === 'mine'))
 	assert.deepEqual(readdirSync(d).filter(n => n !== 'request-zzzz.json'), [], 'each request file is deleted once read')
 	assert.deepEqual(await p.takeRequests(d, has), [])
+})
+
+test('the display name comes from the folder, never from the file; a UNC folder is refused', () => {
+	assert.equal(p.parseSnapshot(snap({ name: 'my-app' }), key()).name, 'project-a')
+	assert.equal(p.parseProject({ folder: folder(), name: 'my-app' }, key()).name, 'project-a')
+	for (const unc of ['\\\\host\\share\\x', '//host/share/x']) {
+		assert.equal(p.parseSnapshot(snap({ folder: unc }), p.folderKey(unc)), undefined, unc)
+		assert.equal(p.parseProject({ folder: unc, name: 'x' }, p.folderKey(unc)), undefined, unc)
+	}
+})
+
+test('a closed project whose folder is gone is not listed', async () => {
+	const { root, dir } = storage()
+	const gone = resolve(tmp, 'removed-project')
+	const d = dir(p.folderKey(gone))
+	writeFileSync(join(d, 'project.json'), JSON.stringify({ folder: gone, name: 'removed-project' }))
+	writeFileSync(join(d, 'sessions.json'), JSON.stringify({ sessions: [{ name: 'a' }] }))
+	assert.equal((await p.readProjects(root, ownKey, () => true)).recent.length, 0)
+	mkdirSync(gone)
+	assert.equal((await p.readProjects(root, ownKey, () => true)).recent.length, 1)
+})
+
+test('only the first 120 characters of a prompt are published', () => {
+	assert.equal(p.slimRow(row({ prompt: 'x'.repeat(500) })).prompt.length, 120)
+})
+
+test('a rows.json whose process is gone is deleted; a live one stays', async () => {
+	const { root, dir } = storage()
+	const file = join(dir(key()), 'rows.json')
+	writeFileSync(file, JSON.stringify(snap({ pid: 4242 })))
+	await p.readProjects(root, ownKey, () => true)
+	assert.ok(existsSync(file))
+	await p.readProjects(root, ownKey, () => false)
+	assert.ok(!existsSync(file))
+})
+
+test('a failed rename is retried; after the last try the error is let through and no temp file stays', async () => {
+	const { dir } = storage()
+	const d = dir(ownKey)
+	let calls = 0
+	const flaky = n => async (from, to) => {
+		calls++
+		if (calls <= n) {
+			throw Object.assign(new Error('busy'), { code: 'EPERM' })
+		}
+		return renameAsync(from, to)
+	}
+	await p.writeJson(join(d, 'rows.json'), { a: 1 }, flaky(2), 1)
+	assert.equal(calls, 3)
+	assert.deepEqual(readdirSync(d), ['rows.json'])
+	calls = 0
+	await assert.rejects(p.writeJson(join(d, 'other.json'), { a: 1 }, flaky(99), 1), /busy/)
+	assert.deepEqual(readdirSync(d), ['rows.json'], 'the temp file is removed')
+	// A request is retried the same way, so a click is not lost.
+	calls = 0
+	await p.writeRequest(d, { type: 'reveal', id: 'mine' }, flaky(1))
+	assert.equal((await p.takeRequests(d, id => id === 'mine')).length, 1)
+})
+
+test('the own file is rewritten when it is missing or left by a dead process, not when it is ours or another live window\'s', async () => {
+	const { dir } = storage()
+	const file = join(dir(ownKey), 'rows.json')
+	assert.equal(await p.needsRepublish(file), true, 'missing')
+	writeFileSync(file, JSON.stringify({ pid: process.pid }))
+	assert.equal(await p.needsRepublish(file), false)
+	writeFileSync(file, JSON.stringify({ pid: 4242 }))
+	assert.equal(await p.needsRepublish(file, process.pid, () => true), false, 'another live window on the same folder')
+	assert.equal(await p.needsRepublish(file, process.pid, () => false), true, 'a dead one')
+	writeFileSync(file, '{garbled')
+	assert.equal(await p.needsRepublish(file), true)
 })

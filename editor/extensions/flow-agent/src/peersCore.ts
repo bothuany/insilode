@@ -17,6 +17,8 @@ export const MAX_ROWS = 100;
 export const MAX_TODOS = 40;
 export const MAX_TEXT = 400;
 export const MAX_PROJECTS = 50;
+/** How much of a prompt leaves this window: enough to tell sessions apart, not what the user typed in full. */
+export const MAX_PROMPT = 120;
 const REQUEST_MAX_BYTES = 1024;
 /** A request nobody picked up in this long is stale: the user clicked a minute ago, not now. */
 export const REQUEST_TTL_MS = 60_000;
@@ -38,7 +40,7 @@ export function slimRow(r: AgentRow): PeerRow {
 	const t = r.cost?.session.tokens;
 	return {
 		id: r.id, cli: r.cli, name: r.name.slice(0, 200), state: r.state, since: r.since, attention: r.attention,
-		activity: cut(r.activity), prompt: cut(r.prompt), need: cut(r.need?.text),
+		activity: cut(r.activity), prompt: r.prompt?.slice(0, MAX_PROMPT), need: cut(r.need?.text),
 		todos: r.todos.slice(0, MAX_TODOS).map(x => ({ text: x.text.slice(0, MAX_TEXT), status: x.status })),
 		tokens: t ? t.input + t.output + t.cacheRead + t.cacheWrite : undefined, usd: r.cost?.session.usd,
 		contextPercent: u?.size ? Math.min(100, u.percent ?? Math.round(u.used / u.size * 100)) : undefined, model: u?.model?.slice(0, 100),
@@ -87,6 +89,9 @@ export interface Snapshot {
 	rows: PeerRow[];
 }
 
+/** An absolute local path: a UNC share (two leading slashes or backslashes) is another machine, never a project to open. */
+const safeFolder = (f: string) => path.isAbsolute(f) && !/^[\\/]{2}/.test(f);
+
 /**
  * A window's rows.json. `key` is the folder it was read from: a snapshot must name the folder that folder is the storage of
  * (the hash agents.ts keys by), so a file cannot claim to be another project.
@@ -97,7 +102,7 @@ export function parseSnapshot(raw: unknown, key: string): Snapshot | undefined {
 		|| !Array.isArray(o.rows) || o.rows.length > MAX_ROWS) {
 		return undefined;
 	}
-	if (key.startsWith('empty-') ? o.folder !== '' : !path.isAbsolute(o.folder) || folderKey(o.folder) !== key) {
+	if (key.startsWith('empty-') ? o.folder !== '' : !safeFolder(o.folder) || folderKey(o.folder) !== key) {
 		return undefined;
 	}
 	const rows: PeerRow[] = [];
@@ -108,7 +113,8 @@ export function parseSnapshot(raw: unknown, key: string): Snapshot | undefined {
 		}
 		rows.push(row);
 	}
-	return { folder: o.folder, name: o.name, pid: o.pid, updatedAt: o.updatedAt, rows };
+	// The name is derived, not read: whoever writes a sibling folder chooses what the file says, and "my-app" must not open anything else.
+	return { folder: o.folder, name: o.folder ? path.basename(o.folder) : 'Window without a folder', pid: o.pid, updatedAt: o.updatedAt, rows };
 }
 
 /** Whether a process exists. EPERM means it does, under another user. */
@@ -135,10 +141,10 @@ export interface RecentFound { key: string; name: string; folder: string; sessio
 /** The project.json a window writes so a closed project can be listed and reopened. */
 export function parseProject(raw: unknown, key: string): { folder: string; name: string } | undefined {
 	const o = raw as Record<string, unknown> | null;
-	if (!o || typeof o !== 'object' || !isStr(o.folder, 1000) || !isStr(o.name, 200) || !path.isAbsolute(o.folder) || folderKey(o.folder) !== key) {
+	if (!o || typeof o !== 'object' || !isStr(o.folder, 1000) || !safeFolder(o.folder) || folderKey(o.folder) !== key) {
 		return undefined;
 	}
-	return { folder: o.folder, name: o.name };
+	return { folder: o.folder, name: path.basename(o.folder) };
 }
 
 /** Session names of a sessions.json, for the Recent list; a damaged file gives none. */
@@ -162,9 +168,14 @@ export async function readProjects(root: string, own: string, alive: (pid: numbe
 			peers.push({ key, name: snap.name, folder: snap.folder, pid: snap.pid, rows: snap.rows });
 			continue;
 		}
+		if (snap) {
+			// A crashed window leaves its file behind: nothing else would ever remove it.
+			await fs.unlink(path.join(dir, 'rows.json')).catch(() => undefined);
+		}
 		const project = await readJson(path.join(dir, 'project.json')).then(j => parseProject(j, key)).catch(() => undefined);
 		const sessions = project ? await readJson(path.join(dir, 'sessions.json')).then(sessionNames).catch(() => []) : [];
-		if (project && sessions.length) {
+		// A folder that is gone (deleted, an unplugged drive) is nothing to reopen.
+		if (project && sessions.length && await fs.stat(project.folder).then(st => st.isDirectory(), () => false)) {
 			recent.push({ key, name: project.name, folder: project.folder, sessions });
 		}
 	}
@@ -173,11 +184,36 @@ export async function readProjects(root: string, own: string, alive: (pid: numbe
 	return { peers: peers.slice(0, MAX_PROJECTS), recent: recent.slice(0, MAX_PROJECTS) };
 }
 
-/** Atomic: a reader never sees half a file. */
-export async function writeJson(file: string, value: unknown) {
-	const tmp = `${file}.${process.pid}.tmp`;
-	await fs.writeFile(tmp, JSON.stringify(value), { mode: 0o600 });
-	await fs.rename(tmp, file);
+/**
+ * Whether this window's own rows.json has to be written again: it is missing or unreadable, or another process's (a window on
+ * the same folder, or an old extension host) that is no longer alive. A live other pid is left alone.
+ */
+export async function needsRepublish(file: string, pid = process.pid, alive: (pid: number) => boolean = pidAlive): Promise<boolean> {
+	const found = await readJson(file).then(j => (j as { pid?: unknown } | null)?.pid, () => undefined);
+	return typeof found !== 'number' || (found !== pid && !alive(found));
+}
+
+const RENAME_TRIES = 5;
+
+/**
+ * Atomic: a reader never sees half a file. On Windows a rename over a file another process has open fails (EPERM, EBUSY), so it is
+ * retried a few times before the error is let through. The temp name is random and created with `wx`: a name an attacker could
+ * predict could be a planted link that the write would follow.
+ */
+export async function writeJson(file: string, value: unknown, rename: (from: string, to: string) => Promise<void> = fs.rename, delayMs = 25) {
+	const tmp = `${file}.${randomBytes(6).toString('hex')}.tmp`;
+	await fs.writeFile(tmp, JSON.stringify(value), { mode: 0o600, flag: 'wx' });
+	for (let n = 1; ; n++) {
+		try {
+			return await rename(tmp, file);
+		} catch (e) {
+			if (n >= RENAME_TRIES) {
+				await fs.unlink(tmp).catch(() => undefined);
+				throw e;
+			}
+			await new Promise(r => setTimeout(r, delayMs * n));
+		}
+	}
 }
 
 export type PeerRequest = { type: 'reveal' | 'flow'; id: string };
@@ -193,8 +229,8 @@ export function parseRequest(raw: unknown, now: number): PeerRequest | undefined
 }
 
 /** Drops a request into another window's folder (`dir` is built from a validated key by the caller). */
-export async function writeRequest(dir: string, req: PeerRequest) {
-	await writeJson(path.join(dir, `request-${randomBytes(8).toString('hex')}.json`), { ...req, at: Date.now() });
+export async function writeRequest(dir: string, req: PeerRequest, rename?: (from: string, to: string) => Promise<void>) {
+	await writeJson(path.join(dir, `request-${randomBytes(8).toString('hex')}.json`), { ...req, at: Date.now() }, rename);
 }
 
 /**

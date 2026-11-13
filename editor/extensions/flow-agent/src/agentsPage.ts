@@ -368,12 +368,13 @@ function paintSide() {
 	const out = [h('div', { class: 'sgroup' },
 		h('div', { class: 'shead' }, h('span', { class: 'sproj', title: 'This window' }, (data.project && data.project.name) || 'This window'), pick('New session', { type: 'pick' }, 'Start an agent in this project')),
 		mine.length ? mine.map(srow) : h('p', { class: 'note' }, 'No sessions yet.'))];
-	const open = data.peers.filter(p => shown(p.rows).length);
-	if (open.length) { out.push(h('div', { class: 'slabel' }, 'Open projects')); }
-	for (const p of open) {
+	// Every open project, with or without sessions: the sidebar is also the way to jump between the open project windows.
+	if (data.peers.length) { out.push(h('div', { class: 'slabel' }, 'Open projects')); }
+	for (const p of data.peers) {
+		const list = shown(p.rows);
 		out.push(h('div', { class: 'sgroup' },
 			h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p.name }, p.name), pick('Open in IDE', { type: 'peer', action: 'ide', key: p.key }, 'Bring up the window of ' + p.name)),
-			shown(p.rows).map(srow)));
+			list.length ? list.map(srow) : h('p', { class: 'note' }, 'No sessions')));
 	}
 	if (data.recent.length) {
 		out.push(h('div', { class: 'slabel' }, 'Recent'));
@@ -390,9 +391,12 @@ function paintSide() {
 function paintHead() {
 	const g = { needs: 0, working: 0, done: 0 };
 	let tokens = 0, dollars = 0, priced = false;
-	for (const s of data.rows) {
+	// The page is the place to see every project: the counters take the other open projects' sessions too.
+	for (const s of data.rows.concat(...data.peers.map(p => p.rows))) {
 		const c = column(s);
 		if (g[c] !== undefined) { g[c]++; }
+	}
+	for (const s of data.rows) {
 		if (s.cost) { tokens += sum(s.cost.session.tokens); if (s.cost.session.usd !== undefined) { dollars += s.cost.session.usd; priced = true; } }
 	}
 	const count = (n, label, color) => h('span', { class: 'count' }, h('i', { style: 'background:var(' + color + ')' }), h('b', null, String(n)), label);
@@ -484,6 +488,11 @@ function paintBoard() {
 	const total = data.rows.length;
 	const focusId = [...cardEls].filter(([, e]) => e === document.activeElement).map(([id]) => id)[0];
 	cardEls = new Map();
+	if (!total && data.peers.some(p => p.rows.length)) {
+		// One line, so a session of another project that is selected is not pushed below the fold when the layout is stacked.
+		fill(boardEl, [h('p', { class: 'note' }, 'No agents running in this window. The sessions of your other open projects are in the list.')]);
+		return;
+	}
 	if (!total) {
 		fill(boardEl, [h('div', { class: 'empty' }, h('b', null, 'No agents running.'), h('p', null, 'Start one and it runs in a terminal like always. Here you see at a glance which agent is working, which one waits for you and which one is done.'),
 			h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn primary', onclick: () => post({ type: 'new', cli: 'claude' }) }, raw('span', 'mk', MARK.claude), 'New Claude'), h('button', { type: 'button', class: 'btn primary', onclick: () => post({ type: 'new', cli: 'codex' }) }, raw('span', 'mk', MARK.codex), 'New Codex')))]);
