@@ -65,7 +65,27 @@ export function stripComments(text: string, ext: string): Stripped | undefined {
 		return { text, literal };
 	}
 	const n = text.length;
+	// JSX text is not a string literal, so `http://a.com` in it would read as a comment: in a file that has JSX tags a
+	// `//` or `/*` only counts as a comment where it clearly is one (`clearComment`), else the scanner is unsure.
 	const out: string[] = [];
+	const jsx = (ext === 'js' || ext === 'jsx' || ext === 'ts' || ext === 'tsx') && /<\/|\/>/.test(text);
+	const clearComment = (at: number): boolean => {
+		if (!jsx) {
+			return true;
+		}
+		const eol = text.indexOf('\n', at);
+		if (/<\/|\/>/.test(text.slice(at, eol < 0 ? n : eol))) {
+			return false; // a tag closes on the same line: this is JSX text
+		}
+		// A comment after code that ended a statement or opened a block (earlier comments do not count), not after what may be JSX text.
+		for (let k = out.length - 1; k >= 0; k--) {
+			const seen = out[k].trimEnd();
+			if (seen) {
+				return ';{}'.includes(seen[seen.length - 1]);
+			}
+		}
+		return true;
+	};
 	const templates: number[] = []; // per open `${`: how many `{` are open inside it
 	let i = 0;
 	let line = 0;
@@ -108,12 +128,18 @@ export function stripComments(text: string, ext: string): Stripped | undefined {
 			continue;
 		}
 		if (lang.line === '#' ? c === '#' : c === '/' && text[i + 1] === '/') {
+			if (!clearComment(i)) {
+				return undefined;
+			}
 			while (i < n && text[i] !== '\n') {
 				i++;
 			}
 			continue;
 		}
 		if (lang.block && c === '/' && text[i + 1] === '*') {
+			if (!clearComment(i)) {
+				return undefined;
+			}
 			let depth = 1;
 			i += 2;
 			while (i < n && depth) {
@@ -244,7 +270,7 @@ interface HunkRange {
 
 /**
  * `count` lines from `from` (0-based), each normalised so that only a real difference remains: blank lines are dropped,
- * and so is whitespace around and (outside Python, where indentation counts) inside a line. A line holding a literal is
+ * and so is whitespace around and (outside Python and languages the scanner does not know, where indentation counts) inside a line. A line holding a literal is
  * compared exactly: a string's whitespace is its content.
  */
 function normalised(s: Stripped, ext: string, from: number, count: number): string[] {
@@ -253,7 +279,7 @@ function normalised(s: Stripped, ext: string, from: number, count: number): stri
 	for (let k = from; k < from + count; k++) {
 		const raw = lines[k] ?? '';
 		const literal = s.literal.has(k);
-		const l = literal ? raw : ext === 'py' ? raw.trimEnd() : ext in LANGS ? raw.trim().replace(/\s+/g, ' ') : raw.trim();
+		const l = literal ? raw : ext === 'py' || !(ext in LANGS) ? raw.trimEnd() : raw.trim().replace(/\s+/g, ' ');
 		if (literal || l) {
 			out.push(l);
 		}

@@ -515,14 +515,13 @@ export class AgentTools {
 		// Test files are dropped before anything is tracked or traced, so they count nowhere (flow.showTests keeps them).
 		const code = showTests ? all : all.filter(r => !isTestPath(vscode.workspace.asRelativePath(r.uri, false)));
 		const testsHidden = all.length - code.length;
-		if (!code.length) {
+		if (!all.length) {
 			return { ok: false, opened: false, message: ['No changed source files to show on the flow canvas.', ...notes].join(' ') };
 		}
 		const entries = await Promise.all(code.map(async r => ({
 			file: r.uri.fsPath,
 			before: r.original ? await Promise.resolve(vscode.workspace.openTextDocument(r.original)).then(d => d.getText(), () => '') : undefined,
 		})));
-		await this.d.trackChanges(entries, since);
 		// A file whose every hunk is a comment or whitespace has no changed method: it is left out of the trace and counted.
 		let noiseOnly = 0;
 		const traced = new Set(code.map(r => r.uri.fsPath));
@@ -545,6 +544,11 @@ export class AgentTools {
 			noiseOnly ? `${noiseOnly} comment-only or whitespace-only ${noiseOnly === 1 ? 'file' : 'files'}` : '',
 		].filter(Boolean).join(' and ');
 		const shown = code.filter(r => traced.has(r.uri.fsPath));
+		if (!shown.length) {
+			// Nothing is tracked or drawn: an empty set would only say the analyzer may still be loading.
+			return { ok: false, opened: false, message: [`Every changed source file is hidden: ${hidden}. Nothing was opened.${testsHidden ? ' Set flow.showTests to true to include test files.' : ''}${noiseOnly ? ' The comment-only and whitespace-only changes are in the git diff.' : ''}`, ...notes].join(' ') };
+		}
+		await this.d.trackChanges(entries, since);
 		const label = since ? `Changes since ${since}` : 'Uncommitted changes';
 		const opened = `Opened "${label}" on the flow canvas: ${shown.length} changed source file${shown.length === 1 ? '' : 's'}, every flow they reach cut down to the changed methods (green added, red removed lines).`;
 		let trace: ChangeSetTrace;
@@ -737,7 +741,8 @@ export class AgentTools {
 		} else if (roslyn !== 'none') {
 			notes.push(ROSLYN_WAIT[roslyn]);
 		}
-		return { list, note: notes.length ? `Note: ${notes.join('; ')}.` : undefined };
+		// The same filter the cached list went through: the Roslyn analyzer cannot skip a `flow.exclude` folder itself.
+		return { list: this.d.endpoints.visible(list), note: notes.length ? `Note: ${notes.join('; ')}.` : undefined };
 	}
 
 	private async sessions(a: Record<string, unknown>): Promise<ToolResult> {

@@ -461,7 +461,7 @@ export class AgentChanges implements vscode.Disposable {
 	}
 
 	/** A file's change during one prompt: from before that prompt to before the next one that touched it. */
-	private async turnHunks(turnId: number, file: string): Promise<Hunk[]> {
+	private async turnHunks(turnId: number, file: string, real = false): Promise<Hunk[]> {
 		const i = this.turns.findIndex(t => t.id === turnId);
 		const from = this.turns[i]?.before.get(file);
 		if (from === undefined) {
@@ -471,7 +471,12 @@ export class AgentChanges implements vscode.Disposable {
 		// the agent finished are not part of what this prompt did.
 		const later = this.turns.slice(i + 1).find(t => t.before.has(file));
 		const to = later ? later.before.get(file)! : this.turns[i].after.get(file) ?? norm(await currentText(file).catch(() => ''));
-		return from === to ? [] : realHunks(file, from, to, structuredPatch('a', 'b', from, to, '', '', { context: 0 }).hunks);
+		if (from === to) {
+			return [];
+		}
+		// The timeline lists every prompt Undo would restore, so only a drawn card leaves the noise out (`real`).
+		const all = structuredPatch('a', 'b', from, to, '', '', { context: 0 }).hunks;
+		return real ? realHunks(file, from, to, all) : all;
 	}
 
 	/**
@@ -627,7 +632,7 @@ export class AgentChanges implements vscode.Disposable {
 			const file = n.file ? fileKey(n.file) : undefined;
 			if (file && tracked(file)) {
 				if (!cache.has(file)) {
-					cache.set(file, turnId === undefined ? await this.hunks(file, true) : await this.turnHunks(turnId, file));
+					cache.set(file, turnId === undefined ? await this.hunks(file, true) : await this.turnHunks(turnId, file, true));
 				}
 				const d = this.cardDiff(cache.get(file)!, n.startLine, n.endLine);
 				if (d && gitTurn(file)) {

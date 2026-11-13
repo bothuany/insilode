@@ -44,8 +44,16 @@ function toRegExp(pattern: string): RegExp {
 	return new RegExp(`^${re}${tail ? '(?:/.*)?' : ''}$`, process.platform === 'win32' ? 'i' : '');
 }
 
+/** Settings are user input and a glob becomes a backtracking regex per file: a pattern past these caps is ignored. */
+const MAX_PATTERN = 300;
+const MAX_WILDCARDS = 8;
+
+/** Consecutive wildcards mean one (`***` is `**`, `**` + `/**` is `**`), so they cannot multiply the backtracking. */
+const collapse = (p: string) => p.replace(/\*{3,}/g, '**').replace(/(?:\*\*\/){2,}/g, '**/');
+const usable = (p: string) => p.length <= MAX_PATTERN && (p.match(/[*?]+/g)?.length ?? 0) <= MAX_WILDCARDS;
+
 export function excluder(patterns: readonly string[]): Excluder {
-	const res = patterns.filter(p => typeof p === 'string').map(normalizePattern).filter(Boolean).map(toRegExp);
+	const res = patterns.filter(p => typeof p === 'string').map(normalizePattern).filter(Boolean).map(collapse).filter(usable).map(toRegExp);
 	if (!res.length) {
 		return NONE;
 	}
@@ -76,8 +84,9 @@ export function excluder(patterns: readonly string[]): Excluder {
 export function excludablePattern(dir: string, roots: readonly string[]): string | undefined {
 	for (const root of roots) {
 		const rel = path.relative(root, path.resolve(dir));
+		// A folder named with `*` or `?` (legal on Linux and macOS) would be written as a glob that matches more than itself.
 		if (rel && rel !== '..' && !rel.startsWith(`..${path.sep}`) && !path.isAbsolute(rel)) {
-			return rel.split(path.sep).join('/');
+			return /[*?]/.test(rel) ? undefined : rel.split(path.sep).join('/');
 		}
 	}
 	return undefined;

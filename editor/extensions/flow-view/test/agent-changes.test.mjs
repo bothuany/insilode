@@ -69,6 +69,21 @@ test('commandEdited: a tracked file a command changed is measured against HEAD, 
 	assert.match(prompt.message, /changes a command made/)
 })
 
+test('timeline: a prompt that only changed a comment is listed (Undo restores it), while its card shows no diff', async t => {
+	const dir = repo({ 'a.ts': lines('one();', 'two();') })
+	t.after(() => rmSync(dir, { recursive: true, force: true }))
+	const changes = new mod.AgentChanges()
+	changes.startTurn('add a note', 'Claude')
+	writeFileSync(join(dir, 'a.ts'), lines('one(); // note', 'two();'))
+	await changes.commandEdited([join(dir, 'a.ts')])
+	const turns = await changes.timeline()
+	assert.equal(turns.length, 1)
+	assert.deepEqual([turns[0].files[0].plus, turns[0].files[0].minus], [1, 1])
+	const root = card(join(dir, 'a.ts'), 1, 2)
+	await changes.annotate(root, turns[0].id)
+	assert.equal(root.diff, undefined)
+})
+
 test('commandEdited: a file untracked before the turn and changed by a command is not deleted by undoing the prompt', async t => {
 	const dir = repo({ 'a.ts': 'x\n' })
 	t.after(() => rmSync(dir, { recursive: true, force: true }))

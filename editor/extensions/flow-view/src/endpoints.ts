@@ -19,6 +19,9 @@ export class EndpointsView implements vscode.WebviewViewProvider, vscode.Disposa
 	/** The solution line: asking for the solutions walks the workspace, so it is asked again only when the list changes. */
 	private solution: ReturnType<Endpoints['solutionInfo']> | undefined;
 
+	/** The folders of the groups last sent to the view: the only ones its Exclude button may name. */
+	private groupDirs = new Set<string>();
+
 	private readonly subscription: vscode.Disposable;
 
 	constructor(private readonly endpoints: Endpoints) {
@@ -65,7 +68,8 @@ export class EndpointsView implements vscode.WebviewViewProvider, vscode.Disposa
 
 	/** Adds a folder to `flow.exclude` in the workspace settings: only one inside a workspace folder, whatever the webview says. */
 	private async exclude(dir: string) {
-		const pattern = excludablePattern(dir, workspaceRoots());
+		// Only a folder this view was shown: the webview is not trusted to name any other.
+		const pattern = this.groupDirs.has(dir) ? excludablePattern(dir, workspaceRoots()) : undefined;
 		if (!pattern) {
 			return;
 		}
@@ -77,7 +81,11 @@ export class EndpointsView implements vscode.WebviewViewProvider, vscode.Disposa
 	}
 
 	private async post() {
-		const repos = sections(this.list, repoResolver(workspaceRoots()), e => entryName({ controller: e.controller, action: '' } as Entry).replace(/\.$/, ''), f => vscode.workspace.asRelativePath(f));
+		const roots = workspaceRoots();
+		// `canExclude` is false for the workspace root itself, which no pattern can name.
+		const repos = sections(this.list, repoResolver(roots), e => entryName({ controller: e.controller, action: '' } as Entry).replace(/\.$/, ''), f => vscode.workspace.asRelativePath(f))
+			.map(r => ({ ...r, canExclude: !!excludablePattern(r.dir, roots) }));
+		this.groupDirs = new Set(repos.map(r => r.dir));
 		const info = await (this.solution ??= this.endpoints.solutionInfo()).catch(() => undefined);
 		await this.view?.webview.postMessage({
 			type: 'data',
@@ -181,7 +189,7 @@ function render() {
 		const open = q || (state.open[r.dir] ?? !data.collapse) || r.groups.some(g => g.items.some(e => e.id === data.current));
 		const langs = [...new Set(r.groups.flatMap(g => g.items.map(e => e.lang)))].sort().join(' · ');
 		return '<details class="repo"' + (open ? ' open' : '') + ' data-name="' + esc(r.dir) + '"><summary title="' + esc(r.rel || r.dir) + '">' + CHEV + '<span class="name">' + esc(r.name) + '</span><span class="langs">' + esc(langs) + '</span><span class="n">' + (shown - before) + '</span>'
-			+ '<button class="exclude" data-dir="' + esc(r.dir) + '" title="Exclude this folder from flows" aria-label="Exclude ' + esc(r.name) + ' from flows">Exclude</button></summary>' + groups + '</details>';
+			+ (r.canExclude ? '<button class="exclude" data-dir="' + esc(r.dir) + '" title="Exclude this folder from flows" aria-label="Exclude ' + esc(r.name) + ' from flows">Exclude</button>' : '') + '</summary>' + groups + '</details>';
 	}).join('');
 	document.getElementById('list').innerHTML = html || (total ? '<p class="empty">No endpoint matches.</p>' : '<p class="empty">No endpoints found yet. Insilode lists routes from Spring, JAX-RS, ASP.NET, FastAPI, Flask, Django, Express, NestJS and more. For a .NET project you can <button data-act="pick">choose a solution</button>.</p>');
 	document.getElementById('count').textContent = total ? (q || picked.length ? shown + ' of ' + total : total + ' endpoints') : '';

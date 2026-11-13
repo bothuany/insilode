@@ -3,9 +3,8 @@
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
-import { excludePatterns } from '../excludeSetting';
+import { currentExcluder } from '../excludeSetting';
 import { isExcludedPath } from './model';
-import { excluder } from './userExclude';
 import type { Lsp, Place } from './lspResolve';
 
 const ANSWER_MS = 1500;
@@ -22,7 +21,7 @@ function within<T>(p: Thenable<T>, fallback: T): Promise<T> {
 
 function inWorkspace(uri: vscode.Uri) {
 	const folder = uri.scheme === 'file' ? vscode.workspace.getWorkspaceFolder(uri) : undefined;
-	return !!folder && !isExcludedPath(uri.fsPath, folder.uri.fsPath) && !excluder(excludePatterns())(uri.fsPath, [folder.uri.fsPath]);
+	return !!folder && !isExcludedPath(uri.fsPath, folder.uri.fsPath) && !currentExcluder()(uri.fsPath, [folder.uri.fsPath]);
 }
 
 function places(list: Result[] | undefined): Place[] {
