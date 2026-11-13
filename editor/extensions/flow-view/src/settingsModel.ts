@@ -78,6 +78,8 @@ const OVERLAY = 'flow.agents.desktop.overlay.enabled';
 const AUTO_SEND = 'flow.agents.pr.autoSend';
 const META: Record<string, Meta> = {
 	'flow.agents.showChat': ['agents', 'Start & run', 'Offer agents in the chat panel'],
+	'flowAgent.agentsPage.location': ['agents', 'Start & run', 'Where the Agents page opens'],
+	'flowAgent.claude.allowBypassPermissions': ['agents', 'Start & run', 'Offer Claude Code’s bypass permissions mode'],
 	'flow.agents.askTarget': ['agents', 'Start & run', 'Where questions go'],
 	'flow.agents.worktree': ['agents', 'Start & run', 'Start agents in a git worktree'],
 	'flow.agents.worktreeBase': ['agents', 'Start & run', 'Where a new worktree starts from'],
@@ -117,6 +119,7 @@ const META: Record<string, Meta> = {
 	'flow.codeLens': ['canvas', 'Flows', 'Insilode link above every method'],
 	'flow.showTests': ['canvas', 'Flows', 'Show test code in flows'],
 	'flow.lspResolution': ['canvas', 'Flows', 'Resolve calls with the language server'],
+	'flow.exclude': ['canvas', 'Flows', 'Folders left out of flows'],
 	'flow.types.dtoSuffixes': ['canvas', 'Type diagrams', 'DTO name suffixes'],
 	'flow.types.includeEntities': ['canvas', 'Type diagrams', 'Draw entities'],
 	'flow.types.includeEnums': ['canvas', 'Type diagrams', 'Draw enums'],

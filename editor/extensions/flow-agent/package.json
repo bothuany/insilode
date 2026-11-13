@@ -262,6 +262,25 @@
     "configuration": {
       "title": "Insilode Agents",
       "properties": {
+        "flowAgent.agentsPage.location": {
+          "type": "string",
+          "enum": [
+            "window",
+            "tab"
+          ],
+          "enumDescriptions": [
+            "The Agents page opens in a window of its own, with a sidebar of your projects and their sessions.",
+            "The Agents page opens as an editor tab, like any other."
+          ],
+          "default": "window",
+          "description": "Where the Agents page opens on the desktop. In the web UI it is always an editor tab."
+        },
+        "flowAgent.claude.allowBypassPermissions": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "markdownDescription": "Offer Claude Code's own **bypass permissions** mode in terminal Claude sessions: Insilode starts them with `--allow-dangerously-skip-permissions`, so you can switch to that mode with Shift+Tab. Sessions still start in their usual mode, and nothing is bypassed until you switch. In that mode Claude runs every tool without asking. Off by default; a repository's settings cannot turn it on. Does not change the chat panel."
+        },
         "flow.agents.showChat": {
           "type": "boolean",
           "default": false,

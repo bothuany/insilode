@@ -91,7 +91,7 @@ module.exports = {
 			severity: 'error',
 			comment: 'The parsing and graph modules are tested under plain Node (test/*.test.mjs). Only the host-facing files may import `vscode`.',
 			from: {
-				path: '^editor/extensions/flow-view/src/(poly|board|types|mcp|tour|skeleton)/',
+				path: '^editor/extensions/flow-view/src/((poly|board|types|mcp|tour|skeleton)/|(diffNoise|grouping)\\.ts$)',
 				pathNot: [
 					'/poly/(client|lspHost)\\.ts$',
 					'/board/viewer\\.ts$',

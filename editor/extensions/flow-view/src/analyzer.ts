@@ -9,6 +9,8 @@ import * as net from 'net';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { flowRoot } from './root';
+import { currentExcluder, excludePatterns, workspaceRoots } from './excludeSetting';
+import { byRepo } from './grouping';
 import type { EntryPoint } from '../../../../protocol/flow';
 import type { CsTypesResponse } from './types/wire';
 import type { TableEntity, TablesFact } from './poly/model';
@@ -103,11 +105,29 @@ export class Analyzer implements vscode.Disposable {
 	constructor(private readonly context: vscode.ExtensionContext, readonly log: vscode.LogOutputChannel) {
 		this.status.command = 'flow.pickEndpoint';
 		Analyzer.current = this;
+		this.excludeWatch = vscode.workspace.onDidChangeConfiguration(e => e.affectsConfiguration('flow.exclude') && void this.solutionExcluded().catch(err => this.log.warn(`flow.exclude: ${err}`)));
+	}
+
+	private readonly excludeWatch: vscode.Disposable;
+
+	/**
+	 * A loaded solution that `flow.exclude` now leaves out must stop serving flows: the analyzer is stopped, and started again
+	 * through the pick path when exactly one solution remains (with several, the next request asks which, as it always does).
+	 */
+	private async solutionExcluded() {
+		if (!this.child || this.loadedSolution() || !this.context.workspaceState.get<string>(SOLUTION_KEY)) {
+			return;
+		}
+		if (await this.canStartQuietly()) {
+			await this.pickSolution();
+		} else {
+			this.stop();
+		}
 	}
 
 	/** Solution already chosen for this workspace: load it in the background so the first flow is instant. */
 	warmUp() {
-		if (this.context.workspaceState.get<string>(SOLUTION_KEY)) {
+		if (this.loadedSolution()) {
 			// The endpoint list is fetched by `Endpoints` when the analyzer reports ready.
 			this.port().catch(e => this.log.warn(`warm-up failed: ${e}`));
 		}
@@ -161,12 +181,12 @@ export class Analyzer implements vscode.Disposable {
 
 	/** Whether there is .NET code to load: a solution or project already chosen, or any .sln/.slnx (else a .csproj) in the workspace. */
 	async hasSolution(): Promise<boolean> {
-		return !!this.context.workspaceState.get<string>(SOLUTION_KEY) || (await this.findSolutions(1)).length > 0;
+		return !!this.loadedSolution() || (await this.findSolutions(1)).length > 0;
 	}
 
 	/** Whether the analyzer can start without asking anything: a solution was chosen, or there is exactly one. */
 	async canStartQuietly(): Promise<boolean> {
-		return !!this.context.workspaceState.get<string>(SOLUTION_KEY) || (await this.findSolutions(2)).length === 1;
+		return !!this.loadedSolution() || (await this.findSolutions(2)).length === 1;
 	}
 
 	/**
@@ -174,13 +194,32 @@ export class Analyzer implements vscode.Disposable {
 	 * project and no solution; without this fallback such a repository showed no C# endpoints and said nothing.
 	 */
 	private async findSolutions(limit: number) {
+		const patterns = excludePatterns();
+		const drop = currentExcluder();
+		const roots = workspaceRoots();
 		const exclude = '**/{node_modules,bin,obj,.claude,.git}/**';
-		const solutions = await vscode.workspace.findFiles('**/*.{sln,slnx}', exclude, limit);
-		return solutions.length ? solutions : vscode.workspace.findFiles('**/*.{csproj,fsproj,vbproj}', exclude, limit);
+		// Excluded folders are dropped after the search, so it must look further than `limit` for enough to be left.
+		const find = async (glob: string) => {
+			const all = await vscode.workspace.findFiles(glob, exclude, patterns.length ? 2000 : limit);
+			return all.filter(u => !drop(u.fsPath, roots)).slice(0, limit);
+		};
+		const solutions = await find('**/*.{sln,slnx}');
+		return solutions.length ? solutions : find('**/*.{csproj,fsproj,vbproj}');
+	}
+
+	/** The solution chosen for this workspace, unless `flow.exclude` has since left its folder out (un-excluding brings it back). */
+	loadedSolution(): string | undefined {
+		const saved = this.context.workspaceState.get<string>(SOLUTION_KEY);
+		return saved && !currentExcluder()(saved, workspaceRoots()) ? saved : undefined;
+	}
+
+	/** Every solution (else project) the workspace holds, for "1 of 12 solutions loaded". */
+	async solutionCount(): Promise<number> {
+		return (await this.findSolutions(2000)).length;
 	}
 
 	private async solution(): Promise<string> {
-		const saved = this.context.workspaceState.get<string>(SOLUTION_KEY);
+		const saved = this.loadedSolution();
 		if (saved) {
 			return saved;
 		}
@@ -190,15 +229,18 @@ export class Analyzer implements vscode.Disposable {
 		}
 		let pick = found[0];
 		if (found.length > 1) {
-			const items = found
-				.map(u => ({ label: path.basename(u.fsPath), description: vscode.workspace.asRelativePath(path.dirname(u.fsPath)), uri: u }))
-				.sort((a, b) => a.description.length - b.description.length);
+			// Grouped by repository or module: in a supermodule, a dozen solutions are easier to tell apart under their repository.
+			const groups = byRepo(found.map(u => u.fsPath), workspaceRoots());
+			const items: (vscode.QuickPickItem & { uri?: vscode.Uri })[] = groups.flatMap(g => [
+				...(groups.length > 1 ? [{ label: g.repo.name, kind: vscode.QuickPickItemKind.Separator }] : []),
+				...g.files.map(f => ({ label: path.basename(f), description: vscode.workspace.asRelativePath(path.dirname(f)), uri: vscode.Uri.file(f) })),
+			]);
 			const what = /\.(sln|slnx)$/i.test(found[0].fsPath) ? 'solution' : 'project';
 			const chosen = await vscode.window.showQuickPick(items, { title: `Insilode: which ${what} should the flow come from?`, ignoreFocusOut: true, matchOnDescription: true });
 			if (!chosen) {
 				throw new Error(`No ${what} chosen`);
 			}
-			pick = chosen.uri;
+			pick = chosen.uri!;
 		}
 		await this.context.workspaceState.update(SOLUTION_KEY, pick.fsPath);
 		return pick.fsPath;
@@ -446,6 +488,7 @@ export class Analyzer implements vscode.Disposable {
 			Analyzer.current = undefined;
 		}
 		this.stop();
+		this.excludeWatch.dispose();
 		this.status.dispose();
 		this.becameReady.dispose();
 	}

@@ -34,6 +34,45 @@ export type AgentRow = Omit<AgentSession, 'impact' | 'worktree'> & {
 	acceptsInput: boolean;
 };
 
+/**
+ * One session of another window, as that window published it (peersCore.ts slimRow) and as this one validated it (parseRow):
+ * only what the sidebar and the detail draw. No transcript path, pid, token, port or markup travels in it.
+ */
+export interface PeerRow {
+	id: string;
+	cli: AgentSession['cli'];
+	name: string;
+	state: AgentSession['state'];
+	since: number;
+	attention?: AttentionKind;
+	activity?: string;
+	prompt?: string;
+	/** What it waits for, as one line. */
+	need?: string;
+	todos: { text: string; status: 'pending' | 'in_progress' | 'completed' }[];
+	tokens?: number;
+	usd?: number;
+	contextPercent?: number;
+	model?: string;
+	pr?: { number: number; state: 'open' | 'draft' | 'merged' | 'closed'; title: string };
+	/** How many flows its last turn reaches: "Open flow" is offered when there is one. */
+	flows: number;
+}
+
+/** Another open window's project. `key` names its storage folder: the page sends it back, never a path. */
+export interface PeerProject {
+	key: string;
+	name: string;
+	rows: PeerRow[];
+}
+
+/** A project with no open window: its sessions are listed as closed and choosing it opens the folder. */
+export interface RecentProject {
+	key: string;
+	name: string;
+	sessions: string[];
+}
+
 /** A worktree kept after its agent left the list. */
 export interface KeptRow {
 	agent: string;
@@ -54,6 +93,11 @@ export interface AgentsPageData {
 	limits?: UsageLimits;
 	/** The names of the user's own agents (flow.agents.custom), for the New menu. */
 	customs: string[];
+	/** This window's project, for the sidebar's first group. */
+	project?: { name: string };
+	/** Other open windows' projects and sessions, and projects with no window (peers.ts). */
+	peers?: PeerProject[];
+	recent?: RecentProject[];
 }
 
 /** One message of a conversation's tail, read-only. */

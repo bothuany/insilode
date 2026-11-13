@@ -8,7 +8,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { execFile } from 'child_process';
-import { createHash, randomBytes, randomUUID } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import { existsSync, promises as fs, readFileSync, watch, writeFileSync, type FSWatcher } from 'fs';
 import * as http from 'http';
 import * as os from 'os';
@@ -24,6 +24,8 @@ import { CostTracker, statusUsd, type SessionCost } from './cost';
 import { disposeGaze, gazeHook, gazeTurn } from './gazeHost';
 import { parsePatch, patchFiles, patchText } from './patch';
 import { PrWatcher, type PrState } from './prState';
+import { claudeCommand } from './launch';
+import { folderKey } from './storageKey';
 import { shimScript } from './shim';
 import { canExplain, explainPrompt } from './explain';
 import { claudeHookCommand, hookRunner, hookScript, type HookRunner } from './hookScript';
@@ -293,6 +295,10 @@ export class Agents implements vscode.Disposable {
 	private port = 0;
 	private token = '';
 	private dir = '';
+	/** This window's storage folder under `agents/`; empty until the agents have started (peers.ts publishes there). */
+	get storageDir() {
+		return this.dir;
+	}
 	private readonly watchers = new Map<string, FSWatcher>();
 	/** Debounce of the transcript watcher, per session. */
 	private readonly titleTimers = new Map<string, NodeJS.Timeout>();
@@ -361,7 +367,7 @@ export class Agents implements vscode.Disposable {
 		// and agent list: it gets a directory of its own (its agents are not picked up again after a reload).
 		const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 		const key = folder ?? `empty:${vscode.env.sessionId}:${process.pid}`;
-		this.dir = path.join(this.context.globalStorageUri.fsPath, 'agents', (folder ? '' : 'empty-') + createHash('sha1').update(key).digest('hex').slice(0, 12));
+		this.dir = path.join(this.context.globalStorageUri.fsPath, 'agents', (folder ? '' : 'empty-') + folderKey(key));
 		const saved = await fs.readFile(path.join(this.dir, 'sessions.json'), 'utf8').then(t => parseSaved(JSON.parse(t))).catch(() => undefined);
 		this.token = saved?.token || randomBytes(16).toString('hex');
 		this.kept = saved?.kept ?? [];
@@ -766,15 +772,13 @@ export class Agents implements vscode.Disposable {
 			env: { ...inheritedAgentEnv(), FLOW_AGENT_SESSION: id, FLOW_HOOK_DIR: this.dir, ...(codex ? { INSILODE_SESSION: id, ...(folder ? { INSILODE_WORKSPACE: folder } : {}) } : {}) },
 			isTransient: false,
 		});
-		// Double quotes work in bash, zsh, PowerShell and cmd alike.
-		const quote = (x: string) => `"${x}"`;
 		// --mcp-config takes any number of files, so it goes last; it adds to the user's own MCP servers (no --strict-mcp-config).
 		// The `insilode` tools find this window by its folder, so a worktree agent gets the main folder's config.
 		const mcp = cli === 'claude' ? await this.mcpConfig(folder, id) : undefined;
 		const codexHooks = !!codex?.hooks;
 		const profile = codex ? ` -p ${CODEX_PROFILE}` : '';
 		const command = cli === 'claude'
-			? `claude ${resume ? '--resume' : '--session-id'} ${id}${this.server && this.settingsOk ? ` --settings ${quote(this.claudeSettings())}` : ''}${mcp ? ` --mcp-config ${quote(mcp)}` : ''}`
+			? claudeCommand({ resume: !!resume, id, settings: this.server && this.settingsOk ? this.claudeSettings() : undefined, mcp, allowBypass: vscode.workspace.getConfiguration('flowAgent.claude').get<boolean>('allowBypassPermissions', false) === true })
 			// Codex chose its session id; until a hook told us, `codex resume` without one opens its own picker.
 			// The id is typed into the shell: one that is not a uuid (from a hook, or Codex's importer) is never typed; Codex's picker opens instead.
 			: cli === 'codex' ? (resume ? `codex resume${profile}${resume.agentId && UUID.test(resume.agentId) ? ` ${resume.agentId}` : ''}` : `codex${profile}`)

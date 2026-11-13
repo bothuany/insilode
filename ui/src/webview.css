@@ -122,6 +122,9 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 /* The cut note comes first on the sub line, so a long file name never pushes it out of the card. */
 .sub.has-cut { display: flex; gap: 6px; }
 .sub .sub-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* The change-set root's summary wraps to 3 lines (its full text is the title); the card's height follows (headerH in layout.ts). */
+.sub.wrap { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; white-space: normal; line-height: 14px; }
+.sub.wrap .sub-text { white-space: normal; }
 .sub .cut { flex: none; font-weight: 600; color: var(--fl-text); text-decoration: underline dashed; text-underline-offset: 2px; }
 /* Trouble with the flow that is drawn (a failed refresh, failed callers): a strip over the canvas, the flow stays. */
 .wv-notes { position: absolute; z-index: 14; top: 8px; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; gap: 6px; width: max-content; max-width: calc(100% - 24px); }
@@ -130,9 +133,13 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .tool { min-width: 24px; height: 22px; padding: 0 5px; border: 0; border-radius: 5px; background: transparent; color: var(--fl-muted); cursor: pointer; font: 11.5px var(--fl-mono); }
 .tool:hover { background: var(--fl-line); color: var(--fl-text); }
 
-.code { flex: 1; min-height: 0; font: 12px/18px var(--fl-mono); overflow: hidden; }
+.code { flex: 1; min-height: 0; font: 13px/20px var(--fl-mono); overflow: hidden; }
 .ln { display: flex; align-items: center; white-space: pre; padding-right: 10px; position: relative; }
-.ln .gutter { width: 44px; flex: none; padding-right: 12px; text-align: right; color: var(--vscode-editorLineNumber-foreground, #4b4b4b); user-select: none; }
+/* Line numbers are read, not decoration: the theme's own colour is too dim on a card, so they take the text colour at reduced strength. */
+/* 68px = GUTTER_W in layout.ts: the sign (left 6px, about 8px wide), a gap, 5 digits of 7.8px, 10px of padding. Stretched to the row, so the sign of a removed row (the gutter's only content, and out of flow) has the row's height to sit in. */
+.ln .gutter { width: 68px; flex: none; align-self: stretch; padding-right: 10px; text-align: right; color: color-mix(in srgb, var(--fl-text) 65%, transparent); user-select: none; position: relative; }
+/* The + or − of a changed row, in the gutter's left edge. */
+.ln .gutter .sign { position: absolute; left: 6px; top: 0; line-height: 20px; font-style: normal; font-weight: 700; }
 .ln .src { overflow: hidden; flex: 1; min-width: 0; }
 .card.editable .ln:not(.gap):not(.del) { cursor: text; }
 .card.editable .ln:not(.gap):not(.del):hover { background: var(--vscode-editor-lineHighlightBackground, #ffffff08); }
@@ -147,8 +154,40 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 
 .ln.gap { cursor: pointer; color: var(--fl-faint); font-style: italic; background: none; }
 .ln.gap:hover { color: var(--fl-text); }
-.ln.add { background: color-mix(in srgb, var(--fl-add) 10%, transparent); box-shadow: inset 2px 0 0 var(--fl-add); }
-.ln.del { background: color-mix(in srgb, var(--fl-del) 9%, transparent); box-shadow: inset 2px 0 0 var(--fl-del); color: var(--fl-muted); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--fl-del) 45%, transparent); }
+/* A diff the way an editor draws it: a tinted row and a + or − marker. Removed rows keep the text's own contrast (no strike-through). */
+.ln.add { background: var(--vscode-diffEditor-insertedLineBackground, color-mix(in srgb, var(--fl-add) 14%, transparent)); box-shadow: inset 2px 0 0 var(--fl-add); }
+.ln.del { background: var(--vscode-diffEditor-removedLineBackground, color-mix(in srgb, var(--fl-del) 14%, transparent)); box-shadow: inset 2px 0 0 var(--fl-del); }
+.ln.add .sign { color: var(--fl-add); }
+.ln.del .sign { color: var(--fl-del); }
+
+/* ---- the Changes rail: the changed cards by file, outside the tour -------------------------- */
+.rail { position: absolute; z-index: 12; top: 10px; right: 10px; width: 250px; max-height: calc(100% - 150px); display: flex; flex-direction: column; border: 1px solid var(--fl-line-strong); border-radius: 10px; background: var(--vscode-editorWidget-background, var(--fl-card)); box-shadow: var(--fl-lift); color: var(--fl-text); }
+.rail-head { flex: none; display: flex; align-items: center; gap: 6px; width: 100%; padding: 7px 10px; border: 0; background: none; color: inherit; cursor: pointer; text-align: left; font-weight: 600; }
+.rail-head .rail-caret { color: var(--fl-muted); width: 10px; }
+.rail-head .rail-count { flex: 1; }
+.rail-keys { flex: none; padding: 0 10px 6px; color: var(--fl-muted); font-size: 11px; }
+.rail-keys kbd { margin: 0 2px 0 6px; }
+.rail-keys kbd:first-child { margin-left: 0; }
+.rail-list { overflow: auto; padding: 0 4px 6px; border-top: 1px solid var(--fl-line); }
+.rail-file { padding: 7px 6px 2px; color: var(--fl-muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rail-row { display: flex; align-items: center; gap: 4px; border-radius: 5px; }
+.rail-row:hover { background: var(--fl-line); }
+.rail-row.on { background: color-mix(in srgb, var(--fl-signal) 18%, transparent); box-shadow: inset 2px 0 0 var(--fl-signal); }
+.rail-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 3px 6px; border: 0; background: none; color: inherit; cursor: pointer; text-align: left; }
+.rail-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--fl-mono); }
+.rail-stat { flex: none; font: 600 11px var(--fl-mono); }
+.rail-stat .plus { color: var(--fl-add); }
+.rail-stat .minus { margin-left: 5px; color: var(--fl-del); }
+.rail-faint { color: var(--fl-muted); font-weight: 400; font-size: 11px; }
+.rail-tick { flex: none; margin-right: 6px; cursor: pointer; background: none; padding: 0; width: 14px; height: 14px; border: 1px solid var(--fl-line-strong); border-radius: 50%; display: grid; place-items: center; font-size: 10px; line-height: 1; color: transparent; }
+.rail-row.viewed .rail-tick { background: var(--fl-add); border-color: var(--fl-add); color: var(--fl-canvas); }
+.rail-row.viewed .rail-name { color: var(--fl-muted); }
+@media (max-width: 720px) { .rail { display: none; } }
+
+/* The find box over the canvas (the / key). */
+.find { position: absolute; z-index: 15; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 10px; border: 1px solid var(--fl-line-strong); border-radius: 10px; background: var(--vscode-editorWidget-background, var(--fl-card)); box-shadow: var(--fl-lift); }
+.find input { width: 220px; border: 0; outline: 0; background: transparent; color: var(--fl-text); font: 12.5px var(--fl-mono); }
+.find-count { color: var(--fl-muted); font-size: 11.5px; white-space: nowrap; }
 
 .review { flex: none; height: 32px; display: flex; align-items: center; gap: 8px; padding: 0 6px 0 11px; border-top: 1px solid color-mix(in srgb, var(--fl-signal) 30%, transparent); background: color-mix(in srgb, var(--fl-signal) 7%, var(--fl-card)); border-radius: 0 0 8px 8px; }
 .review-what { color: var(--fl-signal); font-weight: 600; }

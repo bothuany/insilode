@@ -71,11 +71,29 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, .card:focus-v
 .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 
 .split { display: flex; flex: 1; min-height: 0; }
+.side { flex: 0 0 236px; overflow: auto; border-right: 1px solid var(--line); padding: 10px 8px 24px; background: var(--col); }
+.sgroup { margin: 0 0 14px; }
+.shead { display: flex; align-items: center; gap: 6px; margin: 0 4px 4px; min-width: 0; }
+.sproj { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slabel { margin: 4px 4px 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+.srow { display: flex; align-items: flex-start; gap: 8px; padding: 5px 8px; border: 1px solid transparent; border-radius: 7px; cursor: pointer; min-width: 0; }
+.srow:hover { background: var(--hover); }
+.srow.sel { border-color: var(--focus); background: color-mix(in srgb, var(--focus) 12%, transparent); }
+.srow.ended { opacity: .62; }
+.srow:focus-visible { outline: 1.5px solid var(--focus); outline-offset: -1.5px; }
+.sdot { flex: none; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--idle); }
+.sdot.working { background: var(--working); } .sdot.needs { background: var(--blocked); } .sdot.done { background: var(--done); }
+.sbody { display: flex; flex-direction: column; min-width: 0; }
+.sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sact { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srecent { margin: 0 0 8px; }
+.srecent .sact { margin: 0 4px; }
 .main { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 12px 16px 24px; }
 .detail { flex: 0 0 420px; max-width: 46%; overflow: auto; border-left: 1px solid var(--line); padding: 14px 16px 28px; }
-@media (max-width: 900px) {
+@media (max-width: 1000px) {
 	body { overflow: auto; } #app { height: auto; }
 	.split { flex-direction: column; }
+	.side { flex: none; max-height: 260px; border-right: 0; border-bottom: 1px solid var(--line); }
 	.main, .detail { overflow: visible; max-width: none; flex: none; }
 	.detail { border-left: 0; border-top: 1px solid var(--line); }
 }
@@ -223,7 +241,7 @@ const STAGE = { design: 'Design', skeleton: 'Skeleton', handover: 'Handover' };
 const CLI_NAME = { claude: 'Claude Code', codex: 'Codex', custom: 'Custom' };
 
 // ---- state -----------------------------------------------------------------------------------------------------------------
-let data = { rows: [], kept: [], customs: [], now: Date.now(), avatar: 'gyro' };
+let data = { rows: [], kept: [], customs: [], peers: [], recent: [], now: Date.now(), avatar: 'gyro' };
 let skew = 0; // the host's clock minus ours, so elapsed times tick between data messages
 const now = () => Date.now() + skew;
 let sel;
@@ -240,6 +258,16 @@ let openMenu = false;
 
 // ---- derived ---------------------------------------------------------------------------------------------------------------
 const rowById = id => data.rows.find(r => r.id === id);
+// A session of another window (the host sent it, validated): { p: its project, r: the row }.
+function peerById(id) {
+	for (const p of data.peers) { const r = p.rows.find(x => x.id === id); if (r) { return { p, r }; } }
+	return undefined;
+}
+// The sidebar's dot: the same ranking as the board's columns, for own rows and other windows' alike.
+const dotOf = s => s.state === 'ended' ? 'idle' : needKind(s) ? 'needs' : s.state === 'working' || s.state === 'starting' ? 'working' : s.state === 'done' || s.attention === 'done' ? 'done' : 'idle';
+const DOT_LABEL = { needs: 'needs you', working: 'working', done: 'done', idle: 'idle' };
+// Own rows carry the need as an object, other windows' as one line.
+const actLine = s => (s.need && typeof s.need === 'object' ? s.need.text : s.need) || s.activity || s.prompt || LABEL[s.state] || '';
 // What the row waits for, as the host worked it out (attention.ts attentionKind): the page keeps no rule of its own.
 const needKind = s => s.attention && s.attention !== 'done' ? s.attention : undefined;
 function column(s) {
@@ -276,6 +304,7 @@ function grouped() {
 const orderOf = g => g.needs.concat(g.working, g.done, filter.ended ? g.ended : []);
 
 // ---- the shell, built once -------------------------------------------------------------------------------------------------
+const side = h('nav', { class: 'side', 'aria-label': 'Projects and sessions' });
 const head = h('div', { class: 'head' });
 const tools = h('div', { class: 'tools' });
 const main = h('div', { class: 'main' });
@@ -286,7 +315,7 @@ const boardEl = h('div'), keptEl = h('div');
 add(main, boardEl, keptEl);
 // Hidden until the first rows arrive: drawn empty first, the whole page would jump when they come (a layout shift), and the
 // "No agents running" prompt would flash for agents that are running. Without a host it shows itself after a moment.
-const root = h('div', { id: 'app' }, head, tools, h('div', { class: 'split' }, main, detail));
+const root = h('div', { id: 'app' }, head, tools, h('div', { class: 'split' }, side, main, detail));
 root.hidden = true;
 const reveal = () => { root.hidden = false; };
 setTimeout(reveal, 2000);
@@ -323,13 +352,51 @@ const viewBtn = (v, label) => { const b = h('button', { type: 'button', class: '
 const viewBtns = [viewBtn('board', 'Board'), viewBtn('list', 'List')];
 add(tools, h('div', { class: 'newwrap' }, newBtn('claude', 'Claude'), newBtn('codex', 'Codex'), moreBtn, menu), search, cliSel, chips, h('span', { class: 'grow' }), viewBtns);
 
+// ---- sidebar: this window's project first, then the other open projects, then the closed ones ---------------------------------
+function srow(s) {
+	const dot = dotOf(s);
+	const el = h('div', { class: 'srow' + (s.state === 'ended' ? ' ended' : '') + (s.id === sel ? ' sel' : ''), tabindex: '0', role: 'button', 'aria-label': s.name + ', ' + DOT_LABEL[dot] },
+		h('i', { class: 'sdot ' + dot }), h('span', { class: 'sbody' }, h('span', { class: 'sname' }, s.name), h('span', { class: 'sact', title: actLine(s) }, actLine(s))));
+	el.addEventListener('click', () => select(s.id));
+	el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); select(s.id); } });
+	return el;
+}
+function paintSide() {
+	const shown = rows => rows.filter(s => filter.ended || s.state !== 'ended');
+	const mine = shown(data.rows);
+	const pick = (label, msg, tip) => h('button', { type: 'button', class: 'btn small', title: tip, onclick: () => post(msg) }, label);
+	const out = [h('div', { class: 'sgroup' },
+		h('div', { class: 'shead' }, h('span', { class: 'sproj', title: 'This window' }, (data.project && data.project.name) || 'This window'), pick('New session', { type: 'pick' }, 'Start an agent in this project')),
+		mine.length ? mine.map(srow) : h('p', { class: 'note' }, 'No sessions yet.'))];
+	// Every open project, with or without sessions: the sidebar is also the way to jump between the open project windows.
+	if (data.peers.length) { out.push(h('div', { class: 'slabel' }, 'Open projects')); }
+	for (const p of data.peers) {
+		const list = shown(p.rows);
+		out.push(h('div', { class: 'sgroup' },
+			h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p.name }, p.name), pick('Open in IDE', { type: 'peer', action: 'ide', key: p.key }, 'Bring up the window of ' + p.name)),
+			list.length ? list.map(srow) : h('p', { class: 'note' }, 'No sessions')));
+	}
+	if (data.recent.length) {
+		out.push(h('div', { class: 'slabel' }, 'Recent'));
+		for (const p of data.recent) {
+			out.push(h('div', { class: 'srecent' },
+				h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p.name }, p.name), pick('Open project', { type: 'peer', action: 'ide', key: p.key }, 'Open ' + p.name + ' in a window')),
+				h('div', { class: 'sact', title: p.sessions.join(', ') }, p.sessions.join(', ') + ' (closed)')));
+		}
+	}
+	fill(side, out);
+}
+
 // ---- header ----------------------------------------------------------------------------------------------------------------
 function paintHead() {
 	const g = { needs: 0, working: 0, done: 0 };
 	let tokens = 0, dollars = 0, priced = false;
-	for (const s of data.rows) {
+	// The page is the place to see every project: the counters take the other open projects' sessions too.
+	for (const s of data.rows.concat(...data.peers.map(p => p.rows))) {
 		const c = column(s);
 		if (g[c] !== undefined) { g[c]++; }
+	}
+	for (const s of data.rows) {
 		if (s.cost) { tokens += sum(s.cost.session.tokens); if (s.cost.session.usd !== undefined) { dollars += s.cost.session.usd; priced = true; } }
 	}
 	const count = (n, label, color) => h('span', { class: 'count' }, h('i', { style: 'background:var(' + color + ')' }), h('b', null, String(n)), label);
@@ -421,6 +488,11 @@ function paintBoard() {
 	const total = data.rows.length;
 	const focusId = [...cardEls].filter(([, e]) => e === document.activeElement).map(([id]) => id)[0];
 	cardEls = new Map();
+	if (!total && data.peers.some(p => p.rows.length)) {
+		// One line, so a session of another project that is selected is not pushed below the fold when the layout is stacked.
+		fill(boardEl, [h('p', { class: 'note' }, 'No agents running in this window. The sessions of your other open projects are in the list.')]);
+		return;
+	}
 	if (!total) {
 		fill(boardEl, [h('div', { class: 'empty' }, h('b', null, 'No agents running.'), h('p', null, 'Start one and it runs in a terminal like always. Here you see at a glance which agent is working, which one waits for you and which one is done.'),
 			h('div', { class: 'row' }, h('button', { type: 'button', class: 'btn primary', onclick: () => post({ type: 'new', cli: 'claude' }) }, raw('span', 'mk', MARK.claude), 'New Claude'), h('button', { type: 'button', class: 'btn primary', onclick: () => post({ type: 'new', cli: 'codex' }) }, raw('span', 'mk', MARK.codex), 'New Codex')))]);
@@ -462,6 +534,8 @@ const act = (label, msg, extra) => h('button', { type: 'button', class: 'btn sma
 
 function paintDetail() {
 	const s = sel ? rowById(sel) : undefined;
+	const peer = !s && sel ? peerById(sel) : undefined;
+	if (peer) { return paintPeerDetail(peer); }
 	if (!s) {
 		fill(dTop, [h('p', { class: 'note' }, data.rows.length ? 'Select an agent to see its prompt, todos, conversation, PR and worktree. j / k move, Enter opens it.' : 'No agent selected.')]);
 		fill(dConv, []); fill(dRest, []); dReply.className = 'sec reply hidden';
@@ -530,6 +604,32 @@ function paintDetail() {
 			s.state === 'ended' ? act('Forget', { type: 'forget', id: s.id }, { tip: 'Remove from the list' }) : null),
 	]);
 }
+// A session of another window: what it published, and the two actions that reach it. Replies, rename and the rest happen in its own window.
+function paintPeerDetail({ p, r: s }) {
+	const kind = needKind(s);
+	const done = s.todos.filter(t => t.status === 'completed').length;
+	const pr = s.pr;
+	fill(dTop, [
+		h('div', { class: 'dh' }, avatar(s, true), h('div', { class: 'nm' }, h('h2', null, s.name), h('div', { class: 'sub' }, markOf(s), CLI_NAME[s.cli] || s.cli, stateSpan(s), s.model || null))),
+		h('div', { class: 'sub' }, 'Project ' + p.name),
+		kind ? h('div', { class: 'need ' + kind }, h('span', { class: 'chip' }, NEED[kind]), h('span', { class: 't' }, s.need || s.activity || '')) : null,
+		s.activity && !kind ? h('div', { class: 'activity', title: s.activity }, s.activity) : null,
+		s.prompt ? section('Prompt', h('p', null, s.prompt)) : null,
+		s.todos.length ? section('Todos · ' + done + '/' + s.todos.length, h('ul', { class: 'todol' }, s.todos.map(t => h('li', { class: t.status }, h('span', { class: 'm' }, t.status === 'completed' ? '✓' : t.status === 'in_progress' ? '●' : '○'), t.text)))) : null,
+		s.tokens !== undefined || s.contextPercent !== undefined ? section('Usage', h('div', { class: 'kv' },
+			s.contextPercent !== undefined ? [h('span', null, 'Context'), h('span', { class: 'ctx' + level(s.contextPercent) }, s.contextPercent + '% full')] : null,
+			s.tokens !== undefined ? [h('span', null, 'Cost'), h('span', null, tok(s.tokens) + ' tok' + (s.usd !== undefined ? ' · ' + usd(s.usd) + ' est.' : ''))] : null)) : null,
+	]);
+	fill(dConv, []);
+	dReply.className = 'sec reply hidden';
+	fill(dRest, [
+		pr ? section('Pull request', h('div', { class: 'kv' }, h('span', null, '#' + pr.number), h('span', null, pr.title + ' (' + pr.state + ')'))) : null,
+		h('div', { class: 'sec row2' },
+			act('Open in IDE', { type: 'peer', action: 'ide', key: p.key, id: s.id }, { tip: 'Bring up the window of ' + p.name + ' and show this session there', cls: 'primary' }),
+			s.flows ? act('Open flow', { type: 'peer', action: 'flow', key: p.key, id: s.id }, { tip: 'Open the flow canvas for its changes, in its window' }) : null),
+		h('p', { class: 'note' }, 'This session runs in another window: reply, rename and the rest are done there.'),
+	]);
+}
 function paintConv(s) {
 	const t = tails.get(s.id);
 	const old = dConv.firstChild && dConv.firstChild.lastChild;
@@ -589,12 +689,14 @@ function select(id) {
 		if (cid === id) { c.push('sel'); }
 		el.className = c.join(' ');
 	}
+	paintSide();
 	paintDetail();
 }
 function paint() {
-	if (sel && !rowById(sel)) { sel = undefined; }
+	if (sel && !rowById(sel) && !peerById(sel)) { sel = undefined; }
 	ticks = [];
 	const mainTop = main.scrollTop, detTop = detail.scrollTop;
+	paintSide();
 	paintHead();
 	paintBoard();
 	paintKept();
@@ -613,7 +715,7 @@ window.addEventListener('message', e => {
 	const m = e.data;
 	if (!m || typeof m !== 'object') { return; }
 	if (m.type === 'data') {
-		data = Object.assign({ rows: [], kept: [], customs: [] }, m);
+		data = Object.assign({ rows: [], kept: [], customs: [], peers: [], recent: [] }, m);
 		skew = typeof m.now === 'number' ? m.now - Date.now() : 0;
 		paint();
 		reveal();
@@ -656,7 +758,7 @@ document.addEventListener('keydown', e => {
 		if (el && el.scrollIntoView) { el.scrollIntoView({ block: 'nearest' }); }
 	} else if (e.key === 'Enter') {
 		if (e.target && e.target.tagName === 'BUTTON') { return; }
-		if (sel) { post({ type: 'show', id: sel }); }
+		if (sel && rowById(sel)) { post({ type: 'show', id: sel }); }
 	} else if (e.key === 'r') {
 		const s = sel ? rowById(sel) : undefined;
 		if (s && s.acceptsInput && s.state !== 'ended') { e.preventDefault(); replyText.focus(); }

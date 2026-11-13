@@ -4,14 +4,23 @@
  *  the top narrows by name, verb or controller. Opening one draws its flow.
  *--------------------------------------------------------------------------------------------*/
 
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { Command } from './commands';
 import { entryName, type Endpoints, type Entry } from './backends';
+import { excludePatterns, workspaceRoots } from './excludeSetting';
+import { repoResolver, sections, startsCollapsed } from './grouping';
+import { excludablePattern, withPattern } from './poly/userExclude';
 
 export class EndpointsView implements vscode.WebviewViewProvider, vscode.Disposable {
 	private view: vscode.WebviewView | undefined;
 	private list: Entry[];
 	private current: string | undefined;
+	/** The solution line: asking for the solutions walks the workspace, so it is asked again only when the list changes. */
+	private solution: ReturnType<Endpoints['solutionInfo']> | undefined;
+
+	/** The folders of the groups last sent to the view: the only ones its Exclude button may name. */
+	private groupDirs = new Set<string>();
 
 	private readonly subscription: vscode.Disposable;
 
@@ -32,6 +41,7 @@ export class EndpointsView implements vscode.WebviewViewProvider, vscode.Disposa
 
 	async refresh() {
 		this.list = this.endpoints.cached();
+		this.solution = undefined;
 		await this.post();
 	}
 
@@ -47,22 +57,44 @@ export class EndpointsView implements vscode.WebviewViewProvider, vscode.Disposa
 				void vscode.commands.executeCommand(Command.showEntry, m.id, m.label, m.source);
 			} else if (m.type === 'pick') {
 				void vscode.commands.executeCommand('flow.pickSolution');
+			} else if (m.type === 'manage') {
+				void vscode.commands.executeCommand('workbench.action.openSettings', 'flow.exclude');
+			} else if (m.type === 'exclude' && typeof m.dir === 'string') {
+				void this.exclude(m.dir);
 			}
 		});
 		view.onDidChangeVisibility(() => view.visible && void this.post());
 	}
 
-	private async post() {
-		const groups = new Map<string, { id: string; source: string; action: string; verb: string; route: string; file: string; line: number }[]>();
-		for (const e of this.list) {
-			const name = entryName({ controller: e.controller, action: '' } as Entry).replace(/\.$/, '');
-			const [verb, ...route] = e.http.split(/\s+/);
-			groups.set(name, [...(groups.get(name) ?? []), { id: e.id, source: e.source, action: e.action, verb: verb.toUpperCase(), route: route.join(' '), file: vscode.workspace.asRelativePath(e.file), line: e.line }]);
+	/** Adds a folder to `flow.exclude` in the workspace settings: only one inside a workspace folder, whatever the webview says. */
+	private async exclude(dir: string) {
+		// Only a folder this view was shown: the webview is not trusted to name any other.
+		const pattern = this.groupDirs.has(dir) ? excludablePattern(dir, workspaceRoots()) : undefined;
+		if (!pattern) {
+			return;
 		}
+		const next = withPattern(vscode.workspace.getConfiguration('flow').inspect<string[]>('exclude')?.workspaceValue ?? [], pattern);
+		if (next) {
+			await vscode.workspace.getConfiguration('flow').update('exclude', next, vscode.ConfigurationTarget.Workspace)
+				.then(undefined, (e: Error) => void vscode.window.showWarningMessage(`Insilode could not exclude ${pattern}: ${e.message}`));
+		}
+	}
+
+	private async post() {
+		const roots = workspaceRoots();
+		// `canExclude` is false for the workspace root itself, which no pattern can name.
+		const repos = sections(this.list, repoResolver(roots), e => entryName({ controller: e.controller, action: '' } as Entry).replace(/\.$/, ''), f => vscode.workspace.asRelativePath(f))
+			.map(r => ({ ...r, canExclude: !!excludablePattern(r.dir, roots) }));
+		this.groupDirs = new Set(repos.map(r => r.dir));
+		const info = await (this.solution ??= this.endpoints.solutionInfo()).catch(() => undefined);
 		await this.view?.webview.postMessage({
 			type: 'data',
 			current: this.current,
-			groups: [...groups].sort(([a], [b]) => a.localeCompare(b)).map(([name, items]) => ({ name, items })),
+			repos,
+			collapse: startsCollapsed(repos),
+			langs: [...new Set(repos.flatMap(r => r.langs))].sort(),
+			excluded: excludePatterns().length,
+			solution: info && { name: path.basename(info.file), rel: vscode.workspace.asRelativePath(info.file), total: info.total },
 		});
 	}
 
@@ -84,56 +116,93 @@ body { margin: 0; padding: 0 8px 16px 6px; color: var(--text); font: 13px/1.4 va
 .filter input::placeholder { color: var(--muted); }
 .count { margin: 6px 2px 0; color: var(--muted); font-size: 11.5px; }
 
-.group > summary { list-style: none; display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px 0 2px; border-radius: 6px; cursor: pointer; user-select: none; }
-.group > summary::-webkit-details-marker { display: none; }
-.group > summary:hover { background: var(--hover); }
+.group > summary, .repo > summary { list-style: none; display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 6px 0 2px; border-radius: 6px; cursor: pointer; user-select: none; }
+.group > summary::-webkit-details-marker, .repo > summary::-webkit-details-marker { display: none; }
+.group > summary:hover, .repo > summary:hover { background: var(--hover); }
 .chev { width: 14px; height: 14px; flex: none; color: var(--muted); transition: transform .12s; }
-.group[open] > summary .chev { transform: rotate(90deg); }
-.group > summary .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.group > summary .n { flex: none; }
-.group > summary .n { margin-left: auto; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+.group[open] > summary .chev, .repo[open] > summary .chev { transform: rotate(90deg); }
+.group > summary .name, .repo > summary .name { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.group > summary .n, .repo > summary .n { flex: none; }
+.group > summary .n, .repo > summary .n { margin-left: auto; color: var(--muted); font-size: 11.5px; font-variant-numeric: tabular-nums; }
 
 .row { display: flex; align-items: center; gap: 0; width: 100%; height: 24px; padding: 0 6px 0 22px; border: 0; border-radius: 6px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .row:hover { background: var(--hover); }
 .row.current { background: var(--sel); }
-.row:focus-visible, .group > summary:focus-visible { outline: 1.5px solid #6f86ff; outline-offset: -1.5px; }
+.row:focus-visible, .group > summary:focus-visible, .repo > summary:focus-visible, .chip:focus-visible, .exclude:focus-visible { outline: 1.5px solid #6f86ff; outline-offset: -1.5px; }
 /* The verb leads, in a fixed column, so actions line up whatever their verb. */
 .verb { flex: none; width: 50px; font: 600 10.5px var(--mono); letter-spacing: .02em; }
 .verb.GET { color: var(--get); } .verb.POST { color: var(--post); } .verb.PUT { color: var(--put); } .verb.PATCH { color: var(--patch); } .verb.DELETE { color: var(--delete); } .verb.other { color: var(--other); }
 .action { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* A repository header is the outer level: its controllers and rows sit one step further in. */
+.repo > summary .name { font-weight: 700; flex: 0 1 auto; }
+.repo > summary .langs { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 11px; }
+.repo .group > summary { padding-left: 14px; }
+.repo .row { padding-left: 36px; }
+.exclude { flex: none; height: 18px; padding: 0 6px; border: 1px solid var(--line); border-radius: 5px; background: transparent; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; opacity: 0; }
+.repo > summary:hover .exclude, .exclude:focus-visible { opacity: 1; }
+.exclude:hover { color: var(--text); background: var(--hover); }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.bar input { flex: 1 1 120px; width: auto; min-width: 0; }
+.chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip { height: 22px; padding: 0 8px; border: 1px solid var(--line); border-radius: 11px; background: transparent; color: var(--muted); font: inherit; font-size: 11px; cursor: pointer; }
+.chip[aria-pressed="true"] { color: var(--text); border-color: color-mix(in srgb, #6f86ff 60%, transparent); background: color-mix(in srgb, #6f86ff 18%, transparent); }
+.notes p { margin: 4px 2px 0; color: var(--muted); font-size: 11.5px; }
+.notes b { color: var(--text); font-weight: 600; }
+.notes button { all: unset; color: var(--vscode-textLink-foreground); cursor: pointer; }
 .empty { margin: 12px 4px; color: var(--muted); line-height: 1.5; }
 .empty button { all: unset; color: var(--vscode-textLink-foreground); cursor: pointer; }
 mark { background: color-mix(in srgb, #ffb454 30%, transparent); color: inherit; border-radius: 2px; }
 @media (prefers-reduced-motion: reduce) { .chev { transition: none; } }
 </style></head><body>
-<div class="filter"><input id="q" placeholder="Filter by name, verb or controller" aria-label="Filter endpoints"><p class="count" id="count"></p></div>
+<div class="filter"><div class="bar"><input id="q" placeholder="Filter by name, verb or controller" aria-label="Filter endpoints"><div class="chips" id="chips"></div></div><p class="count" id="count"></p></div>
+<div class="notes" id="notes"></div>
 <div id="list"></div>
 <script>
 const vscode = acquireVsCodeApi();
 const state = vscode.getState() || { open: {} };
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const VERBS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
-let data = { groups: [] };
+let data = { repos: [], langs: [] };
+state.langs = state.langs || {};
 const hl = (text, q) => { if (!q) return esc(text); const i = text.toLowerCase().indexOf(q); return i < 0 ? esc(text) : esc(text.slice(0, i)) + '<mark>' + esc(text.slice(i, i + q.length)) + '</mark>' + esc(text.slice(i + q.length)); };
+const CHEV = '<svg class="chev" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 function render() {
 	const q = document.getElementById('q').value.trim().toLowerCase();
 	const verbOnly = VERBS.find(v => v.toLowerCase() === q);
+	const picked = data.langs.filter(l => state.langs[l]);
+	const multi = data.repos.length > 1;
 	let shown = 0, total = 0;
-	const html = data.groups.map(g => {
-		total += g.items.length;
-		const items = g.items.filter(e => !q || (verbOnly ? e.verb === verbOnly : (e.action + ' ' + g.name + ' ' + e.route).toLowerCase().includes(q)));
-		if (!items.length) return '';
-		shown += items.length;
-		const open = q || state.open[g.name] || items.some(e => e.id === data.current);
-		return '<details class="group"' + (open ? ' open' : '') + ' data-name="' + esc(g.name) + '"><summary title="' + esc(g.name) + '"><svg class="chev" viewBox="0 0 16 16"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span class="name">' + hl(g.name, verbOnly ? '' : q) + '</span><span class="n">' + items.length + '</span></summary>'
-			+ items.map(e => '<button class="row' + (e.id === data.current ? ' current' : '') + '" data-id="' + esc(e.id) + '" data-source="' + esc(e.source) + '" data-label="' + esc(g.name + '.' + e.action) + '" title="' + esc(e.verb + ' ' + (e.route || '') + '\\n' + e.file + ':' + e.line) + '"><span class="verb ' + (VERBS.includes(e.verb) ? e.verb : 'other') + '">' + esc(e.verb) + '</span><span class="action">' + hl(e.action, verbOnly ? '' : q) + '</span></button>').join('')
-			+ '</details>';
+	const html = data.repos.map(r => {
+		const before = shown;
+		const groups = r.groups.map(g => {
+			total += g.items.length;
+			const items = g.items.filter(e => (!picked.length || picked.includes(e.lang)) && (!q || (verbOnly ? e.verb === verbOnly : (e.action + ' ' + g.name + ' ' + e.route).toLowerCase().includes(q))));
+			if (!items.length) return '';
+			shown += items.length;
+			const key = r.dir + '|' + g.name;
+			const open = q || state.open[key] || items.some(e => e.id === data.current);
+			return '<details class="group"' + (open ? ' open' : '') + ' data-name="' + esc(key) + '"><summary title="' + esc(g.name) + '">' + CHEV + '<span class="name">' + hl(g.name, verbOnly ? '' : q) + '</span><span class="n">' + items.length + '</span></summary>'
+				+ items.map(e => '<button class="row' + (e.id === data.current ? ' current' : '') + '" data-id="' + esc(e.id) + '" data-source="' + esc(e.source) + '" data-label="' + esc(g.name + '.' + e.action) + '" title="' + esc(e.verb + ' ' + (e.route || '') + '\\n' + e.file + ':' + e.line) + '"><span class="verb ' + (VERBS.includes(e.verb) ? e.verb : 'other') + '">' + esc(e.verb) + '</span><span class="action">' + hl(e.action, verbOnly ? '' : q) + '</span></button>').join('')
+				+ '</details>';
+		}).join('');
+		if (!multi || !groups) return groups;
+		const open = q || (state.open[r.dir] ?? !data.collapse) || r.groups.some(g => g.items.some(e => e.id === data.current));
+		const langs = [...new Set(r.groups.flatMap(g => g.items.map(e => e.lang)))].sort().join(' · ');
+		return '<details class="repo"' + (open ? ' open' : '') + ' data-name="' + esc(r.dir) + '"><summary title="' + esc(r.rel || r.dir) + '">' + CHEV + '<span class="name">' + esc(r.name) + '</span><span class="langs">' + esc(langs) + '</span><span class="n">' + (shown - before) + '</span>'
+			+ (r.canExclude ? '<button class="exclude" data-dir="' + esc(r.dir) + '" title="Exclude this folder from flows" aria-label="Exclude ' + esc(r.name) + ' from flows">Exclude</button>' : '') + '</summary>' + groups + '</details>';
 	}).join('');
-	document.getElementById('list').innerHTML = html || (total ? '<p class="empty">No endpoint matches.</p>' : '<p class="empty">No endpoints found yet. Insilode lists routes from Spring, JAX-RS, ASP.NET, FastAPI, Flask, Django, Express, NestJS and more. For a .NET project you can <button id="pick">choose a solution</button>.</p>');
-	document.getElementById('count').textContent = total ? (q ? shown + ' of ' + total : total + ' endpoints') : '';
-	document.querySelectorAll('details.group').forEach(d => d.addEventListener('toggle', () => { if (!q) { state.open[d.dataset.name] = d.open; vscode.setState(state); } }));
+	document.getElementById('list').innerHTML = html || (total ? '<p class="empty">No endpoint matches.</p>' : '<p class="empty">No endpoints found yet. Insilode lists routes from Spring, JAX-RS, ASP.NET, FastAPI, Flask, Django, Express, NestJS and more. For a .NET project you can <button data-act="pick">choose a solution</button>.</p>');
+	document.getElementById('count').textContent = total ? (q || picked.length ? shown + ' of ' + total : total + ' endpoints') : '';
+	document.getElementById('chips').innerHTML = data.langs.length > 1 ? data.langs.map(l => '<button class="chip" aria-pressed="' + !!state.langs[l] + '" data-lang="' + esc(l) + '">' + esc(l) + '</button>').join('') : '';
+	const notes = [];
+	if (data.solution) notes.push('<p>Solution <b title="' + esc(data.solution.rel) + '">' + esc(data.solution.name) + '</b>' + (data.solution.total > 1 ? ' (1 of ' + data.solution.total + ' solutions loaded)' : '') + ' · <button data-act="pick">Switch</button></p>');
+	if (data.excluded) notes.push('<p>' + data.excluded + (data.excluded === 1 ? ' folder' : ' folders') + ' excluded · <button data-act="manage">Manage</button></p>');
+	document.getElementById('notes').innerHTML = notes.join('');
+	document.querySelectorAll('details.group, details.repo').forEach(d => d.addEventListener('toggle', () => { if (!q) { state.open[d.dataset.name] = d.open; vscode.setState(state); } }));
 	document.querySelectorAll('.row').forEach(b => b.onclick = () => { data.current = b.dataset.id; vscode.postMessage({ type: 'open', id: b.dataset.id, label: b.dataset.label, source: b.dataset.source }); render(); });
-	const pick = document.getElementById('pick'); if (pick) pick.onclick = () => vscode.postMessage({ type: 'pick' });
+	document.querySelectorAll('.exclude').forEach(b => b.onclick = e => { e.preventDefault(); e.stopPropagation(); vscode.postMessage({ type: 'exclude', dir: b.dataset.dir }); });
+	document.querySelectorAll('.chip').forEach(b => b.onclick = () => { state.langs[b.dataset.lang] = !state.langs[b.dataset.lang]; vscode.setState(state); render(); });
+	document.querySelectorAll('[data-act]').forEach(b => b.onclick = () => vscode.postMessage({ type: b.dataset.act }));
 }
 document.getElementById('q').addEventListener('input', render);
 window.addEventListener('message', e => { if (e.data.type === 'data') { data = e.data; render(); } });

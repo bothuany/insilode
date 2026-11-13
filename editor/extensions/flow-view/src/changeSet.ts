@@ -23,6 +23,8 @@ export interface ChangeSet {
 	label: string;
 	/** The changed source files. */
 	files: string[];
+	/** What the change view left out, for the root card ("3 test files and 5 comment-only changes hidden"). */
+	hidden?: string;
 }
 
 export interface ChangeSetDeps {
@@ -266,6 +268,7 @@ export class ChangeSetProvider implements FlowProvider {
 			impact.more ? `${impact.more} endpoints not drawn` : '',
 			left ? `${left} methods not drawn` : '',
 			failed ? `${failed} could not be traced` : '',
+			set.hidden ?? '',
 			!branches.length && !failed ? 'no changed method found (the code index or C# analyzer may still be loading)' : '',
 			impact.note ?? '',
 		].filter(Boolean).join(' · ');

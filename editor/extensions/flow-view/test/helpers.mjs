@@ -14,9 +14,9 @@ export class Index {
 	#seq = 0
 	ready
 
-	constructor(folder) {
+	constructor(folder, exclude = []) {
 		const cacheFile = join(mkdtempSync(join(tmpdir(), 'flow-test-')), 'cache.json')
-		this.#worker = new Worker(join(ROOT, 'out', 'polyWorker.js'), { workerData: { roots: [resolve(folder)], wasmDir: join(ROOT, 'out', 'wasm'), cacheFile } })
+		this.#worker = new Worker(join(ROOT, 'out', 'polyWorker.js'), { workerData: { roots: [resolve(folder)], wasmDir: join(ROOT, 'out', 'wasm'), cacheFile, exclude } })
 		// Resolves when the index is built; fails when it cannot be (a crash, an index error, no answer in time) instead of hanging the test.
 		this.ready = new Promise((ok, fail) => {
 			const timer = setTimeout(() => fail(new Error(`the index was not ready after ${READY_MS} ms`)), READY_MS)

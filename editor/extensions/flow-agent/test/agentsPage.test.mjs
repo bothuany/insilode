@@ -322,6 +322,93 @@ test('elapsed time ticks locally from the host clock', () => {
 	assert.match(p.body.byClass('state')[0].textContent, /Working · 1m 5s/)
 })
 
+// ---- the sidebar: this project, other open projects, recent ones -------------------------------------------------------------
+const peerRow = (over = {}) => ({ id: 'p1', cli: 'claude', name: 'Remote worker', state: 'working', since: Date.now(), todos: [{ text: 'a', status: 'in_progress' }], flows: 1, activity: 'Editing api.ts', tokens: 2500, usd: 1.5, contextPercent: 30, pr: { number: 7, state: 'open', title: 'Add api' }, ...over })
+const peers = () => [{ key: '0123456789ab', name: 'other-app', rows: [peerRow(), peerRow({ id: 'p2', name: 'Waiting', state: 'blocked', attention: 'approval', need: 'Run rm', flows: 0 }), peerRow({ id: 'p3', name: 'Gone peer', state: 'ended' })] }]
+const recent = () => [{ key: 'ba9876543210', name: 'old-app', sessions: ['Fix login', 'Refactor'] }]
+
+test('the sidebar lists this project first, then open projects, then recent ones, with a dot per session', () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'my-app' }, peers: peers(), recent: recent() })
+	const side = p.body.byClass('side')[0]
+	const t = side.textContent
+	assert.ok(t.indexOf('my-app') < t.indexOf('other-app') && t.indexOf('other-app') < t.indexOf('old-app'))
+	assert.match(t, /Needy.*Worker.*Finisher/)
+	assert.match(t, /Remote worker.*Editing api\.ts/)
+	assert.match(t, /Waiting.*Run rm/)
+	assert.doesNotMatch(t, /Gone peer/, 'an ended session is hidden like on the board')
+	assert.match(t, /Fix login, Refactor \(closed\)/)
+	const dots = side.byClass('sdot').map(d => d.className)
+	assert.ok(dots.some(c => c.includes('needs')) && dots.some(c => c.includes('working')) && dots.some(c => c.includes('done')))
+	p.body.button('Show ended').fire('click')
+	assert.match(p.body.byClass('side')[0].textContent, /Gone peer/)
+})
+
+test('the sidebar controls post the existing and the peer messages', () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'my-app' }, peers: peers(), recent: recent() })
+	p.posted.length = 0
+	p.body.button('New session').fire('click')
+	p.body.byClass('side')[0].button('Open in IDE').fire('click')
+	p.body.button('Open project').fire('click')
+	assert.deepEqual(p.posted, [{ type: 'pick' }, { type: 'peer', action: 'ide', key: '0123456789ab' }, { type: 'peer', action: 'ide', key: 'ba9876543210' }])
+	p.posted.length = 0
+	p.body.byClass('srow').find(r => /Worker/.test(r.textContent) && !/Remote/.test(r.textContent)).fire('click')
+	assert.deepEqual(p.posted, [{ type: 'tail', id: 'w' }], 'a session of this window selects like a card')
+})
+
+test('a session of another window shows its detail with Open in IDE and Open flow, and no reply box', () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'my-app' }, peers: peers() })
+	p.posted.length = 0
+	p.body.byClass('srow').find(r => /Remote worker/.test(r.textContent)).fire('click')
+	assert.deepEqual(p.posted, [], 'no tail is asked of this window for a session it does not own')
+	const d = p.body.byClass('detail')[0]
+	assert.match(d.textContent, /Remote worker/)
+	assert.match(d.textContent, /other-app/)
+	assert.match(d.textContent, /#7Add api \(open\)/)
+	assert.match(d.textContent, /30% full/)
+	assert.match(d.textContent, /2\.5k tok · \$1\.50 est\./)
+	assert.ok(p.body.byClass('reply')[0].className.includes('hidden'))
+	d.button('Open in IDE').fire('click')
+	d.button('Open flow').fire('click')
+	assert.deepEqual(p.posted, [{ type: 'peer', action: 'ide', key: '0123456789ab', id: 'p1' }, { type: 'peer', action: 'flow', key: '0123456789ab', id: 'p1' }])
+	p.key('Enter')
+	assert.equal(p.posted.filter(m => m.type === 'show').length, 0, 'Enter does not ask this window to show a session it does not own')
+	p.body.byClass('srow').find(r => /Waiting/.test(r.textContent)).fire('click')
+	assert.equal(p.body.byClass('detail')[0].button('Open flow'), undefined, 'no flow, no button')
+})
+
+test('text from another window never becomes markup', () => {
+	const p = boot()
+	p.data([], { peers: [{ key: '0123456789ab', name: '<script>x</script>', rows: [peerRow({ name: '<img src=x onerror=1>', activity: '<b>b</b>' })] }], recent: [{ key: 'ba9876543210', name: '<u>r</u>', sessions: ['<u>s</u>'] }] })
+	assert.match(p.text(), /<img src=x onerror=1>/)
+	assert.equal(p.body.find(n => ['IMG', 'SCRIPT', 'U'].includes(n.tagName) || (n.tagName === 'B' && n.textContent === 'b')).length, 0)
+})
+
+test('a project that closes drops out of the sidebar and clears its selection', () => {
+	const p = boot()
+	p.data(rows(), { peers: peers() })
+	p.body.byClass('srow').find(r => /Remote worker/.test(r.textContent)).fire('click')
+	p.data(rows(), { peers: [] })
+	assert.match(p.body.byClass('detail')[0].textContent, /Select an agent/)
+})
+
+test('the counters count the other open projects too; with none here the empty block is one line; a project without sessions is listed', () => {
+	const p = boot()
+	p.data([], { peers: peers().concat([{ key: 'ffffffffffff', name: 'idle-app', rows: [] }]) })
+	const counts = p.body.byClass('count').map(c => c.textContent)
+	assert.deepEqual(counts, ['1Needs you', '1Working', '0Done'], 'peers: one working, one waiting, one ended')
+	assert.equal(p.body.byClass('empty').length, 0, 'the large block gives way to one line')
+	assert.match(p.text(), /No agents running in this window/)
+	const t = p.body.byClass('side')[0].textContent
+	assert.match(t, /idle-app.*No sessions/)
+	assert.equal(p.body.byClass('side')[0].byClass('shead').filter(h => /idle-app/.test(h.textContent))[0].button('Open in IDE') !== undefined, true)
+	// Nobody anywhere: the large prompt stays.
+	p.data([], { peers: [] })
+	assert.match(p.text(), /No agents running\./)
+})
+
 // Writes the page and a sample of what it draws to the temp folder, for a person to open; nothing here opens a window.
 test('the page renders a sample board', () => {
 	const p = boot()

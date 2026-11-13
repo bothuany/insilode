@@ -238,10 +238,10 @@ index 0000000..a9c5ff8
 +}
 diff --git a/src/vs/platform/insilodeDesktop/common/insilodeIsland.ts b/src/vs/platform/insilodeDesktop/common/insilodeIsland.ts
 new file mode 100644
-index 0000000..2e0b622
+index 0000000..ad3a34d
 --- /dev/null
 +++ b/src/vs/platform/insilodeDesktop/common/insilodeIsland.ts
-@@ -0,0 +1,152 @@
+@@ -0,0 +1,256 @@
 +/*---------------------------------------------------------------------------------------------
 + *  Insilode: the rules of the desktop status island that need no Electron, so they are tested on
 + *  their own (editor/extensions/flow-agent/test/island.test.mjs reads this file out of
@@ -250,9 +250,10 @@ index 0000000..2e0b622
 + *  - Position: where the user dropped the island, remembered per display as a fraction of the
 + *    display's width (so a new resolution keeps it in the same place) plus a distance from the
 + *    top, and always clamped back onto a display that exists.
-+ *  - Visibility: the island is hidden while an Insilode window has focus. Focus moves between windows
++ *  - Visibility: while an Insilode window has focus the island shows only the other windows' agents that
++ *    work or need you (the focused window has its own dock). Focus moves between windows
 + *    (and through the Alt+Tab switcher) as a blur then a focus, so a change only counts once it
-+ *    has lasted a little: hiding fast, coming back slower, so that switching does not flicker.
++ *    has lasted a little: switching to it fast, back slower, so that switching does not flicker.
 + *--------------------------------------------------------------------------------------------*/
 +
 +export interface IslandRect {
@@ -272,6 +273,8 @@ index 0000000..2e0b622
 +export interface IslandDisplay {
 +	readonly id: number;
 +	readonly workArea: IslandRect;
++	/** The whole display, menu bar band included: the nearest display is measured to this when it is given. */
++	readonly bounds?: IslandRect;
 +}
 +
 +const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -324,10 +327,13 @@ index 0000000..2e0b622
 +	return undefined;
 +}
 +
-+/** Which display holds most of the rectangle (the one the user dropped it on). */
++/**
++ * Which display holds most of the rectangle (the one the user dropped it on). A rectangle that overlaps no work area (the
++ * attached island sits in the menu bar band, outside every one) belongs to the display nearest its centre, not to the first.
++ */
 +export function displayForRect(rect: IslandRect, displays: readonly IslandDisplay[]): IslandDisplay | undefined {
 +	let best: IslandDisplay | undefined;
-+	let bestArea = -1;
++	let bestArea = 0;
 +	for (const d of displays) {
 +		const w = Math.min(rect.x + rect.width, d.workArea.x + d.workArea.width) - Math.max(rect.x, d.workArea.x);
 +		const h = Math.min(rect.y + rect.height, d.workArea.y + d.workArea.height) - Math.max(rect.y, d.workArea.y);
@@ -337,7 +343,101 @@ index 0000000..2e0b622
 +			bestArea = overlap;
 +		}
 +	}
++	if (best) {
++		return best;
++	}
++	const cx = rect.x + rect.width / 2;
++	const cy = rect.y + rect.height / 2;
++	let nearest = Infinity;
++	for (const d of displays) {
++		const a = d.bounds ?? d.workArea;
++		const dx = Math.max(a.x - cx, 0, cx - (a.x + a.width));
++		const dy = Math.max(a.y - cy, 0, cy - (a.y + a.height));
++		if (dx * dx + dy * dy < nearest) {
++			best = d;
++			nearest = dx * dx + dy * dy;
++		}
++	}
 +	return best;
++}
++
++// --- Placement ----------------------------------------------------------------------------------
++
++/**
++ * How wide the gap between the island's two wings is on a Mac with a camera housing. Electron reports no width for the
++ * housing (a Display has `bounds` and `workArea`, nothing like `safeArea` or `auxiliaryTopLeftArea`), so this is one
++ * constant: the housing of the current MacBook Pros is about 185 points wide, 200 leaves a little room on each side.
++ */
++export const NOTCH_GAP = 200;
++
++/**
++ * Where the island goes. A remembered spot wins; else the settings' corner. An attached island (top-center, no spot)
++ * hangs from the top edge of `bounds` (the menu bar band), the others float `margin` inside `workArea`. The attached
++ * width is rounded up to an even number so that its centre, which is the middle of the camera gap (the wings are
++ * equal-width), lands on a whole pixel on the display's centre.
++ */
++export function islandRect(i: {
++	readonly spot: IslandSpot | undefined;
++	readonly attached: boolean;
++	readonly position: string;
++	readonly size: { readonly width: number; readonly height: number };
++	readonly bounds: IslandRect;
++	readonly workArea: IslandRect;
++}): IslandRect {
++	if (i.spot) {
++		return spotToRect(i.spot, i.size, i.workArea);
++	}
++	const area = i.attached ? i.bounds : i.workArea;
++	const margin = i.attached ? 0 : 10;
++	const width = i.attached ? i.size.width + (i.size.width % 2) : i.size.width;
++	const height = i.size.height;
++	const [vertical, horizontal] = i.position.split('-');
++	const x = horizontal === 'left' ? area.x + margin : horizontal === 'right' ? area.x + area.width - width - margin : area.x + (area.width - width) / 2;
++	const y = vertical === 'top' ? area.y + margin : area.y + area.height - height - margin;
++	return { x: Math.round(x), y: Math.round(y), width, height };
++}
++
++/**
++ * Whether the saved spots are cleared: when the position settings of the window that pushes now are not what the
++ * same window pushed before. Windows differ (a workspace can set its own), so the keys are kept per window; comparing
++ * with whichever window pushed last would clear the spot at every push from the other one.
++ */
++export function layoutChanged(keys: Record<number, string>, windowId: number, key: string): boolean {
++	const before = keys[windowId];
++	keys[windowId] = key;
++	return before !== undefined && before !== key;
++}
++
++/** A double-click puts the island back, but only one that is not the click ending a drag: the drop just happened. */
++export const RESET_AFTER_DROP_MS = 700;
++
++export function resetAllowed(lastDropAt: number | undefined, now: number): boolean {
++	return lastDropAt === undefined || now - lastDropAt >= RESET_AFTER_DROP_MS;
++}
++
++export interface WindowAgents<T> {
++	readonly windowId: number;
++	readonly items: readonly T[];
++}
++
++/**
++ * The agents the island shows. With no Insilode window focused, all of them. While one is focused (`focusedWindowId`)
++ * that window shows its own agents in its dock, so the island is for the other windows' agents that are working or
++ * need you; finished and idle ones stay in their window. Empty means nothing to show (the island hides).
++ */
++export function islandAgents<T extends { readonly state: string }>(windows: readonly WindowAgents<T>[], focusedWindowId: number | undefined): { windowId: number; item: T }[] {
++	const out: { windowId: number; item: T }[] = [];
++	for (const w of windows) {
++		if (w.windowId === focusedWindowId) {
++			continue;
++		}
++		for (const item of w.items) {
++			if (focusedWindowId === undefined || item.state === 'working' || item.state === 'needs') {
++				out.push({ windowId: w.windowId, item });
++			}
++		}
++	}
++	return out;
 +}
 +
 +// --- Visibility ---------------------------------------------------------------------------------
@@ -384,22 +484,26 @@ index 0000000..2e0b622
 +}
 +
 +export interface VisibilityInput {
++	/** Whether islandAgents left anything to show (while an Insilode window has focus that is only other windows' agents). */
 +	readonly hasAgents: boolean;
-+	readonly autoHide: { readonly noAgents: boolean; readonly insilodeFocused: boolean };
-+	/** The settled focus of the Insilode windows. */
-+	readonly insilodeFocused: boolean;
++	readonly autoHide: { readonly noAgents: boolean };
++	/** An Insilode window has focus and the focus rule is on: the island is then only for the others' agents. */
++	readonly othersOnly?: boolean;
 +}
 +
-+/** Whether the island is on screen. */
++/**
++ * Whether the island is on screen. Focus narrows the agents (islandAgents); with none left an island that is only for the
++ * others' agents has nothing to say and hides, whatever the no-agents setting says (an empty pill would only sit there).
++ */
 +export function islandVisible(i: VisibilityInput): boolean {
-+	return !(i.autoHide.noAgents && !i.hasAgents) && !(i.autoHide.insilodeFocused && i.insilodeFocused);
++	return i.hasAgents || !(i.autoHide.noAgents || i.othersOnly);
 +}
 diff --git a/src/vs/platform/insilodeDesktop/electron-main/insilodeOverlayMainService.ts b/src/vs/platform/insilodeDesktop/electron-main/insilodeOverlayMainService.ts
 new file mode 100644
-index 0000000..9569328
+index 0000000..51814a1
 --- /dev/null
 +++ b/src/vs/platform/insilodeDesktop/electron-main/insilodeOverlayMainService.ts
-@@ -0,0 +1,702 @@
+@@ -0,0 +1,728 @@
 +/*---------------------------------------------------------------------------------------------
 + *  Insilode: the desktop agent status overlay. One small always-on-top window for the whole app that
 + *  draws the agents every Insilode window pushes (merged per window, like the Dock badge).
@@ -422,7 +526,7 @@ index 0000000..9569328
 +import { isMacintosh } from '../../../base/common/platform.js';
 +import { ILogService } from '../../log/common/log.js';
 +import { AVATAR_CSS, AVATAR_SCRIPT } from '../common/insilodeAvatars.js';
-+import { clampRect, displayForRect, FocusGate, focusWait, INITIAL_GATE, IslandRect, IslandSpot, islandVisible, observeFocus, readSpot, rectToSpot, resolvePlacement, settleFocus, spotToRect } from '../common/insilodeIsland.js';
++import { clampRect, FocusGate, focusWait, INITIAL_GATE, islandAgents, IslandRect, islandRect, IslandSpot, islandVisible, layoutChanged, NOTCH_GAP, observeFocus, readSpot, rectToSpot, resetAllowed, resolvePlacement, settleFocus } from '../common/insilodeIsland.js';
 +import { IInsilodeOverlayColors, IInsilodeOverlayItem, IInsilodeOverlayOptions, IInsilodeOverlayService, IInsilodeOverlayState } from '../common/insilodeDesktop.js';
 +
 +/** What the page prefixes its messages with, so an unrelated console line is never taken for one. */
@@ -519,8 +623,12 @@ index 0000000..9569328
 +	private store: { minimized: boolean; spots: Record<string, IslandSpot>; last?: string } = { minimized: false, spots: {} };
 +	private readonly storeFile = join(app.getPath('userData'), 'insilode-island.json');
 +	private drag: { cursor: { x: number; y: number }; origin: IslandRect } | undefined;
-+	/** The position settings last seen: changing them puts the island back where the settings say. */
-+	private layoutKey: string | undefined;
++	/** The position settings last seen per window: a window changing its own puts the island back where the settings say. */
++	private readonly layoutKeys: Record<number, string> = {};
++	/** When the island was last dropped: the click that ends a drag must not count as half of a double-click. */
++	private lastDropAt: number | undefined;
++	/** The Insilode window that had focus last: while the focus is settled on Insilode, its agents are left to its own dock. */
++	private focusedId: number | undefined;
 +
 +	constructor(@ILogService private readonly logService: ILogService) {
 +		super();
@@ -569,6 +677,7 @@ index 0000000..9569328
 +			win.once('closed', () => {
 +				this.watched.delete(windowId);
 +				this.windows.delete(windowId);
++				delete this.layoutKeys[windowId];
 +				this.render();
 +			});
 +		}
@@ -626,27 +735,34 @@ index 0000000..9569328
 +		const items: (IInsilodeOverlayItem & { key: string })[] = [];
 +		const counts = { needs: 0, working: 0, done: 0 };
 +		let showCounts = false;
++		// While an Insilode window has focus (and the setting allows) only the other windows' working and waiting agents show.
++		const others = this.gate.focused && options.autoHide.insilodeFocused;
++		for (const { windowId, item } of islandAgents([...this.windows].map(([id, agents]) => ({ windowId: id, items: agents.state.items })), others ? this.focusedId : undefined)) {
++			const key = `k${this.keys.size}`;
++			this.keys.set(key, { windowId, id: item.id });
++			items.push({ ...item, key });
++		}
 +		for (const [windowId, agents] of this.windows) {
-+			for (const item of agents.state.items) {
-+				const key = `k${this.keys.size}`;
-+				this.keys.set(key, { windowId, id: item.id });
-+				items.push({ ...item, key });
-+			}
-+			if (agents.state.counts) {
++			if (agents.state.counts && !(others && windowId === this.focusedId)) {
 +				showCounts = true;
 +				counts.needs += agents.state.counts.needs;
 +				counts.working += agents.state.counts.working;
 +				counts.done += agents.state.counts.done;
 +			}
 +		}
-+		// Changing where the settings put the island takes it back from where the user dragged it.
-+		const layoutKey = `${options.position}/${options.display}`;
-+		if (this.layoutKey !== undefined && this.layoutKey !== layoutKey) {
++		if (others) {
++			// The window's own counts include finished and idle agents the list left out.
++			counts.needs = items.filter(i => i.state === 'needs').length;
++			counts.working = items.filter(i => i.state === 'working').length;
++			counts.done = 0;
++		}
++		// Changing where the settings put the island takes it back from where the user dragged it. Each window is compared
++		// with itself: two workspaces may set different positions, which must not wipe the spot at every push.
++		if (layoutChanged(this.layoutKeys, ownerId, `${options.position}/${options.display}`)) {
 +			this.store = { ...this.store, spots: {}, last: undefined };
 +			this.saveStore();
 +		}
-+		this.layoutKey = layoutKey;
-+		if (!islandVisible({ hasAgents: items.length > 0, autoHide: options.autoHide, insilodeFocused: this.gate.focused })) {
++		if (!islandVisible({ hasAgents: items.length > 0, autoHide: options.autoHide, othersOnly: others })) {
 +			this.overlay?.hide();
 +			return;
 +		}
@@ -665,7 +781,7 @@ index 0000000..9569328
 +		if (!this.loaded) {
 +			return; // did-finish-load renders again
 +		}
-+		const model = { items, counts: showCounts ? counts : undefined, style: options.style, size: options.size, opacity: options.opacity, colors, notch, attached, avatar: options.avatar, minimized: this.store.minimized, moved: !!spot };
++		const model = { items, counts: showCounts ? counts : undefined, style: options.style, size: options.size, opacity: options.opacity, colors, notch, gap: NOTCH_GAP, attached, avatar: options.avatar, minimized: this.store.minimized, moved: !!spot };
 +		// JSON is a JavaScript expression: the model arrives as data, never as code.
 +		overlay.webContents.executeJavaScript(`window.insilodeRender(${JSON.stringify(model)})`).catch(e => this.logService.warn(`[insilode overlay] render failed: ${e}`));
 +		this.place();
@@ -673,7 +789,11 @@ index 0000000..9569328
 +
 +	private insilodeFocused(): boolean {
 +		const focused = BrowserWindow.getFocusedWindow();
-+		return !!focused && focused !== this.overlay;
++		if (focused && focused !== this.overlay) {
++			this.focusedId = focused.id;
++			return true;
++		}
++		return false;
 +	}
 +
 +	private display(which: IInsilodeOverlayOptions['display'], ownerId: number): Display {
@@ -710,6 +830,9 @@ index 0000000..9569328
 +			fullscreenable: false,
 +			skipTaskbar: true,
 +			alwaysOnTop: true,
++			// macOS keeps a window's frame on the visible screen, i.e. below the menu bar, unless the window may be larger than
++			// the screen: this is what lets the attached island sit in the menu bar band, beside the camera.
++			...(isMacintosh ? { enableLargerThanScreen: true } : {}),
 +			width: 160,
 +			height: 40,
 +			title: 'Insilode Agents',
@@ -791,6 +914,9 @@ index 0000000..9569328
 +			this.saveStore();
 +			this.render();
 +		} else if (message.type === 'reset') {
++			if (!resetAllowed(this.lastDropAt, Date.now())) {
++				return;
++			}
 +			this.store = { ...this.store, spots: {}, last: undefined };
 +			this.saveStore();
 +			this.render();
@@ -816,8 +942,9 @@ index 0000000..9569328
 +		}
 +		const { origin } = this.drag;
 +		const target = { ...origin, x: origin.x + cursor.x - this.drag.cursor.x, y: origin.y + cursor.y - this.drag.cursor.y };
-+		const display = displayForRect(target, screen.getAllDisplays().map(d => ({ id: d.id, workArea: d.workArea })));
-+		overlay.setBounds(clampRect(target, display?.workArea ?? screen.getPrimaryDisplay().workArea));
++		// The display under the pointer, not the one holding most of the island: a drag starts in the menu bar band, which no work
++		// area contains, and the island would be clamped onto whichever display is listed first.
++		overlay.setBounds(clampRect(target, screen.getDisplayNearestPoint(cursor).workArea));
 +	}
 +
 +	/** Remembers where the island was dropped, for the display it is on. */
@@ -829,11 +956,9 @@ index 0000000..9569328
 +			return;
 +		}
 +		const rect = overlay.getBounds();
-+		const display = displayForRect(rect, screen.getAllDisplays().map(d => ({ id: d.id, workArea: d.workArea })));
-+		if (!display) {
-+			return;
-+		}
++		const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
 +		const id = String(display.id);
++		this.lastDropAt = Date.now();
 +		this.store = { ...this.store, spots: { ...this.store.spots, [id]: rectToSpot(rect, display.workArea) }, last: id };
 +		this.saveStore();
 +		this.render();
@@ -852,16 +977,7 @@ index 0000000..9569328
 +			// The user is holding it: the pointer decides.
 +			return;
 +		}
-+		if (spot) {
-+			overlay.setBounds(spotToRect(spot, { width, height }, display.workArea));
-+		} else {
-+			const area = attached ? display.bounds : display.workArea;
-+			const margin = attached ? 0 : 10;
-+			const [vertical, horizontal] = options.position.split('-');
-+			const x = horizontal === 'left' ? area.x + margin : horizontal === 'right' ? area.x + area.width - width - margin : area.x + (area.width - width) / 2;
-+			const y = vertical === 'top' ? area.y + margin : area.y + area.height - height - margin;
-+			overlay.setBounds({ x: Math.round(x), y: Math.round(y), width, height });
-+		}
++		overlay.setBounds(islandRect({ spot, attached, position: options.position, size: { width, height }, bounds: display.bounds, workArea: display.workArea }));
 +		if (!overlay.isVisible()) {
 +			overlay.showInactive();
 +		}
@@ -901,6 +1017,10 @@ index 0000000..9569328
 +@media (prefers-reduced-motion: reduce) { .box { animation: none; } }
 +.box { cursor: grab; }
 +body.dragging, body.dragging .box { cursor: grabbing; }
++.box.wings { display: grid; column-gap: 0; padding-left: 0.6em; padding-right: 0.6em; }
++.wing { display: flex; align-items: center; gap: 0.85em; min-width: 0; }
++.wing.l { justify-content: flex-end; }
++.wing.r { justify-content: flex-start; }
 +.box.mini { padding: 0.4em; gap: 0; cursor: pointer; }
 +.ctl { display: flex; gap: 0.15em; margin-left: 0.2em; }
 +.ctl button { all: unset; box-sizing: border-box; display: grid; place-items: center; width: 1.7em; height: 1.7em; border-radius: 50%; color: var(--muted); font-size: 0.95em; line-height: 1; cursor: pointer; }
@@ -1029,21 +1149,31 @@ index 0000000..9569328
 +		const dots = el('div', 'dots');
 +		data.items.slice(0, 6).forEach(i => dots.append(avatar(i)));
 +		if (!data.items.length) { dots.append(avatar({ key: 'none', cli: 'custom', state: 'idle' })); }
-+		box.append(dots);
-+		if (data.notch) { box.append(el('span', 'notch-gap')); box.lastChild.style.width = '170px'; }
++		// Beside the camera the island is a left wing, the gap and a right wing; the wings are equal-width columns, so the
++		// gap is the middle of the island whatever they hold, and the window is centred on the display.
++		const right = data.notch ? el('div', 'wing r') : box;
++		if (data.notch) {
++			box.classList.add('wings');
++			box.style.gridTemplateColumns = '1fr ' + data.gap + 'px 1fr';
++			const left = el('div', 'wing l');
++			left.append(dots);
++			box.append(left, el('span', 'notch-gap'), right);
++		} else {
++			box.append(dots);
++		}
 +		const lead = data.items[0];
 +		if (data.style === 'pill') {
-+			box.append(el('span', 'sep'));
++			if (!data.notch) { right.append(el('span', 'sep')); }
 +			if (lead) {
 +				const l = el('span', 'lead');
 +				l.append(el('span', 'name', lead.name), el('span', 'verb', label(lead)));
 +				if (data.items.length > 1) { l.append(el('span', 'more', '+' + (data.items.length - 1))); }
-+				box.append(l, meta(lead));
++				right.append(l, meta(lead));
 +			} else {
-+				box.append(el('span', 'verb', 'No agents'));
++				right.append(el('span', 'verb', 'No agents'));
 +			}
 +		}
-+		box.append(controls());
++		right.append(controls());
 +	}
 +	if (!list) { box.title = data.moved ? 'Drag to move, double-click to put it back' : 'Drag to move'; }
 +	// An avatar that did not change keeps its element, so its animation runs on instead of restarting with each update.

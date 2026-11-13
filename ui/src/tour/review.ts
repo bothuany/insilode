@@ -13,6 +13,12 @@ export function rangesOf(lines: readonly number[], max = 3): [number, number][] 
   return out.slice(0, max)
 }
 
+/**
+ * The line a removed row is addressed by: the line it sits above (`after` is the line before it), the last line of the card for
+ * rows at its end. The card marks the row with it (`data-del`); the review tour lights removed rows by that attribute alone.
+ */
+export const removedAt = (after: number, endLine: number) => Math.min(after + 1, endLine)
+
 const dotted = (label: string) => label.replace(/\s*▸\s*/g, '.')
 
 function stepOfChange(n: FlowNode): TourStep {
@@ -23,6 +29,7 @@ function stepOfChange(n: FlowNode): TourStep {
     title: label,
     caption: `${what}: ${d.plus} ${d.plus === 1 ? 'line' : 'lines'} added, ${d.minus} removed.`,
     at: { file: n.file ?? '', startLine: n.startLine, endLine: n.endLine, label },
+    // Removed rows are lit by the player through `data-del`, not as ranges: they would light an unchanged line and take slots from added ones.
     highlights: rangesOf(d.added),
     state: 'ok',
   }

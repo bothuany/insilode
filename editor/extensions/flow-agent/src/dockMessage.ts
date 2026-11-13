@@ -27,9 +27,16 @@ export type DockAction =
 	| { type: 'wt'; id: string; action: WorktreeAction }
 	| { type: 'pick' | 'chat' }
 	/** An agent's Skeleton button: skeleton first on or off for that agent. */
-	| { type: 'sk'; id: string; on: boolean };
+	| { type: 'sk'; id: string; on: boolean }
+	/**
+	 * A session or project of another window: the page names the project by its storage key (the host sent it) and the session by id;
+	 * the host looks both up in what it read, so neither is a path or a command. `flow` needs a session.
+	 */
+	| { type: 'peer'; action: 'ide' | 'flow'; key: string; id?: string };
 
 const MAX_ID = 200;
+/** A storage folder's name under agents/: 12 hex digits, with `empty-` before it for a window without a folder (peersCore.ts isKey). */
+const PEER_KEY = /^(?:empty-)?[0-9a-f]{12}$/;
 const ID_TYPES = new Set(['show', 'pr', 'xray', 'forget', 'compact', 'rename', 'explain', 'swap']);
 
 export function dockAction(raw: unknown): DockAction | undefined {
@@ -51,6 +58,15 @@ export function dockAction(raw: unknown): DockAction | undefined {
 			return id !== undefined && typeof m.index === 'number' && Number.isInteger(m.index) && m.index >= 0 ? { type: 'flow', id, index: m.index } : undefined;
 		case 'sk':
 			return id !== undefined && typeof m.on === 'boolean' ? { type: 'sk', id, on: m.on } : undefined;
+		case 'peer': {
+			if ((m.action !== 'ide' && m.action !== 'flow') || typeof m.key !== 'string' || !PEER_KEY.test(m.key)) {
+				return undefined;
+			}
+			if (m.id === undefined) {
+				return m.action === 'ide' ? { type: 'peer', action: 'ide', key: m.key } : undefined;
+			}
+			return id !== undefined && id.length > 0 ? { type: 'peer', action: m.action, key: m.key, id } : undefined;
+		}
 		case 'wt':
 			return id !== undefined && WORKTREE_ACTIONS.includes(m.action as WorktreeAction) ? { type: 'wt', id, action: m.action as WorktreeAction } : undefined;
 		default:

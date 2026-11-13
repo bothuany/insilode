@@ -69,6 +69,21 @@ test('commandEdited: a tracked file a command changed is measured against HEAD, 
 	assert.match(prompt.message, /changes a command made/)
 })
 
+test('timeline: a prompt that only changed a comment is listed (Undo restores it), while its card shows no diff', async t => {
+	const dir = repo({ 'A.java': lines('one();', 'two();') })
+	t.after(() => rmSync(dir, { recursive: true, force: true }))
+	const changes = new mod.AgentChanges()
+	changes.startTurn('add a note', 'Claude')
+	writeFileSync(join(dir, 'A.java'), lines('one(); // note', 'two();'))
+	await changes.commandEdited([join(dir, 'A.java')])
+	const turns = await changes.timeline()
+	assert.equal(turns.length, 1)
+	assert.deepEqual([turns[0].files[0].plus, turns[0].files[0].minus], [1, 1])
+	const root = card(join(dir, 'A.java'), 1, 2)
+	await changes.annotate(root, turns[0].id)
+	assert.equal(root.diff, undefined)
+})
+
 test('commandEdited: a file untracked before the turn and changed by a command is not deleted by undoing the prompt', async t => {
 	const dir = repo({ 'a.ts': 'x\n' })
 	t.after(() => rmSync(dir, { recursive: true, force: true }))
@@ -167,7 +182,7 @@ test('keepCard: the card keeps its hunks, the rest of the file still shows, and 
 	assert.equal(await diffOf(changes, file, 2, 4), undefined, 'a is kept')
 	assert.equal((await diffOf(changes, file, 6, 8)).plus, 1, 'b still shows')
 	// Lines added above the kept card do not bring it back.
-	writeFileSync(file, lines('// header', 'class A {', '  a() {', '    one changed', '  }', 'class B {', '  b() {', '    two changed', '  }'))
+	writeFileSync(file, lines('header()', 'class A {', '  a() {', '    one changed', '  }', 'class B {', '  b() {', '    two changed', '  }'))
 	assert.equal(await diffOf(changes, file, 3, 5), undefined)
 	assert.equal((await diffOf(changes, file, 1, 1)).plus, 1, 'the new line shows as a change of its own')
 	await changes.keepCard(file, 0, 100)
