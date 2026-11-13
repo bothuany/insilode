@@ -2,7 +2,7 @@
 // Each mark appears with an ink-reveal when its caption sentence starts; `prefers-reduced-motion` shows them at once.
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useReactFlow, type Node } from '@xyflow/react'
-import { CHAR_W, CODE_PAD, HEADER_H, LINE_H, type CardData } from '../layout'
+import { CHAR_W, CODE_PAD, GUTTER_W, HEADER_H, LINE_H, type CardData } from '../layout'
 import type { FlowNode, TourMark, TourStep } from '../types'
 import { cardAt, resolveStep } from './cards'
 import type { Box } from './geometry'
@@ -24,7 +24,7 @@ export interface MarkLayerProps {
 }
 
 /** The card's text starts after the line-number gutter; a character of its code font is CHAR_W wide (layout.ts). */
-const GUTTER = 54
+const GUTTER = GUTTER_W + 2
 const PAD = 3
 /**
  * The marks that sit beside a line stay inside the card: the caption is often placed right against the card's left edge

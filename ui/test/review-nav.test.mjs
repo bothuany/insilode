@@ -1,9 +1,9 @@
 // The review navigation outside the tour, and how a card draws its removed lines. Pure files, run under plain Node (`npm test` in ui/).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cycle, findCards, groupByFile, nextUnviewed, splitName, stepKey, toggled } from '../src/review/nav.ts'
-import { CHAR_W, LINE_H, toLines, toRows, layout } from '../src/layout.ts'
-import { removedAt, tourFromChanges } from '../src/tour/review.ts'
+import { cycle, findCards, groupByFile, keepViewed, navKeyAction, nextUnviewed, splitName, stepKey, toggled } from '../src/review/nav.ts'
+import { CHAR_W, GUTTER_W, LINE_H, toLines, toRows, layout } from '../src/layout.ts'
+import { rangesOf, removedAt, tourFromChanges } from '../src/tour/review.ts'
 
 const card = (key, label, file, plus = 1, minus = 0) => ({ key, label, file, diff: { plus, minus } })
 
@@ -86,7 +86,7 @@ test('card width accounts for a removed line longer than any current one', () =>
   const withDel = node('\tshort();', { added: [], removed: [{ after: 10, lines: [`\t${long}`] }], plus: 0, minus: 1 })
   const without = node('\tshort();', { added: [], removed: [], plus: 0, minus: 0 })
   const width = n => Number(layout(n, new Set(), new Set(), null).nodes.find(x => x.type === 'card').style.width)
-  assert.equal(width(withDel), Math.round(60 * CHAR_W + 70))
+  assert.equal(width(withDel), Math.round(60 * CHAR_W + GUTTER_W + 18))
   assert.equal(width(without), 320)
 })
 
@@ -96,9 +96,46 @@ test('a card is as tall as its rows, removed ones included', () => {
   assert.equal(h, 44 + 3 * LINE_H + 12 + 32)
 })
 
-test('the review tour highlights removed lines, so a card that only lost lines has a mark', () => {
+test('a review does not turn removed rows into highlight ranges: no unchanged line is lit and added lines keep their slots', () => {
   const n = node('\tA();\n\tB();\n\tC();', { added: [], removed: [{ after: 11, lines: ['\tX();'] }], plus: 0, minus: 1 })
-  assert.deepEqual(tourFromChanges([n]).tour.steps[0].highlights, [[12, 12]])
+  assert.deepEqual(tourFromChanges([n]).tour.steps[0].highlights, [])
+  const many = node(Array.from({ length: 70 }, () => '\tA();').join('\n'), { added: [11, 12, 30, 50, 70], removed: [{ after: 10, lines: ['x'] }, { after: 40, lines: ['y'] }, { after: 60, lines: ['z'] }], plus: 5, minus: 3 })
+  assert.deepEqual(tourFromChanges([many]).tour.steps[0].highlights, [[11, 12], [30, 30], [50, 50]])
+  assert.deepEqual(rangesOf([30, 31, 50, 70, 11]), [[11, 11], [30, 31], [50, 50]])
   assert.equal(removedAt(12, 12), 12)
   assert.equal(removedAt(5, 12), 6)
+})
+
+const press = (key, mods = {}) => navKeyAction({ key, ctrlKey: false, altKey: false, metaKey: false, altGraph: false, ...mods })
+
+test('navigation keys: brackets, letter aliases, find on / and f', () => {
+  assert.deepEqual(['j', 'n', ']'].map(k => press(k)), ['next', 'next', 'next'])
+  assert.deepEqual(['k', 'p', '['].map(k => press(k)), ['prev', 'prev', 'prev'])
+  assert.deepEqual([press('v'), press('/'), press('f'), press('F')], ['viewed', 'find', 'find', 'find'])
+  assert.equal(press('x'), undefined)
+  assert.equal(press('ArrowRight'), undefined)
+})
+
+test('AltGr (Ctrl+Alt with the AltGraph state) types the brackets; a plain Ctrl or Alt shortcut does not', () => {
+  assert.equal(press(']', { ctrlKey: true, altKey: true, altGraph: true }), 'next')
+  assert.equal(press('[', { ctrlKey: true, altKey: true, altGraph: true }), 'prev')
+  assert.equal(press(']', { ctrlKey: true, altKey: true }), undefined)
+  assert.equal(press('j', { ctrlKey: true }), undefined)
+  assert.equal(press('j', { altKey: true }), undefined)
+  assert.equal(press('j', { metaKey: true }), undefined)
+})
+
+test('a viewed tick survives a reload only for the same card with the same diff', () => {
+  const before = new Map([['a', '{"plus":1}'], ['b', '{"plus":2}'], ['c', '{"plus":3}']])
+  const after = new Map([['a', '{"plus":1}'], ['b', '{"plus":5}'], ['d', '{"plus":3}']])
+  assert.deepEqual([...keepViewed(new Set(['a', 'b', 'c', 'd', 'x']), before, after)], ['a'])
+  assert.equal(keepViewed(new Set(['a']), new Map(), after).size, 0)
+})
+
+test('the change-set root wraps its summary and its card grows with the lines', () => {
+  const root = (sub) => ({ key: 'changes', label: '2 changes', sub, kind: 'external', file: null, startLine: 0, endLine: 0, code: null, children: [] })
+  const h = sub => Number(layout(root(sub), new Set(), new Set(), null).nodes.find(x => x.type === 'card').style.height)
+  assert.equal(h('short'), 44)
+  assert.equal(h('x'.repeat(100)), 44 + 2 * 14)
+  assert.equal(h('x'.repeat(400)), 44 + 2 * 14)
 })

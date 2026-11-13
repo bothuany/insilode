@@ -15,7 +15,7 @@ import { definitionInFile, notify, registerIde } from './ide'
 import { ActionsCtx, LANG_BY_EXT, nodeTypes, recolor, type CanvasActions, type Caret } from './nodes'
 import { cardAt, samePath } from './tour/cards'
 import { ChangesRail, FindBox } from './review/ChangesRail'
-import { cycle, findCards, groupByFile, nextUnviewed, stepKey, toggled } from './review/nav'
+import { cycle, findCards, groupByFile, keepViewed, navKeyAction, nextUnviewed, stepKey, toggled } from './review/nav'
 import { PointAsk, selectedLines, type Pointing } from './tour/PointAsk'
 import { SelectionBar, type Picked, type SelectionAction } from './tour/SelectionBar'
 import { useTourPlayer } from './tour/TourPlayer'
@@ -655,6 +655,17 @@ function Flow() {
   // Opening a flow lands at 100% on its root card, or on the first changed card of a change set.
   const changedRef = useRef(changed)
   changedRef.current = changed
+  // A new graph (a reload, a new change set) drops what no longer holds: a tick or the current card survives only when the same
+  // card has the same diff, and the find box closes (its index belongs to the old matches).
+  const seenDiffs = useRef(new Map<string, string>())
+  useEffect(() => {
+    const before = seenDiffs.current
+    const after = new Map(changedRef.current.map(n => [n.key, JSON.stringify(n.diff)]))
+    seenDiffs.current = after
+    setViewed(v => keepViewed(v, before, after))
+    setNavCurrent(c => (c !== null && before.has(c) && before.get(c) === after.get(c) ? c : null))
+    setFinding(null)
+  }, [down, up])
   useEffect(() => {
     if (!down) return
     const t = setTimeout(() => goTo((target.target.kind === 'changes' ? changedRef.current[0]?.key : undefined) ?? down.key, false), 50)
@@ -663,15 +674,20 @@ function Flow() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const s = navRef.current
-      if (!s.on || e.ctrlKey || e.altKey || e.metaKey || editingRef.current) return
+      const action = navKeyAction({ key: e.key, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey, altGraph: e.getModifierState('AltGraph') })
+      if (!s.on || !action || editingRef.current) return
       const t = e.target
       if (t instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable || t.closest('.monaco-editor'))) return
-      if (e.key === '/') setFinding({ query: '', index: 0 })
-      else if (e.key === ']' || e.key === '[') {
-        const k = stepKey(s.keys, s.current, e.key === ']' ? 1 : -1)
+      if (action === 'find') {
+        // An open box takes the focus back with its text selected, so typing replaces it.
+        const box = document.querySelector<HTMLInputElement>('.find input')
+        if (box) (box.focus(), box.select())
+        else setFinding({ query: '', index: 0 })
+      } else if (action === 'next' || action === 'prev') {
+        const k = stepKey(s.keys, s.current, action === 'next' ? 1 : -1)
         if (k === undefined) return
         goTo(k)
-      } else if (e.key === 'v') {
+      } else if (action === 'viewed') {
         if (!s.current || !s.keys.includes(s.current)) return
         setViewed(v => (v.has(s.current!) ? v : toggled(v, s.current!)))
         const k = nextUnviewed(s.keys, s.current, new Set(s.viewed).add(s.current))

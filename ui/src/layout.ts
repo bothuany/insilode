@@ -7,6 +7,20 @@ export const HEADER_H = 44
 export const CODE_PAD = 6
 /** One character of the 13px code font, measured (canvas measureText over 100 glyphs: JetBrains Mono and Courier-like fonts 7.8px, Consolas 7.15px). The widest, so a line is never cut. */
 export const CHAR_W = 7.8
+/** The line-number gutter (`.ln .gutter` in webview.css): the +/− sign, a gap, 5 digits of CHAR_W, 10px of padding. */
+export const GUTTER_W = 68
+/** A card is its widest line plus the gutter, the row's 10px padding and a little room. */
+const CODE_EXTRA_W = GUTTER_W + 18
+/** The change-set root card has no code: its sub line holds the summary and may wrap, up to this many lines of SUB_LINE_H, about SUB_CHARS characters each. */
+export const SUB_MAX_LINES = 3
+export const SUB_LINE_H = 14
+const SUB_CHARS = 40
+export const isChangeRoot = (node: FlowNode) => node.key === 'changes' && !node.code
+export function subLines(node: FlowNode) {
+  return isChangeRoot(node) ? Math.min(SUB_MAX_LINES, Math.max(1, Math.ceil((node.sub?.length ?? 0) / SUB_CHARS))) : 1
+}
+/** The header's height: the change-set root's grows with the lines of its summary. */
+export const headerH = (node: FlowNode) => HEADER_H + (subLines(node) - 1) * SUB_LINE_H
 const PAD = 16
 const GAP = 90
 const VGAP = 18
@@ -149,11 +163,11 @@ function schemaSize(node: FlowNode) {
 
 function cardSize(lines: CodeLine[], rows: Row[], editing = false, review = false, node?: FlowNode, chipsH = 0) {
   if (node?.schema) return schemaSize(node)
-  if (!lines.length) return { w: 260, h: HEADER_H }
+  if (!lines.length) return node && isChangeRoot(node) ? { w: 340, h: headerH(node) } : { w: 260, h: HEADER_H }
   // Removed rows count too: a long one must not be cut at the card's edge.
   const longest = Math.max(...lines.map(l => l.text.length), ...rows.map(r => ('del' in r ? r.del.length : 0)))
   return {
-    w: editing ? Math.min(editMaxW, Math.max(560, longest * CHAR_W + 70)) : Math.min(720, Math.max(320, longest * CHAR_W + 70)),
+    w: editing ? Math.min(editMaxW, Math.max(560, longest * CHAR_W + CODE_EXTRA_W)) : Math.min(720, Math.max(320, longest * CHAR_W + CODE_EXTRA_W)),
     h: HEADER_H + chipsH + (editing ? lines.length : rows.length) * LINE_H + CODE_PAD * 2 + (editing ? EDIT_EXTRA : review ? REVIEW_H : 0),
   }
 }

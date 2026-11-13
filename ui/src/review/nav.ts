@@ -90,10 +90,30 @@ export function findCards<T extends { key: string; label: string }>(cards: reado
 /** Index of the next (1) or previous (-1) of `length` matches, wrapping. */
 export const cycle = (length: number, index: number, dir: 1 | -1) => (length ? (index + dir + length) % length : 0)
 
-/** What the keys below do; the rail's header and the key list in tour/legend.ts say the same words. */
+/** A copy of `viewed` with the ticks of cards that are the same after a reload: same key and same diff (`before` and `after` map a changed card's key to its diff, as text). A card changed again is a new look. */
+export function keepViewed(viewed: ReadonlySet<string>, before: ReadonlyMap<string, string>, after: ReadonlyMap<string, string>): Set<string> {
+  return new Set([...viewed].filter(k => before.has(k) && before.get(k) === after.get(k)))
+}
+
+export type NavAction = 'next' | 'prev' | 'viewed' | 'find'
+
+/** What each key does. The letters need no AltGr, so every layout can type them; `]`, `[` and `/` are kept for those who can. */
+const NAV_BINDINGS: Record<string, NavAction> = { ']': 'next', j: 'next', n: 'next', '[': 'prev', k: 'prev', p: 'prev', v: 'viewed', '/': 'find', f: 'find' }
+
+/**
+ * The action of a key press, or nothing. Ctrl and Alt are shortcuts, except as AltGr: Chromium on Windows reports AltGr as Ctrl+Alt
+ * (`altGraph` is `getModifierState('AltGraph')`), and `[` and `]` are typed with it on Turkish Q, German and French keyboards.
+ * Shift never blocks a key: `/` is Shift+7 on Turkish Q.
+ */
+export function navKeyAction(e: { key: string; ctrlKey: boolean; altKey: boolean; metaKey: boolean; altGraph: boolean }): NavAction | undefined {
+  if (e.metaKey || ((e.ctrlKey || e.altKey) && !e.altGraph)) return undefined
+  return NAV_BINDINGS[e.key.length === 1 ? e.key.toLowerCase() : e.key]
+}
+
+/** What the keys do; the rail lists the letters (every layout can type them) and the tooltips name the bracket keys. */
 export const NAV_KEYS = [
-  { keys: ']', short: 'next', label: 'Next change' },
-  { keys: '[', short: 'prev', label: 'Previous change' },
+  { keys: 'j', short: 'next', label: 'Next change (also n and ])' },
+  { keys: 'k', short: 'prev', label: 'Previous change (also p and [)' },
   { keys: 'v', short: 'viewed', label: 'Mark viewed, go to the next' },
-  { keys: '/', short: 'find', label: 'Find a card' },
+  { keys: 'f', short: 'find', label: 'Find a card (also /)' },
 ] as const
