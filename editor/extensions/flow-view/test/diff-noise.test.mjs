@@ -156,6 +156,15 @@ test('realHunks: a comment-only change in a JS or TS file is kept', () => {
 	assert.equal(real('a.ts', a, a + '\n\n').length, 0, 'blank lines')
 })
 
+test('realHunks: blank lines and trailing whitespace inside a template literal are real changes', () => {
+	const sql = text('const q = `', 'select 1', 'from t', '`;')
+	assert.equal(real('a.ts', sql, sql.replace('select 1\n', 'select 1\n\n')).length, 1, 'blank line in the string')
+	assert.equal(real('a.ts', sql, sql.replace('select 1', 'select 1  ')).length, 1, 'trailing whitespace in the string')
+	assert.equal(real('a.mts', sql, sql.replace('select 1', 'select 1  ')).length, 1, 'mts is in the family')
+	const plain = text('const x = 1;', 'const y = 2;')
+	assert.equal(real('a.ts', plain, plain.replace('x = 1;', 'x = 1;  ')).length, 0, 'no backtick: trailing whitespace is still noise')
+})
+
 test('realHunks: JSX text and regex literals that look like comments are real changes', () => {
 	const one = (file, from, to) => assert.equal(real(file, text(from), text(to)).length, 1, file)
 	one('a.tsx', '<Btn label="C:\\" hint="//" onClick={save} / >', '<Btn label="C:\\" hint="//" onClick={deleteAll} / >')

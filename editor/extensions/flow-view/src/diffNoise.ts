@@ -42,6 +42,8 @@ const LANGS: Record<string, Lang> = {
 	py: { line: '#', triple: ['"""', "'''"], escapes: true },
 };
 
+const JS_FAMILY = /^(?:[cm]?[jt]sx?)$/;
+
 const extOf = (file: string) => /\.([A-Za-z0-9]+)$/.exec(file)?.[1].toLowerCase() ?? '';
 
 /** The text without its comments, line for line, and the lines that hold (part of) a string literal. */
@@ -205,6 +207,11 @@ export function realHunks<H extends HunkRange>(file: string, base: string, now: 
 		return hunks;
 	}
 	const ext = extOf(file);
+	// Blank lines and trailing whitespace inside a multi-line template literal are part of the string, and without a scanner
+	// the JavaScript family cannot tell where one is, so a file with a backtick keeps every hunk.
+	if (JS_FAMILY.test(ext) && (base.includes('`') || now.includes('`'))) {
+		return hunks;
+	}
 	const a = stripComments(base, ext);
 	const b = stripComments(now, ext);
 	if (!a || !b) {
