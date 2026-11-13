@@ -48,7 +48,7 @@ test('every changed file is a test: nothing is opened, and the message names flo
 })
 
 test('every changed file is a comment: nothing is opened, and the message says so', async () => {
-	const r = await run([row('/w/src/a.ts', 'one()\n', 'one() // why\n')])
+	const r = await run([row('/w/src/A.java', 'one()\n', 'one() // why\n')])
 	assert.deepEqual([r.ok, r.opened, r.calls], [false, false, []])
 	assert.match(r.message, /1 comment-only or whitespace-only file/)
 })

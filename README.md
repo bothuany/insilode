@@ -35,7 +35,7 @@ Pick an endpoint and watch the chain it runs, card by card: controller → handl
 
 ## Review what an agent changed, on the flow
 
-Ask the agent to "show what you did in flow", or run **Show Git Changes in Flow**. One canvas holds the whole change set: every endpoint the changed code reaches, cut down to the changed methods, added lines in green and removed lines in red. Compare against your uncommitted work, the whole branch since `main`, or the last commit. Test files and changes to comments or whitespace are left out, and the root card says how many files were hidden. A **Changes** rail lists the changed methods by file with their `+` and `−` counts; `j` and `k` step through them, `v` marks one viewed, and `f` finds a card by name. After each prompt, the Agents dock lists the flows that turn touched.
+Ask the agent to "show what you did in flow", or run **Show Git Changes in Flow**. One canvas holds the whole change set: every endpoint the changed code reaches, cut down to the changed methods, added lines in green and removed lines in red. Compare against your uncommitted work, the whole branch since `main`, or the last commit. Test files and whitespace-only changes are left out, and so are comment-only changes in Java, Kotlin, C#, Go and Python (JavaScript and TypeScript need a parser to tell a comment from JSX text or a regex, so for now only their whitespace changes go); the root card says how many files were hidden. A **Changes** rail lists the changed methods by file with their `+` and `−` counts; `j` and `k` step through them, `v` marks one viewed, and `f` finds a card by name. After each prompt, the Agents dock lists the flows that turn touched.
 
 ## Run agents side by side, and know when they need you
 

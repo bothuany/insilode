@@ -16,15 +16,17 @@ export const isTestPath = (file: string): boolean => TEST_DIR.test('/' + file.re
 
 // ── comments ────────────────────────────────────────────────────────────────
 
+// JavaScript and TypeScript (js, jsx, ts, tsx) are left out on purpose: a `//` there may be JSX text (`{home} // {page.title}`),
+// and a `/` may open a regular expression (`if (ok) /[//]/.test(s)`), and only a parser tells those from a comment. A scanner
+// that guesses hides real changes, so those files are read like an unknown language: only whitespace-only changes are noise.
+
 interface Lang {
 	line: '//' | '#';
 	block?: boolean;
 	/** Kotlin nests block comments. */
 	nest?: boolean;
-	/** A backtick opens a JS template literal (`${}` holds code) or a Go raw string. */
-	backtick?: 'template' | 'raw';
-	/** JS: a `/` where an expression starts opens a regular expression, which may hold quotes or `//`. */
-	regex?: boolean;
+	/** Go: a backtick opens a raw string. */
+	backtick?: boolean;
 	/** Triple-quoted strings, and whether a backslash escapes inside them. */
 	triple?: string[];
 	escapes?: boolean;
@@ -32,30 +34,26 @@ interface Lang {
 	verbatim?: boolean;
 }
 
-const JS: Lang = { line: '//', block: true, backtick: 'template', regex: true };
 const LANGS: Record<string, Lang> = {
 	java: { line: '//', block: true, triple: ['"""'], escapes: true },
 	kt: { line: '//', block: true, nest: true, triple: ['"""'] },
 	cs: { line: '//', block: true, triple: ['"""'], verbatim: true },
-	go: { line: '//', block: true, backtick: 'raw' },
-	js: JS, jsx: JS, ts: JS, tsx: JS,
+	go: { line: '//', block: true, backtick: true },
 	py: { line: '#', triple: ['"""', "'''"], escapes: true },
 };
 
 const extOf = (file: string) => /\.([A-Za-z0-9]+)$/.exec(file)?.[1].toLowerCase() ?? '';
 
-/** The text without its comments, line for line, and the lines that hold (part of) a string or regex literal. */
+/** The text without its comments, line for line, and the lines that hold (part of) a string literal. */
 export interface Stripped {
 	text: string;
 	literal: Set<number>;
 }
 
-const AFTER_KEYWORD = /(?:^|[^\w$])(?:return|typeof|case|in|of|delete|void|throw|new|else|do|yield|await)\s*$/;
-
 /**
  * Removes comments with a scanner that knows the language's string literals (so `"http://x"` is no comment) and keeps every
  * newline, so line numbers stay those of the original. A block comment becomes one space. Undefined when the scanner is not
- * sure (an unterminated literal, an unclosed comment, JSX): the caller then treats nothing as noise. A language it does not know
+ * sure (an unterminated literal, an unclosed comment): the caller then treats nothing as noise. A language it does not know
  * is returned as it is.
  */
 export function stripComments(text: string, ext: string): Stripped | undefined {
@@ -64,14 +62,8 @@ export function stripComments(text: string, ext: string): Stripped | undefined {
 	if (!lang) {
 		return { text, literal };
 	}
-	// JSX text is not a string literal and cannot be told from code without a parser: `{home} // {page.title}` is content, not a
-	// comment. A file with a JSX marker is never understood here, so none of its hunks is hidden.
-	if ((ext === 'js' || ext === 'jsx' || ext === 'ts' || ext === 'tsx') && /<\/|\/>/.test(text)) {
-		return undefined;
-	}
 	const n = text.length;
 	const out: string[] = [];
-	const templates: number[] = []; // per open `${`: how many `{` are open inside it
 	let i = 0;
 	let line = 0;
 	/** Copies text[i..j) as it is; the lines a literal spans are marked. */
@@ -83,26 +75,6 @@ export function stripComments(text: string, ext: string): Stripped | undefined {
 		}
 		out.push(text.slice(i, j));
 		i = j;
-	};
-	/** A template literal whose body starts at `from`: up to its closing backtick, or the `${` that opens code. */
-	const template = (from: number): boolean => {
-		let j = from;
-		while (j < n && text[j] !== '`') {
-			if (text[j] === '\\') {
-				j += 2;
-			} else if (text[j] === '$' && text[j + 1] === '{') {
-				copy(j + 2);
-				templates.push(0);
-				return true;
-			} else {
-				j++;
-			}
-		}
-		if (j >= n) {
-			return false;
-		}
-		copy(j + 1);
-		return true;
 	};
 	while (i < n) {
 		const c = text[i];
@@ -145,15 +117,11 @@ export function stripComments(text: string, ext: string): Stripped | undefined {
 		if (c === '"' || c === "'" || (c === '`' && lang.backtick)) {
 			literal.add(line);
 			if (c === '`') {
-				if (lang.backtick === 'raw') {
-					const j = text.indexOf('`', i + 1);
-					if (j < 0) {
-						return undefined;
-					}
-					copy(j + 1);
-				} else if (!template(i + 1)) {
+				const j = text.indexOf('`', i + 1);
+				if (j < 0) {
 					return undefined;
 				}
+				copy(j + 1);
 				continue;
 			}
 			const verbatim = lang.verbatim && c === '"' && (text[i - 1] === '@' || (text[i - 1] === '$' && text[i - 2] === '@'));
@@ -191,50 +159,10 @@ export function stripComments(text: string, ext: string): Stripped | undefined {
 			copy(j + 1);
 			continue;
 		}
-		if (lang.regex && c === '/') {
-			const before = text.slice(Math.max(0, i - 16), i).replace(/\s+$/, '');
-			if (!before || '(,=:[!&|?{};+-*%<>~^'.includes(before[before.length - 1]) || AFTER_KEYWORD.test(before)) {
-				let j = i + 1;
-				let inClass = false;
-				while (j < n && (inClass || text[j] !== '/')) {
-					if (text[j] === '\n') {
-						return undefined;
-					}
-					if (text[j] === '\\') {
-						j++;
-					} else if (text[j] === '[') {
-						inClass = true;
-					} else if (text[j] === ']') {
-						inClass = false;
-					}
-					j++;
-				}
-				if (j >= n) {
-					return undefined;
-				}
-				literal.add(line);
-				copy(j + 1);
-				continue;
-			}
-		}
-		if (templates.length && (c === '{' || c === '}')) {
-			if (c === '{') {
-				templates[templates.length - 1]++;
-			} else if (templates[templates.length - 1] === 0) {
-				templates.pop();
-				literal.add(line);
-				if (!template(i + 1)) {
-					return undefined;
-				}
-				continue;
-			} else {
-				templates[templates.length - 1]--;
-			}
-		}
 		out.push(c);
 		i++;
 	}
-	return templates.length ? undefined : { text: out.join(''), literal };
+	return { text: out.join(''), literal };
 }
 
 // ── noise hunks ─────────────────────────────────────────────────────────────

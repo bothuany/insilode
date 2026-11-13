@@ -10,7 +10,7 @@ import * as vscode from 'vscode';
 import { buildRows } from './agentRows';
 import type { Agents } from './agents';
 import type { PeerProject, RecentProject } from './agentsData';
-import { isKey, mustRepublish, publishedAfter, readProjects, slimRow, takeRequests, writeJson, writeRequest, type PeerFound, type RecentFound } from './peersCore';
+import { isKey, mustRepublish, publishedAfter, readProjects, serial, slimRow, takeRequests, writeJson, writeRequest, type PeerFound, type RecentFound } from './peersCore';
 import type { WorktreeRows } from './worktreeActions';
 
 const POLL_MS = 5000;
@@ -76,7 +76,10 @@ export class Peers implements vscode.Disposable {
 		this.publishTimer = setTimeout(() => void this.publish(), 400);
 	}
 
-	private async publish() {
+	/** One write at a time (see `serial`); `void this.publish()` stays the way to ask for one. */
+	private readonly publish = serial(() => this.write());
+
+	private async write() {
 		const rows = buildRows(this.agents, this.worktrees, new Map(), []).map(slimRow);
 		const body = JSON.stringify(rows);
 		if (body === this.published || this.disposed) {

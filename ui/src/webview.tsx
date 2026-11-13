@@ -665,10 +665,13 @@ function Flow() {
     seenDiffs.current = after
     setViewed(v => keepViewed(v, before, after))
     setNavCurrent(c => (c !== null && before.has(c) && before.get(c) === after.get(c) ? c : null))
-    const cardsBefore = seenCards.current
-    seenCards.current = new Set(cardNames.map(c => c.key))
-    setFinding(f => findAfterReload(f, cardsBefore, cardNames))
+    setFinding(f => findAfterReload(f, seenCards.current, cardNames))
   }, [down, up]) // eslint-disable-line react-hooks/exhaustive-deps
+  // The cards drawn are recorded whenever they change, for any reason (a reload, an expanded or folded card, callers shown): the
+  // comparison above is then against what the user was looking at. It runs after the reload effect, which reads the previous set.
+  useEffect(() => {
+    seenCards.current = new Set(cardNames.map(c => c.key))
+  }, [cardNames])
   useEffect(() => {
     if (!down) return
     const t = setTimeout(() => goTo((target.target.kind === 'changes' ? changedRef.current[0]?.key : undefined) ?? down.key, false), 50)

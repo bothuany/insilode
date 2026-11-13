@@ -196,6 +196,30 @@ export async function needsRepublish(file: string, pid = process.pid, alive: (pi
 /** The body this window remembers as published after a write: none when it failed, or the file keeps the previous state and nothing would ever retry. */
 export const publishedAfter = (body: string, written: boolean): string => (written ? body : '');
 
+/**
+ * `run` one at a time. A request that comes while it is in flight only marks "once more when this one is done", however many
+ * come, and the follow-up reads the then-current state: two writes never overlap, so an older one cannot land after a newer one.
+ */
+export function serial(run: () => Promise<void>): () => Promise<void> {
+	let running: Promise<void> | undefined;
+	let again = false;
+	return () => {
+		if (running) {
+			again = true;
+			return running;
+		}
+		running = (async () => {
+			do {
+				again = false;
+				await run();
+			} while (again);
+		})().finally(() => {
+			running = undefined;
+		});
+		return running;
+	};
+}
+
 /** Whether the poll has to publish: nothing is remembered as published (the last write failed), or the file on disk is not ours any more. */
 export const mustRepublish = async (published: string, file: string, pid = process.pid, alive: (pid: number) => boolean = pidAlive): Promise<boolean> =>
 	!published || needsRepublish(file, pid, alive);

@@ -227,3 +227,31 @@ test('a write that failed is published again by the next poll, even though the f
 	assert.equal(published, '', 'a failed write remembers nothing')
 	assert.equal(await p.mustRepublish(published, file), true, 'the stale file is replaced by the next poll')
 })
+
+test('serial: writes never overlap, requests made meanwhile collapse into one follow-up that sees the latest state', async () => {
+	let state = 'v1'
+	let active = 0
+	const written = []
+	const gates = []
+	const publish = p.serial(async () => {
+		const body = state
+		active++
+		assert.equal(active, 1, 'one write at a time')
+		await new Promise(r => gates.push(r))
+		written.push(body)
+		active--
+	})
+	const first = publish()
+	state = 'v2'
+	const second = publish()
+	state = 'v3'
+	const third = publish()
+	await new Promise(r => setImmediate(r))
+	assert.equal(gates.length, 1, 'the follow-up waits for the first write')
+	gates.shift()()
+	await new Promise(r => setImmediate(r))
+	assert.equal(gates.length, 1)
+	gates.shift()()
+	await Promise.all([first, second, third])
+	assert.deepEqual(written, ['v1', 'v3'], 'the last write holds the newest state, and v2 was never written')
+})

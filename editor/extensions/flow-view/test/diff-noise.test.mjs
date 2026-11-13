@@ -49,26 +49,23 @@ test('isTestPath: ordinary names are not tests', () => {
 const strip = (ext, src) => n.stripComments(src, ext)?.text
 
 test('stripComments: C-style languages drop // and /* */ but keep the line count', () => {
-	for (const ext of ['java', 'kt', 'cs', 'go', 'ts', 'js']) {
+	for (const ext of ['java', 'kt', 'cs', 'go']) {
 		assert.equal(strip(ext, 'a(); // x\n/* one\ntwo */ b();\n'), 'a(); \n\n  b();\n', ext)
 	}
 })
 
 test('stripComments: a comment marker inside a string is not a comment', () => {
-	for (const ext of ['java', 'kt', 'cs', 'go', 'ts']) {
+	for (const ext of ['java', 'kt', 'cs', 'go']) {
 		const src = 'u = "http://x"; // real\nv = \'/*\' + "*/";\n'
 		assert.equal(strip(ext, src), 'u = "http://x"; \nv = \'/*\' + "*/";\n', ext)
 	}
 })
 
-test('stripComments: text blocks, verbatim, raw and template strings are strings', () => {
+test('stripComments: text blocks, verbatim and raw strings are strings', () => {
 	assert.equal(strip('java', 's = """\n// not\n""";\n'), 's = """\n// not\n""";\n')
 	assert.equal(strip('kt', 's = """\n// not\n"""\n'), 's = """\n// not\n"""\n')
 	assert.equal(strip('cs', 's = @"C:\\x\\// not "" still";// gone\n'), 's = @"C:\\x\\// not "" still";\n')
 	assert.equal(strip('go', 's := `// not\n/* nor */`; // gone\n'), 's := `// not\n/* nor */`; \n')
-	assert.equal(strip('ts', 's = `a // ${ `b // ${x}` } // c`; // gone\n'), 's = `a // ${ `b // ${x}` } // c`; \n')
-	assert.equal(strip('ts', 'r = /"\\/\\//.test(s); // gone\n'), 'r = /"\\/\\//.test(s); \n')
-	assert.equal(strip('ts', 'q = a / b; // gone\n'), 'q = a / b; \n')
 })
 
 test('stripComments: Python has # comments and a docstring is a string', () => {
@@ -77,7 +74,7 @@ test('stripComments: Python has # comments and a docstring is a string', () => {
 })
 
 test('stripComments: unsure is undefined, an unknown language is untouched', () => {
-	assert.equal(strip('ts', 'a = <p>don\'t</p>\n'), undefined)
+	assert.equal(strip('java', 'a = \'it\n'), undefined)
 	assert.equal(strip('java', '/* never closed\n'), undefined)
 	assert.equal(strip('cs', 'a = """"x"""";\n'), undefined)
 	assert.equal(strip('rb', 'a # b\n'), 'a # b\n')
@@ -148,32 +145,22 @@ test('Keep and Undo work on the unfiltered hunks', () => {
 	assert.equal(k.revertHunks(note, k.hunksBetween(base, note)), base)
 })
 
-test('realHunks: a URL in JSX text is no comment, so its change is kept', () => {
-	const a = 'const A = () => <p>See http://a.com</p>\n'
-	assert.equal(real('a.tsx', a, a.replace('a.com', 'b.com')).length, 1)
-	const t = text('const A = () => (', '  <p>a // b</p>', ')')
-	assert.equal(real('a.jsx', t, t.replace('a //', 'c //')).length, 1, 'text with //')
-	const m = text('const A = () => (', '  <p>', '    // not a comment', '  </p>', ')')
-	assert.equal(real('a.tsx', m, m.replace('not', 'now')).length, 1, 'a text line that starts with //')
-	const h = text('const A = () => <a href="http://x">k</a>')
-	assert.equal(real('a.tsx', h, h.replace('http://x', 'http://y')).length, 1, 'a string')
-})
-
-test('realHunks: a file with any JSX keeps every hunk, comment-only ones too', () => {
-	const a = text('const x = 1;', '// note', 'const A = () => <br />;', 'const B = () => [', '  {/* why */}', '  <br />,', '];')
-	assert.equal(real('a.tsx', a, a.replace('// note', '// other note')).length, 1, 'comment line')
-	assert.equal(real('a.tsx', a, a.replace('x = 1;', 'x = 1; // c')).length, 1, 'after a statement')
-	assert.equal(real('a.tsx', a, a.replace('{/* why */}', '{/* because */}')).length, 1, 'jsx comment')
-	// A `//` after a `}` in JSX text is content: the closing tag on another line must not make it a comment.
-	const j = text('const A = () => (', '  <p>', '    {home} // {page.title}', '  </p> // end', ')')
-	assert.equal(real('a.tsx', j, j.replace('page.title', 'page.secret')).length, 1, 'JSX text after a }')
-})
-
-test('realHunks: a comment-only change in a JS or TS file without JSX is still noise', () => {
+// JavaScript and TypeScript have no comment scanner: telling a comment from JSX text or a regex literal needs a parser, so their
+// hunks are kept unless they are whitespace-only.
+test('realHunks: a comment-only change in a JS or TS file is kept', () => {
 	const a = text('const x = 1;', '// note', 'const y = 2; // c', 'const z = a < b;')
-	assert.equal(real('a.ts', a, a.replace('// note', '// other note')).length, 0, 'comment line')
-	assert.equal(real('a.ts', a, a.replace('// c', '// d')).length, 0, 'after a statement')
-	assert.equal(real('a.js', a, a.replace('y = 2', 'y = 3')).length, 1, 'code still counts')
+	assert.equal(real('a.ts', a, a.replace('// note', '// other note')).length, 1, 'comment line')
+	assert.equal(real('a.js', a, a.replace('// c', '// d')).length, 1, 'after a statement')
+	assert.equal(real('a.ts', a, a.replace('y = 2', 'y = 3')).length, 1, 'code still counts')
+	assert.equal(real('a.ts', a, a.replace('a < b;', 'a < b;   ')).length, 0, 'trailing whitespace')
+	assert.equal(real('a.ts', a, a + '\n\n').length, 0, 'blank lines')
+})
+
+test('realHunks: JSX text and regex literals that look like comments are real changes', () => {
+	const one = (file, from, to) => assert.equal(real(file, text(from), text(to)).length, 1, file)
+	one('a.tsx', '<Btn label="C:\\" hint="//" onClick={save} / >', '<Btn label="C:\\" hint="//" onClick={deleteAll} / >')
+	one('a.jsx', '<p>{home} // {page.title}< /p>', '<p>{home} // {user.password}< /p>')
+	one('a.ts', 'if (ok) /[//]/.test(s) && save()', 'if (ok) /[//]/.test(s) && wipe()')
 })
 
 test('realHunks: for an unknown language indentation is content, trailing whitespace is not', () => {
