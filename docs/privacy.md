@@ -8,6 +8,7 @@ Insilode is a code editor that runs on your computer, and its website, insilode.
 
 - **No telemetry.** Insilode ships without the keys VS Code uses to report usage and crashes, so it sends no usage data, no crash reports and no experiment requests. You can check: `product.json` in the app folder has no `aiConfig` or `crashReporter` entry.
 - **Your code stays on your machine.** The call-flow index, boards and harness scan are built locally. The MCP server and its bridge listen on `127.0.0.1` only and need a random token (see [SECURITY.md](../SECURITY.md)). Insilode keeps its data in `~/.insilode` (settings, caches, the bridge files, backups made by Import from VS Code).
+- **Agents across windows.** So the Agents page can list your other Insilode windows, each window writes two small files, `rows.json` and `project.json`, to the extension's global storage folder on your computer: session names and states, the activity line, todos, the first 120 characters of the prompt, token and cost totals, the PR number and title, and the project folder. Nothing is sent anywhere, and no transcript path, token or port is written.
 - **Import from VS Code** reads your VS Code or Cursor user folder on your computer and writes into Insilode's. Nothing is uploaded. Before it changes a file it copies it to `User/import-backups/`.
 - **Connections the app makes:**
   - **Updates:** it asks `github.com/bothuany/insilode/releases` for the latest release. GitHub sees the request as it sees any download. Set `update.mode` to `none` to stop it.
