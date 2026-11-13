@@ -6,6 +6,8 @@
 import * as vscode from 'vscode';
 import type { Analyzer, EntryPoint } from './analyzer';
 import type { PolyIndex } from './poly/client';
+import { excludePatterns, workspaceRoots } from './excludeSetting';
+import { excluder } from './poly/userExclude';
 
 /** Which backend draws an entry's flow. */
 export type Source = 'roslyn' | 'poly';
@@ -59,10 +61,23 @@ export class Endpoints implements vscode.Disposable {
 
 	/** What is known now, without asking any backend: cheap enough for every change event. */
 	cached(): Entry[] {
-		return [
+		return this.visible([
 			...this.analyzer.cachedEntryPoints().map(e => ({ ...e, source: 'roslyn' as const })),
 			...this.poly.cachedEntryPoints().map(e => ({ ...e, source: 'poly' as const })),
-		];
+		]);
+	}
+
+	/** The solution the analyzer loaded and how many the workspace holds; undefined while none is loaded. */
+	async solutionInfo(): Promise<{ file: string; total: number } | undefined> {
+		const file = this.analyzer.loadedSolution();
+		return file ? { file, total: await this.analyzer.solutionCount() } : undefined;
+	}
+
+	/** Without the entries under a folder `flow.exclude` names: the Roslyn analyzer loads a whole solution and cannot skip them itself. */
+	private visible(list: Entry[]): Entry[] {
+		const drop = excluder(excludePatterns());
+		const roots = workspaceRoots();
+		return list.filter(e => !drop(e.file, roots));
 	}
 
 	/**
@@ -85,7 +100,7 @@ export class Endpoints implements vscode.Disposable {
 			}
 		};
 		const [r, poly] = await Promise.all([roslyn(), this.poly.entryPoints().catch(() => this.poly.cachedEntryPoints())]);
-		return [...r.map(e => ({ ...e, source: 'roslyn' as const })), ...poly.map(e => ({ ...e, source: 'poly' as const }))];
+		return this.visible([...r.map(e => ({ ...e, source: 'roslyn' as const })), ...poly.map(e => ({ ...e, source: 'poly' as const }))]);
 	}
 
 	dispose() {

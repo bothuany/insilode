@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { ROOT } from './helpers.mjs'
+import { Index, ROOT } from './helpers.mjs'
 
 const BS = String.fromCharCode(92)
 let isExcludedPath
@@ -84,4 +84,110 @@ test("Insilode's agent worktrees are never indexed: each is a second copy of the
 	const root = project('wt', '.insilode/worktrees/claude-aae3/web/src/api.js', 'web/src/api.js')
 	assert.equal(isExcludedPath(join(root, '.insilode', 'worktrees', 'claude-aae3', 'web', 'src', 'api.js'), root), true)
 	assert.equal(isExcludedPath(join(root, 'web', 'src', 'api.js'), root), false)
+})
+
+// flow.exclude: the folders the user leaves out, tracked by git or not (src/poly/userExclude.ts).
+let user
+let grouping
+before(async () => {
+	const out = join(tmp, 'user.mjs')
+	await build({ entryPoints: [join(ROOT, 'src', 'poly', 'userExclude.ts')], bundle: true, platform: 'node', format: 'esm', outfile: out, logLevel: 'silent' })
+	user = await import(pathToFileURL(out).href)
+	const g = join(tmp, 'grouping.mjs')
+	await build({ entryPoints: [join(ROOT, 'src', 'grouping.ts')], bundle: true, platform: 'node', format: 'esm', outfile: g, logLevel: 'silent' })
+	grouping = await import(pathToFileURL(g).href)
+})
+
+test('flow.exclude: a folder relative to the workspace folder, with either slash, never a sibling that only shares its prefix', () => {
+	const root = join(tmp, 'ws')
+	const inside = (...p) => join(root, ...p)
+	for (const pattern of ['legacy', 'legacy/', './legacy', '/legacy', 'legacy' + BS]) {
+		const ex = user.excluder([pattern])
+		assert.equal(ex(inside('legacy', 'A.java'), [root]), true, pattern)
+		assert.equal(ex(inside('legacy', 'deep', 'B.java'), [root]), true, `${pattern} deep`)
+		assert.equal(ex(inside('legacy-tools', 'C.java'), [root]), false, `${pattern}: legacy-tools`)
+		assert.equal(ex(inside('app', 'legacy', 'D.java'), [root]), false, `${pattern}: only at the top`)
+	}
+	const nested = user.excluder(['services' + BS + 'old', 'services/older/'])
+	assert.equal(nested(inside('services', 'old', 'x.java'), [root]), true)
+	assert.equal(nested(inside('services', 'older', 'x.java'), [root]), true)
+	assert.equal(nested(inside('services', 'new', 'x.java'), [root]), false)
+	assert.equal(nested(inside('services', 'oldest', 'x.java'), [root]), false)
+	assert.equal(nested(`${root.replaceAll(BS, '/')}/services/old/x.java`, [root]), true, 'a path with forward slashes')
+	if (process.platform === 'win32') {
+		assert.equal(nested(`${root}${BS}services${BS}old${BS}x.java`, [root]), true, 'a path with backslashes')
+	}
+})
+
+test('flow.exclude: globs', () => {
+	const root = join(tmp, 'ws')
+	const ex = user.excluder(['**/legacy/**', 'apps/*/generated', 'tmp?'])
+	assert.equal(ex(join(root, 'legacy', 'A.java'), [root]), true)
+	assert.equal(ex(join(root, 'a', 'b', 'legacy', 'A.java'), [root]), true)
+	assert.equal(ex(join(root, 'a', 'legacy'), [root]), true, 'the folder itself, so the walk skips it')
+	assert.equal(ex(join(root, 'a', 'legacy-tools', 'A.java'), [root]), false)
+	assert.equal(ex(join(root, 'apps', 'web', 'generated', 'x.ts'), [root]), true)
+	assert.equal(ex(join(root, 'apps', 'web', 'src', 'x.ts'), [root]), false)
+	assert.equal(ex(join(root, 'tmp1', 'x.ts'), [root]), true)
+	assert.equal(ex(join(root, 'tmp12', 'x.ts'), [root]), false)
+	assert.equal(user.excluder([])(join(root, 'a.ts'), [root]), false)
+	assert.equal(ex(join(tmp, 'elsewhere', 'legacy', 'a.ts'), [root]), false, 'outside every root')
+})
+
+test('flow.exclude: the Exclude button only names a folder inside a workspace folder', () => {
+	const root = join(tmp, 'ws')
+	assert.equal(user.excludablePattern(join(root, 'services', 'old'), [root]), 'services/old')
+	assert.equal(user.excludablePattern(root, [root]), undefined, 'the workspace folder itself')
+	assert.equal(user.excludablePattern(join(root, '..', 'other'), [root]), undefined)
+	assert.equal(user.excludablePattern(join(tmp, 'elsewhere'), [root]), undefined)
+	assert.deepEqual(user.withPattern(['a'], 'b'), ['a', 'b'])
+	assert.equal(user.withPattern(['b/'], 'b'), undefined, 'already there')
+})
+
+test('the index skips a folder git tracks when flow.exclude names it, and takes it back when it does not', async () => {
+	const root = project('tracked', 'keep/Keep.java', 'legacy/Old.java', 'legacy-tools/Tools.java')
+	const src = c => `@RestController class ${c} { @GetMapping("/${c}") String get() { return ""; } }`
+	writeFileSync(join(root, 'keep', 'Keep.java'), src('Keep'))
+	writeFileSync(join(root, 'legacy', 'Old.java'), src('Old'))
+	writeFileSync(join(root, 'legacy-tools', 'Tools.java'), src('Tools'))
+	const controllers = async exclude => {
+		const index = new Index(root, exclude)
+		try {
+			await index.ready
+			return (await index.request('entries')).map(e => e.controller).sort()
+		} finally {
+			await index.close()
+		}
+	}
+	assert.deepEqual(await controllers([]), ['Keep', 'Old', 'Tools'])
+	assert.deepEqual(await controllers(['legacy']), ['Keep', 'Tools'], 'legacy goes, legacy-tools stays')
+	assert.deepEqual(await controllers(['**/legacy/**']), ['Keep', 'Tools'])
+})
+
+test('grouping: a submodule with a .git file, a nested repository, a plain folder, and a single group', () => {
+	const root = join(tmp, 'super')
+	const exists = p => [join(root, 'sub-a', '.git'), join(root, 'plain', 'inner', '.git')].includes(p)
+	const resolve = grouping.repoResolver([root], exists)
+	assert.equal(resolve(join(root, 'sub-a', 'src', 'A.java')).name, 'sub-a', 'a submodule: .git is a file')
+	assert.equal(resolve(join(root, 'sub-a', 'src', 'A.java')).rel, 'sub-a')
+	assert.equal(resolve(join(root, 'plain', 'inner', 'x', 'B.cs')).rel, 'plain/inner', 'a nested repository wins over its top-level folder')
+	assert.equal(resolve(join(root, 'plain', 'C.go')).rel, 'plain', 'no .git: the top-level folder')
+	assert.equal(resolve(join(root, 'D.py')).dir, root, 'a file at the root')
+	const entry = (file, controller, http = 'GET /x') => ({ id: file + controller, controller, action: 'a', http, file, line: 1, source: 'poly' })
+	const label = e => e.controller
+	const two = grouping.sections([
+		entry(join(root, 'sub-a', 'A.java'), 'Users'),
+		entry(join(root, 'plain', 'inner', 'B.cs'), 'Users'),
+		entry(join(root, 'plain', 'inner', 'E.ts'), 'Users'),
+		entry(join(root, 'plain', 'C.go'), 'Orders'),
+	], resolve, label)
+	assert.deepEqual(two.map(s => [s.name, s.count, s.langs]), [['inner', 2, ['C#', 'TS/JS']], ['plain', 1, ['Go']], ['sub-a', 1, ['Java']]])
+	assert.equal(two[0].groups.length + two[2].groups.length, 2, 'same-named controllers stay apart')
+	const one = grouping.sections([entry(join(root, 'sub-a', 'A.java'), 'Users'), entry(join(root, 'sub-a', 'B.java'), 'Users')], resolve, label)
+	assert.equal(one.length, 1, 'the view hides the outer level when there is one section')
+	assert.equal(grouping.startsCollapsed(one), false)
+	const many = Array.from({ length: 201 }, (_, i) => entry(join(root, i % 2 ? 'sub-a' : 'plain', `F${i}.java`), `C${i}`))
+	assert.equal(grouping.startsCollapsed(grouping.sections(many, resolve, label)), true)
+	assert.equal(grouping.languageOf('x.mjs'), 'TS/JS')
+	assert.equal(grouping.languageOf('x.cs'), 'C#')
 })

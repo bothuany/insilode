@@ -10,11 +10,13 @@ import * as vscode from 'vscode';
 import { Worker } from 'worker_threads';
 import type { FlowNode, FlowProvider, FlowTarget, ImpactResult } from '../providers';
 import type { Place, Suggestion } from './assist';
+import { excludePatterns } from '../excludeSetting';
 import { VsLsp } from './lspHost';
 import { LspRefiner, stripPending } from './lspResolve';
 import type { PolyTypeFacts } from '../types/wire';
 import { isExcludedPath, type EntryPoint, type Mention, type TableEntity, type TablesFact } from './model';
 import type { DbSchema } from '../../../../../protocol/flow';
+import { excluder, type Excluder } from './userExclude';
 
 export const POLY_LANGUAGES = new Set(['java', 'python', 'javascript', 'typescript', 'javascriptreact', 'typescriptreact', 'go', 'php', 'ruby', 'rust']);
 
@@ -43,6 +45,8 @@ export class PolyIndex implements vscode.Disposable {
 	/** Crashes since the worker last became ready: the restart backoff and its cap. */
 	private crashes = 0;
 	private disposed = false;
+	/** `flow.exclude` as the running worker was started with it: the watcher and the overlay agree with the walk. */
+	private userExcluded: Excluder = excluder([]);
 	/** Why requests fail while there is no worker. */
 	private unavailable = 'No folder is open.';
 	private readonly disposables: vscode.Disposable[] = [];
@@ -75,7 +79,8 @@ export class PolyIndex implements vscode.Disposable {
 		};
 		this.disposables.push(deletions, deletions.onDidDelete(removed));
 		this.disposables.push(watcher, watcher.onDidChange(changed), watcher.onDidCreate(changed), watcher.onDidDelete(changed),
-			vscode.workspace.onDidChangeWorkspaceFolders(() => this.restart()));
+			vscode.workspace.onDidChangeWorkspaceFolders(() => this.restart()),
+			vscode.workspace.onDidChangeConfiguration(e => e.affectsConfiguration('flow.exclude') && this.restart()));
 		this.entries = context.workspaceState.get<EntryPoint[]>('flow.polyEntries', []);
 		this.start();
 	}
@@ -89,6 +94,8 @@ export class PolyIndex implements vscode.Disposable {
 		const key = createHash('sha1').update(roots.join('|')).digest('hex').slice(0, 12);
 		const cacheFile = path.join(this.context.globalStorageUri.fsPath, 'poly', `${key}.json`);
 		this.isReady = false;
+		const exclude = excludePatterns();
+		this.userExcluded = excluder(exclude);
 		const wasm = wasmDir(this.context.extensionPath);
 		if (!fs.existsSync(path.join(wasm, 'tree-sitter.js'))) {
 			this.log.error(`Index: the tree-sitter runtime is missing from ${wasm}. Reinstall the extension.`);
@@ -96,7 +103,7 @@ export class PolyIndex implements vscode.Disposable {
 			return;
 		}
 		const worker = this.worker = new Worker(path.join(this.context.extensionPath, 'out', 'polyWorker.js'), {
-			workerData: { roots, wasmDir: wasm, cacheFile },
+			workerData: { roots, wasmDir: wasm, cacheFile, exclude },
 			resourceLimits: { maxOldGenerationSizeMb: 2048 },
 		});
 		worker.on('message', (m: { id?: number; type?: string; result?: unknown; error?: string; message?: string; stats?: object; ms?: number; parsed?: number; done?: number; total?: number }) => {
@@ -234,7 +241,7 @@ export class PolyIndex implements vscode.Disposable {
 	 */
 	private note(u: vscode.Uri) {
 		const folder = vscode.workspace.getWorkspaceFolder(u);
-		if (!folder || isExcludedPath(u.fsPath, folder.uri.fsPath) || !WATCHED_FILE.test(path.basename(u.fsPath))) {
+		if (!folder || isExcludedPath(u.fsPath, folder.uri.fsPath) || this.userExcluded(u.fsPath, [folder.uri.fsPath]) || !WATCHED_FILE.test(path.basename(u.fsPath))) {
 			return false;
 		}
 		this.changedFiles.add(u.fsPath);
@@ -250,7 +257,7 @@ export class PolyIndex implements vscode.Disposable {
 	/** An editor buffer that is not saved yet, read by the index as the file's content until the next save: types appear while the developer types. */
 	async overlay(file: string, text: string) {
 		const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(file));
-		if (!folder || isExcludedPath(file, folder.uri.fsPath) || !WATCHED_FILE.test(path.basename(file))) {
+		if (!folder || isExcludedPath(file, folder.uri.fsPath) || this.userExcluded(file, [folder.uri.fsPath]) || !WATCHED_FILE.test(path.basename(file))) {
 			return;
 		}
 		await this.request('overlay', file, text).catch(() => undefined);
