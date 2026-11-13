@@ -6,8 +6,7 @@
 import * as vscode from 'vscode';
 import type { Analyzer, EntryPoint } from './analyzer';
 import type { PolyIndex } from './poly/client';
-import { excludePatterns, workspaceRoots } from './excludeSetting';
-import { excluder } from './poly/userExclude';
+import { currentExcluder, workspaceRoots } from './excludeSetting';
 
 /** Which backend draws an entry's flow. */
 export type Source = 'roslyn' | 'poly';
@@ -74,8 +73,8 @@ export class Endpoints implements vscode.Disposable {
 	}
 
 	/** Without the entries under a folder `flow.exclude` names: the Roslyn analyzer loads a whole solution and cannot skip them itself. */
-	private visible(list: Entry[]): Entry[] {
-		const drop = excluder(excludePatterns());
+	visible(list: Entry[]): Entry[] {
+		const drop = currentExcluder();
 		const roots = workspaceRoots();
 		return list.filter(e => !drop(e.file, roots));
 	}

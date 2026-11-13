@@ -9,9 +9,8 @@ import * as net from 'net';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { flowRoot } from './root';
-import { excludePatterns, workspaceRoots } from './excludeSetting';
+import { currentExcluder, excludePatterns, workspaceRoots } from './excludeSetting';
 import { byRepo } from './grouping';
-import { excluder } from './poly/userExclude';
 import type { EntryPoint } from '../../../../protocol/flow';
 import type { CsTypesResponse } from './types/wire';
 import type { TableEntity, TablesFact } from './poly/model';
@@ -106,6 +105,24 @@ export class Analyzer implements vscode.Disposable {
 	constructor(private readonly context: vscode.ExtensionContext, readonly log: vscode.LogOutputChannel) {
 		this.status.command = 'flow.pickEndpoint';
 		Analyzer.current = this;
+		this.excludeWatch = vscode.workspace.onDidChangeConfiguration(e => e.affectsConfiguration('flow.exclude') && void this.solutionExcluded().catch(err => this.log.warn(`flow.exclude: ${err}`)));
+	}
+
+	private readonly excludeWatch: vscode.Disposable;
+
+	/**
+	 * A loaded solution that `flow.exclude` now leaves out must stop serving flows: the analyzer is stopped, and started again
+	 * through the pick path when exactly one solution remains (with several, the next request asks which, as it always does).
+	 */
+	private async solutionExcluded() {
+		if (!this.child || this.loadedSolution() || !this.context.workspaceState.get<string>(SOLUTION_KEY)) {
+			return;
+		}
+		if (await this.canStartQuietly()) {
+			await this.pickSolution();
+		} else {
+			this.stop();
+		}
 	}
 
 	/** Solution already chosen for this workspace: load it in the background so the first flow is instant. */
@@ -178,7 +195,7 @@ export class Analyzer implements vscode.Disposable {
 	 */
 	private async findSolutions(limit: number) {
 		const patterns = excludePatterns();
-		const drop = excluder(patterns);
+		const drop = currentExcluder();
 		const roots = workspaceRoots();
 		const exclude = '**/{node_modules,bin,obj,.claude,.git}/**';
 		// Excluded folders are dropped after the search, so it must look further than `limit` for enough to be left.
@@ -193,7 +210,7 @@ export class Analyzer implements vscode.Disposable {
 	/** The solution chosen for this workspace, unless `flow.exclude` has since left its folder out (un-excluding brings it back). */
 	loadedSolution(): string | undefined {
 		const saved = this.context.workspaceState.get<string>(SOLUTION_KEY);
-		return saved && !excluder(excludePatterns())(saved, workspaceRoots()) ? saved : undefined;
+		return saved && !currentExcluder()(saved, workspaceRoots()) ? saved : undefined;
 	}
 
 	/** Every solution (else project) the workspace holds, for "1 of 12 solutions loaded". */
@@ -471,6 +488,7 @@ export class Analyzer implements vscode.Disposable {
 			Analyzer.current = undefined;
 		}
 		this.stop();
+		this.excludeWatch.dispose();
 		this.status.dispose();
 		this.becameReady.dispose();
 	}

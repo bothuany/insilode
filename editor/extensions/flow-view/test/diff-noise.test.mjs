@@ -147,3 +147,29 @@ test('Keep and Undo work on the unfiltered hunks', () => {
 	assert.equal(k.hunksBetween(base, note).length, 1)
 	assert.equal(k.revertHunks(note, k.hunksBetween(base, note)), base)
 })
+
+test('realHunks: a URL in JSX text is no comment, so its change is kept', () => {
+	const a = 'const A = () => <p>See http://a.com</p>\n'
+	assert.equal(real('a.tsx', a, a.replace('a.com', 'b.com')).length, 1)
+	const t = text('const A = () => (', '  <p>a // b</p>', ')')
+	assert.equal(real('a.jsx', t, t.replace('a //', 'c //')).length, 1, 'text with //')
+	const m = text('const A = () => (', '  <p>', '    // not a comment', '  </p>', ')')
+	assert.equal(real('a.tsx', m, m.replace('not', 'now')).length, 1, 'a text line that starts with //')
+	const h = text('const A = () => <a href="http://x">k</a>')
+	assert.equal(real('a.tsx', h, h.replace('http://x', 'http://y')).length, 1, 'a string')
+})
+
+test('realHunks: real comments in a JSX file are still noise', () => {
+	const a = text('const x = 1;', '// note', 'const A = () => <br />;', 'const B = () => [', '  {/* why */}', '  <br />,', '];')
+	assert.equal(real('a.tsx', a, a.replace('// note', '// other note')).length, 0, 'comment line')
+	assert.equal(real('a.tsx', a, a.replace('x = 1;', 'x = 1; // c')).length, 0, 'after a statement')
+	assert.equal(real('a.tsx', a, a.replace('{/* why */}', '{/* because */}')).length, 0, 'jsx comment')
+})
+
+test('realHunks: for an unknown language indentation is content, trailing whitespace is not', () => {
+	const y = 'a:\n  b: 1\n  c: 2\n'
+	assert.equal(real('db/changelog/c.yaml', y, y.replace('  c: 2', 'c: 2')).length, 1)
+	assert.equal(real('c.rb', 'x = <<~E\n  a\n  b\nE\n', 'x = <<~E\n  a\n    b\nE\n').length, 1, 're-indented heredoc line')
+	assert.equal(real('c.yaml', y, y.replace('b: 1', 'b: 1  ')).length, 0, 'trailing whitespace')
+	assert.equal(real('c.yaml', y, y + '\n\n').length, 0, 'blank lines')
+})
