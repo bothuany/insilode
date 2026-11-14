@@ -128,7 +128,7 @@ interface GitApi {
 	toGitUri(uri: vscode.Uri, ref: string): vscode.Uri;
 }
 interface ChangeRow { uri: vscode.Uri; original?: vscode.Uri; modified?: vscode.Uri; mark: string; repo: string }
-interface Changes { list: ChangeRow[]; repos: number; /** What the base is called ("main", "HEAD~1"), when it is not HEAD. */ since?: string; notes: string[] }
+interface Changes { list: ChangeRow[]; /** The repositories that were diffed. */ repos: number; /** Those left out (no base found, the diff failed): `notes` says why. */ skipped: number; /** What the base is called ("main", "HEAD~1"), when it is not HEAD. */ since?: string; notes: string[] }
 /** Files the flow canvas can draw: the languages of the code index and the C# analyzer. */
 const CODE_FILE = /\.(cs|ts|tsx|js|jsx|java|kt|py|go|rs|php|rb|prisma)$/i;
 /** The only filter commands a repository may configure: git-lfs's own, spelled exactly as `git lfs install` writes them. */
@@ -339,10 +339,17 @@ export class AgentTools {
 		}
 		const { change, single } = await this.changeBase(base, a.ref, ctx.session);
 		const changes = await this.collectChanges(only, change, single);
-		const { list, repos, since, notes } = changes;
+		const { list, repos, skipped, since, notes } = changes;
 		if (!list.length) {
-			const none = only ? 'No changes in the given files' : `No ${since ? `changes since ${since}` : 'uncommitted changes'} in ${repos} git repositor${repos === 1 ? 'y' : 'ies'} of this workspace`;
-			return text([`${none}.`, ...notes].join('\n'));
+			if (only) {
+				return text([`No changes in the given files.`, ...notes].join('\n'));
+			}
+			// The notes name each repository left out and why; they are the one clause, not lines of their own.
+			const why = notes.map(n => n.replace(/\.$/, '')).join('; ');
+			const none = repos
+				? `No ${since ? `changes since ${since}` : 'uncommitted changes'} in ${repos} git repositor${repos === 1 ? 'y' : 'ies'} of this workspace${skipped ? `; ${skipped} skipped (${why})` : ''}`
+				: skipped ? `No git repository of this workspace could be diffed (${why})` : 'No git repository is open in this workspace';
+			return text(`${none}.`);
 		}
 		const title = typeof a.title === 'string' && a.title.trim() ? a.title.trim().slice(0, 80) : `Insilode: ${since ? `Changes since ${since}` : 'Changes'} (${list.length} file${list.length === 1 ? '' : 's'})`;
 		await this.openChanges(changes, title, { preserveFocus: true });
@@ -529,6 +536,8 @@ export class AgentTools {
 		}
 		const rows = new Map<string, ChangeRow>();
 		const notes: string[] = [];
+		let diffed = 0;
+		let skipped = 0;
 		const names = new Set<string>();
 		const roots = await this.realRoots();
 		for (const repo of repos.values()) {
@@ -547,6 +556,7 @@ export class AgentTools {
 					: await within(this.baseCommit(repo, base), 15_000, 'finding the base commit').catch(e => (e as Error).message);
 				if (typeof found === 'string') {
 					notes.push(`${path.basename(root)}: left out, ${found}.`);
+					skipped++;
 					continue;
 				}
 				ref = found.hash;
@@ -557,10 +567,12 @@ export class AgentTools {
 					return undefined;
 				});
 				if (!diff) {
+					skipped++;
 					continue;
 				}
 				all = [...diff, ...(repo.state.untrackedChanges ?? []), ...repo.state.workingTreeChanges.filter(c => c.status === GitStatus.Untracked)];
 			}
+			diffed++;
 			const kindsOf = statusesByFile(all);
 			for (const c of all) {
 				const file = c.uri.fsPath;
@@ -588,8 +600,9 @@ export class AgentTools {
 		if (typeof base === 'object' && 'ref' in base && !names.size) {
 			throw new Error(`"${base.ref}" is not a commit or branch of any git repository of this workspace.`);
 		}
-		const since = base === 'uncommitted' ? undefined : [...names].join(', ') || (base === 'branch' ? 'the main branch' : 'HEAD~1');
-		return { list: [...rows.values()].sort((x, y) => x.uri.fsPath.localeCompare(y.uri.fsPath)), repos: repos.size, since, notes };
+		// Only a base that was found names itself; with none found there are no changes to label, and the notes say why.
+		const since = base === 'uncommitted' ? undefined : [...names].join(', ') || undefined;
+		return { list: [...rows.values()].sort((x, y) => x.uri.fsPath.localeCompare(y.uri.fsPath)), repos: diffed, skipped, since, notes };
 	}
 
 	/**

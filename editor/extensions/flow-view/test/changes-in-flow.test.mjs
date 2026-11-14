@@ -200,3 +200,60 @@ test('open_diff base "session": a submodule inside a linked worktree is not take
 		assert.deepEqual(w.asked, [['/sub', 'abc1234def']])
 	} finally { reset() }
 })
+
+// "No changes" counts the repositories that were diffed, names only a base that was found, and says how many were skipped and why.
+function branchWorld(spec) {
+	const dirs = Object.keys(spec).map(() => temp('flow-branch-'))
+	const repo = (dir, s) => ({
+		rootUri: { fsPath: dir },
+		state: { workingTreeChanges: [], indexChanges: [], mergeChanges: [] },
+		status: async () => { },
+		getMergeBase: async () => s.base,
+		getCommit: async () => ({ hash: 'abc1234' }),
+		diffWith: async () => { if (s.diff === 'fails') { throw new Error('git diff failed') } return [] },
+	})
+	globalThis.__folders = dirs
+	globalThis.__git = { repositories: Object.values(spec).map((s, i) => repo(dirs[i], s)), openRepository: async () => null, toGitUri: u => u }
+	return dirs
+}
+const branchDiff = () => diffTools().call('open_diff', { base: 'branch' }).then(r => r.content[0].text)
+
+test('open_diff base "branch": a repository with no base is not counted, and the message says it was skipped and why', async () => {
+	const [, skippedDir] = branchWorld({ a: { base: 'abc1234def' }, b: {} })
+	try {
+		const msg = await branchDiff()
+		assert.match(msg, /^No changes since main in 1 git repository of this workspace; 1 skipped \(.*: left out, no main or master branch to compare with\)\.$/)
+		assert.ok(msg.includes(skippedDir.split(/[/\\]/).pop()))
+	} finally { reset() }
+})
+
+test('open_diff base "branch": a failed diff is skipped too, with its reason', async () => {
+	branchWorld({ a: { base: 'abc1234def' }, b: { base: 'abc1234def', diff: 'fails' } })
+	try {
+		assert.match(await branchDiff(), /^No changes since main in 1 git repository of this workspace; 1 skipped \(.*: git diff failed\)\.$/)
+	} finally { reset() }
+})
+
+test('open_diff base "branch": when no repository has a base, no base is named and nothing is called "the main branch"', async () => {
+	branchWorld({ a: {}, b: {} })
+	try {
+		const msg = await branchDiff()
+		assert.match(msg, /^No git repository of this workspace could be diffed \(.*; .*\)\.$/)
+		assert.doesNotMatch(msg, /main branch|since/)
+	} finally { reset() }
+})
+
+test('open_diff: with no repository open at all, it says so instead of counting zero', async () => {
+	branchWorld({})
+	try {
+		assert.equal(await branchDiff(), 'No git repository is open in this workspace.')
+		assert.equal(await diffTools().call('open_diff', {}).then(r => r.content[0].text), 'No git repository is open in this workspace.')
+	} finally { reset() }
+})
+
+test('open_diff: with nothing skipped the message is the plain count of repositories', async () => {
+	branchWorld({ a: { base: 'abc1234def' }, b: { base: 'abc1234def' } })
+	try {
+		assert.equal(await branchDiff(), 'No changes since main in 2 git repositories of this workspace.')
+	} finally { reset() }
+})
