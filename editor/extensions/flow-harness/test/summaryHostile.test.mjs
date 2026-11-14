@@ -223,7 +223,8 @@ const tmpHome = () => process.env.HOME
 
 test('git still says what it ignores, for a repository whose folder holds a program called git', T, async () => {
 	const dir = repo({ 'a/CLAUDE.md': '# a\n', 'b/CLAUDE.md': '# b\n', '.gitignore': 'b/\n', 'git': '#!/bin/sh\necho planted > planted.txt\n', 'git.exe': 'x', 'git.cmd': 'x' })
-	execFileSync('git', ['init', '-q'], { cwd: dir })
+	// Not from inside the folder: on Windows a program is looked for in the working folder first, and the planted one would run.
+	execFileSync('git', ['-C', dir, 'init', '-q'], { cwd: dirname(dir) })
 	const ignored = await IG.gitIgnoredOf(dir, [join(dir, 'a', 'CLAUDE.md'), join(dir, 'b', 'CLAUDE.md')])
 	assert.deepEqual([...ignored], [join(dir, 'b', 'CLAUDE.md')])
 })

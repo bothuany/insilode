@@ -350,7 +350,8 @@ test('a walk past its deadline stops at once and answers a list that callers rea
 	assert.equal(cut.length, 20_000, 'a full-length list: it is how a cut one is told')
 	assert.equal(await late.somewhere('anything.ts'), true, 'no verdict on a cut listing')
 	const open = H.fsScanHost([dir])
-	assert.deepEqual((await open.nested(folder, 200)).map(f => f.slice(dir.length + 1)).sort(), ['a/CLAUDE.md', 'b/c/AGENTS.md'])
+	// The host answers file system paths, so the separator is the platform's.
+	assert.deepEqual((await open.nested(folder, 200)).map(f => f.slice(dir.length + 1).replace(/\\/g, '/')).sort(), ['a/CLAUDE.md', 'b/c/AGENTS.md'])
 	assert.equal(await open.somewhere('nope.ts'), false)
 })
 
