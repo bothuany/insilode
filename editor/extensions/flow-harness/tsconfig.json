@@ -7,5 +7,5 @@
 		"types": ["node"],
 		"typeRoots": ["../../vscode/node_modules/@types"]
 	},
-	"include": ["src/**/*", "../../vscode/src/vscode-dts/vscode.d.ts"]
+	"include": ["src/**/*", "cli/**/*", "../../vscode/src/vscode-dts/vscode.d.ts"]
 }
