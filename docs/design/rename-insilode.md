@@ -1,7 +1,7 @@
 # Rename: Axle → Insilode
 
 Decided 2026-10-22. Pronounced IN-sih-lohd. The logo mark stays. Axle was dropped because of a pending AXLE trademark in
-code analysis and because the name is crowded. This is the plan (phase 1); nothing is renamed yet. About 330 tracked
+code analysis and because the name is crowded. Status: done. Phase 2 renamed the product (7dfc7d9 and the commits of that PR, first released in v0.5.0); section 7 says where it differs from this plan, and section 6 lists the outward steps only the owner can take. The rest of this page is the phase 1 plan as written: about 330 tracked
 files contain "axle" (excluding the `maxLength` noise); `docs/research` (83 hits) is dated research and stays as written.
 
 Spelling, used everywhere below: product `Insilode`, command / package / folder `insilode`, env `INSILODE_*`, workspace

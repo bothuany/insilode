@@ -1,6 +1,6 @@
 # Skeleton first (variant A)
 
-Status: built on `claude/skeleton-first-067ed6`, on top of guided tours (PR #8). Written 2026-10-20.
+Status: done. Written 2026-10-20 and built on top of guided tours (PR #8): the matcher, the signature guard and `check_skeleton` landed in bbfd1f3 and the follow-ups through 2c3446a, first released in v0.5.0.
 
 Research: `docs/research/skeleton-first-landscape.md` and `skeleton-first-council.md` (in the main checkout, not committed).
 
