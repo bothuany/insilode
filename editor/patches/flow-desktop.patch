@@ -159,10 +159,10 @@ index 0000000..8c73243
 +`;
 diff --git a/src/vs/platform/insilodeDesktop/common/insilodeDesktop.ts b/src/vs/platform/insilodeDesktop/common/insilodeDesktop.ts
 new file mode 100644
-index 0000000..a9c5ff8
+index 0000000..746cb88
 --- /dev/null
 +++ b/src/vs/platform/insilodeDesktop/common/insilodeDesktop.ts
-@@ -0,0 +1,73 @@
+@@ -0,0 +1,81 @@
 +/*---------------------------------------------------------------------------------------------
 + *  Insilode: the desktop agent status overlay, shared by the main process (which owns the window) and
 + *  the workbench (which pushes each window's agents). Insilode's Agents extension builds the model
@@ -200,6 +200,11 @@ index 0000000..a9c5ff8
 +	readonly autoHide: { readonly noAgents: boolean; readonly insilodeFocused: boolean };
 +	/** How each agent is drawn (insilodeAvatars.ts). */
 +	readonly avatar: 'gyro' | 'pixel';
++	/**
++	 * What the user left unset, which then follows the screen: on a Mac whose display has a camera housing the island is on
++	 * (`enabled`) and stays visible while Insilode is focused (`focused`) unless the user chose otherwise. Absent means both set.
++	 */
++	readonly unset?: { readonly enabled: boolean; readonly focused: boolean };
 +}
 +
 +/** CSS colours, resolved from the window's colour theme when the overlay follows it. */
@@ -233,15 +238,18 @@ index 0000000..a9c5ff8
 +	/** The user pressed the island's close button: the window that pushed last turns the overlay off in its settings. */
 +	readonly onDidRequestClose: Event<{ readonly windowId: number }>;
 +
-+	/** This window's agents, or undefined when it has none to show (the overlay is off, or the window goes away). */
-+	update(windowId: number, state: IInsilodeOverlayState | undefined, colors: IInsilodeOverlayColors | undefined): Promise<void>;
++	/**
++	 * This window's agents, or undefined when it has none to show (the overlay is off, or the window goes away). Resolves to
++	 * whether the island is wanted for this window now (an unset setting depends on the screen's camera housing).
++	 */
++	update(windowId: number, state: IInsilodeOverlayState | undefined, colors: IInsilodeOverlayColors | undefined): Promise<boolean>;
 +}
 diff --git a/src/vs/platform/insilodeDesktop/common/insilodeIsland.ts b/src/vs/platform/insilodeDesktop/common/insilodeIsland.ts
 new file mode 100644
-index 0000000..ad3a34d
+index 0000000..3dad038
 --- /dev/null
 +++ b/src/vs/platform/insilodeDesktop/common/insilodeIsland.ts
-@@ -0,0 +1,256 @@
+@@ -0,0 +1,331 @@
 +/*---------------------------------------------------------------------------------------------
 + *  Insilode: the rules of the desktop status island that need no Electron, so they are tested on
 + *  their own (editor/extensions/flow-agent/test/island.test.mjs reads this file out of
@@ -254,6 +262,8 @@ index 0000000..ad3a34d
 + *    work or need you (the focused window has its own dock). Focus moves between windows
 + *    (and through the Alt+Tab switcher) as a blur then a focus, so a change only counts once it
 + *    has lasted a little: switching to it fast, back slower, so that switching does not flicker.
++ *  - The camera housing (the notch) of a MacBook: where it is comes from the macOS probe in the main
++ *    process (parseNotchProbe reads what the probe prints), and the island is two wings around it.
 + *--------------------------------------------------------------------------------------------*/
 +
 +export interface IslandRect {
@@ -364,36 +374,109 @@ index 0000000..ad3a34d
 +// --- Placement ----------------------------------------------------------------------------------
 +
 +/**
-+ * How wide the gap between the island's two wings is on a Mac with a camera housing. Electron reports no width for the
-+ * housing (a Display has `bounds` and `workArea`, nothing like `safeArea` or `auxiliaryTopLeftArea`), so this is one
-+ * constant: the housing of the current MacBook Pros is about 185 points wide, 200 leaves a little room on each side.
++ * The camera housing of a display: where it starts and ends across the display (points from the display's left edge) and
++ * how far down it reaches. Only a display that has one gets a notch; there is no guess for the others.
 + */
-+export const NOTCH_GAP = 200;
++export interface IslandNotch {
++	readonly left: number;
++	readonly right: number;
++	readonly height: number;
++}
++
++const rectOf = (v: unknown): { x: number; width: number } | undefined => {
++	const o = v as { x?: unknown; width?: unknown } | null | undefined;
++	return o && finite(o.x) && finite(o.width) ? { x: o.x, width: o.width } : undefined;
++};
 +
 +/**
-+ * Where the island goes. A remembered spot wins; else the settings' corner. An attached island (top-center, no spot)
-+ * hangs from the top edge of `bounds` (the menu bar band), the others float `margin` inside `workArea`. The attached
-+ * width is rounded up to an even number so that its centre, which is the middle of the camera gap (the wings are
-+ * equal-width), lands on a whole pixel on the display's centre.
++ * What the macOS probe printed (the JSON of one entry per NSScreen: `id`, `frame`, `top` = safeAreaInsets.top and the two
++ * auxiliaryTop areas, the strips of the menu bar either side of the housing) as the notch of each display that has one, by
++ * display id. Output that is not that, and any screen whose strips do not leave a housing between them, give no notch.
++ */
++export function parseNotchProbe(output: string): Map<number, IslandNotch> {
++	const notches = new Map<number, IslandNotch>();
++	let screens: unknown;
++	try {
++		screens = JSON.parse(output);
++	} catch {
++		return notches;
++	}
++	for (const s of Array.isArray(screens) ? screens : []) {
++		const frame = rectOf(s?.frame);
++		const l = rectOf(s?.auxiliaryTopLeftArea);
++		const r = rectOf(s?.auxiliaryTopRightArea);
++		if (!frame || !l || !r || !finite(s.id) || !finite(s.top)) {
++			continue;
++		}
++		// Only the widths: the strips' coordinates may be in another space than the frame's (a display left of the main one).
++		const left = l.width;
++		const right = frame.width - r.width;
++		if (s.top > 0 && left > 0 && right > left && right < frame.width) {
++			notches.set(s.id, { left, right, height: s.top });
++		}
++	}
++	return notches;
++}
++
++/** The `unset` of the options a window pushed (untrusted): two strict booleans, or none, which means both were set. */
++export function readUnset(v: unknown): { readonly enabled: boolean; readonly focused: boolean } | undefined {
++	const o = v as { enabled?: unknown; focused?: unknown } | null | undefined;
++	return o && typeof o === 'object' ? { enabled: o.enabled === true, focused: o.focused === true } : undefined;
++}
++
++/** Whether a window that pushed agents gets the island: one whose enabled setting is unset wants it only where a display has a camera housing. */
++export function islandWanted(unset: { readonly enabled: boolean } | undefined, hasNotch: boolean): boolean {
++	return !unset?.enabled || hasNotch;
++}
++
++/** Whether a dropped island is close enough to the camera housing to be put back beside it: its centre within `within` points of it. */
++export function nearNotch(rect: IslandRect, notch: IslandNotch, bounds: IslandRect, within = 40): boolean {
++	const cx = rect.x + rect.width / 2;
++	const cy = rect.y + rect.height / 2;
++	const dx = Math.max(bounds.x + notch.left - cx, 0, cx - (bounds.x + notch.right));
++	const dy = Math.max(bounds.y - cy, 0, cy - (bounds.y + notch.height));
++	return Math.hypot(dx, dy) <= within;
++}
++
++/**
++ * Where the island goes. A remembered spot wins; else the settings' corner. The attached island (top-center, no spot)
++ * is one of two things:
++ *  - beside a camera housing (`notch`): two wings, the left one ending where the housing starts and the right one starting
++ *    where it ends, top edge on the display's top edge, as tall as the housing. The page tells how wide each wing wants to
++ *    be (`size.left`, `size.right`), clamped here so that neither runs off the display; without those (the hover list) the
++ *    window is one block with its middle on the housing's.
++ *  - elsewhere: one pill centred directly under the menu bar (the top of `workArea`), never over it.
++ * The others float `margin` inside `workArea`.
++ * shortcut: a wing clamped narrower than its content cuts the content off, when a display is too narrow to hold a wing.
 + */
 +export function islandRect(i: {
 +	readonly spot: IslandSpot | undefined;
 +	readonly attached: boolean;
 +	readonly position: string;
-+	readonly size: { readonly width: number; readonly height: number };
++	readonly size: { readonly width: number; readonly height: number; readonly left?: number; readonly right?: number };
 +	readonly bounds: IslandRect;
 +	readonly workArea: IslandRect;
++	readonly notch?: IslandNotch;
 +}): IslandRect {
 +	if (i.spot) {
 +		return spotToRect(i.spot, i.size, i.workArea);
 +	}
-+	const area = i.attached ? i.bounds : i.workArea;
++	const { bounds, notch, size } = i;
++	if (i.attached && notch) {
++		if (finite(size.left) && finite(size.right)) {
++			const left = Math.min(Math.max(size.left, 0), notch.left);
++			const right = Math.min(Math.max(size.right, 0), bounds.width - notch.right);
++			return { x: Math.round(bounds.x + notch.left - left), y: bounds.y, width: Math.round(left + notch.right - notch.left + right), height: notch.height };
++		}
++		const width = Math.min(size.width, bounds.width);
++		const x = Math.min(Math.max(bounds.x + (notch.left + notch.right) / 2 - width / 2, bounds.x), bounds.x + bounds.width - width);
++		return { x: Math.round(x), y: bounds.y, width, height: size.height };
++	}
 +	const margin = i.attached ? 0 : 10;
-+	const width = i.attached ? i.size.width + (i.size.width % 2) : i.size.width;
-+	const height = i.size.height;
++	const { width, height } = size;
 +	const [vertical, horizontal] = i.position.split('-');
-+	const x = horizontal === 'left' ? area.x + margin : horizontal === 'right' ? area.x + area.width - width - margin : area.x + (area.width - width) / 2;
-+	const y = vertical === 'top' ? area.y + margin : area.y + area.height - height - margin;
++	const x = horizontal === 'left' ? i.workArea.x + margin : horizontal === 'right' ? i.workArea.x + i.workArea.width - width - margin : i.workArea.x + (i.workArea.width - width) / 2;
++	const y = vertical === 'top' ? i.workArea.y + margin : i.workArea.y + i.workArea.height - height - margin;
 +	return { x: Math.round(x), y: Math.round(y), width, height };
 +}
 +
@@ -500,10 +583,10 @@ index 0000000..ad3a34d
 +}
 diff --git a/src/vs/platform/insilodeDesktop/electron-main/insilodeOverlayMainService.ts b/src/vs/platform/insilodeDesktop/electron-main/insilodeOverlayMainService.ts
 new file mode 100644
-index 0000000..51814a1
+index 0000000..9717b56
 --- /dev/null
 +++ b/src/vs/platform/insilodeDesktop/electron-main/insilodeOverlayMainService.ts
-@@ -0,0 +1,728 @@
+@@ -0,0 +1,844 @@
 +/*---------------------------------------------------------------------------------------------
 + *  Insilode: the desktop agent status overlay. One small always-on-top window for the whole app that
 + *  draws the agents every Insilode window pushes (merged per window, like the Dock badge).
@@ -518,6 +601,7 @@ index 0000000..51814a1
 + *  and every navigation and popup is refused.
 + *--------------------------------------------------------------------------------------------*/
 +
++import { execFile } from 'child_process';
 +import { readFileSync, writeFile } from 'fs';
 +import { join } from 'path';
 +import { app, BrowserWindow, Display, screen } from 'electron';
@@ -526,7 +610,7 @@ index 0000000..51814a1
 +import { isMacintosh } from '../../../base/common/platform.js';
 +import { ILogService } from '../../log/common/log.js';
 +import { AVATAR_CSS, AVATAR_SCRIPT } from '../common/insilodeAvatars.js';
-+import { clampRect, FocusGate, focusWait, INITIAL_GATE, islandAgents, IslandRect, islandRect, IslandSpot, islandVisible, layoutChanged, NOTCH_GAP, observeFocus, readSpot, rectToSpot, resetAllowed, resolvePlacement, settleFocus } from '../common/insilodeIsland.js';
++import { clampRect, FocusGate, focusWait, INITIAL_GATE, islandAgents, IslandNotch, IslandRect, islandRect, IslandSpot, islandVisible, islandWanted, layoutChanged, nearNotch, observeFocus, parseNotchProbe, readSpot, readUnset, rectToSpot, resetAllowed, resolvePlacement, settleFocus } from '../common/insilodeIsland.js';
 +import { IInsilodeOverlayColors, IInsilodeOverlayItem, IInsilodeOverlayOptions, IInsilodeOverlayService, IInsilodeOverlayState } from '../common/insilodeDesktop.js';
 +
 +/** What the page prefixes its messages with, so an unrelated console line is never taken for one. */
@@ -540,6 +624,26 @@ index 0000000..51814a1
 +};
 +
 +const DEFAULT_OPTIONS: IInsilodeOverlayOptions = { position: 'top-center', display: 'insilode', style: 'pill', size: 'medium', opacity: 0.95, theme: 'black', autoHide: { noAgents: true, insilodeFocused: true }, avatar: 'gyro' };
++
++/**
++ * macOS only: where the camera housing of each screen is. Electron's Display has no such rectangle, so AppKit is asked
++ * (JXA: no window, no Apple event) for each screen's id (the same number as Electron's `display.id`), frame, top safe area
++ * (the housing's height) and the two strips of the menu bar either side of the housing (macOS 12 and later). The result is
++ * parsed by parseNotchProbe.
++ */
++const NOTCH_PROBE = `ObjC.import('AppKit');
++const out = [];
++const screens = $.NSScreen.screens;
++for (let i = 0; i < screens.count; i++) {
++	const s = screens.objectAtIndex(i);
++	const rect = r => ({ x: r.origin.x, y: r.origin.y, width: r.size.width, height: r.size.height });
++	const e = { id: Number(ObjC.unwrap(s.deviceDescription.objectForKey('NSScreenNumber'))), frame: rect(s.frame), top: s.respondsToSelector('safeAreaInsets') ? s.safeAreaInsets.top : 0 };
++	for (const k of ['auxiliaryTopLeftArea', 'auxiliaryTopRightArea']) {
++		if (s.respondsToSelector(k)) { e[k] = rect(s[k]); }
++	}
++	out.push(e);
++}
++JSON.stringify(out);`;
 +
 +interface IWindowAgents {
 +	readonly state: IInsilodeOverlayState;
@@ -577,6 +681,7 @@ index 0000000..51814a1
 +		theme: oneOf(o?.theme, ['black', 'editor', 'dark', 'light'], DEFAULT_OPTIONS.theme),
 +		autoHide: { noAgents: o?.autoHide?.noAgents !== false, insilodeFocused: o?.autoHide?.insilodeFocused !== false },
 +		avatar: oneOf(o?.avatar, ['gyro', 'pixel'], DEFAULT_OPTIONS.avatar),
++		unset: readUnset(o?.unset),
 +	};
 +	const c = raw?.counts;
 +	const counts = c && { needs: finite(c.needs) ?? 0, working: finite(c.working) ?? 0, done: finite(c.done) ?? 0 };
@@ -614,8 +719,12 @@ index 0000000..51814a1
 +	private keys = new Map<string, { windowId: number; id: string }>();
 +	private overlay: BrowserWindow | undefined;
 +	private loaded = false;
-+	private size = { width: 0, height: 0 };
-+	private placement: { display: Display; notch: number; attached: boolean; spot: IslandSpot | undefined; options: IInsilodeOverlayOptions } | undefined;
++	private size: { width: number; height: number; left?: number; right?: number } = { width: 0, height: 0 };
++	private placement: { display: Display; notch: IslandNotch | undefined; attached: boolean; spot: IslandSpot | undefined; options: IInsilodeOverlayOptions } | undefined;
++	/** The camera housing of each display that has one, by display id (macOS; empty until the probe returns, and when it fails). */
++	private notches = new Map<number, IslandNotch>();
++	private probing = false;
++	private probeAgain = false;
 +	private focusTimer: Timeout | undefined;
 +	/** Whether an Insilode window has focus, settled (see insilodeIsland.ts): hiding and coming back are both debounced. */
 +	private gate: FocusGate = INITIAL_GATE;
@@ -635,13 +744,18 @@ index 0000000..51814a1
 +		this.loadStore();
 +		// Focus moves between windows as a blur then a focus: only a change that has lasted counts.
 +		const onFocus = () => this.observeFocus();
-+		const onDisplays = () => this.render();
++		const onDisplays = () => {
++			this.render();
++			this.probe();
++		};
 +		app.on('browser-window-focus', onFocus);
 +		app.on('browser-window-blur', onFocus);
 +		app.whenReady().then(() => {
 +			if (!this._store.isDisposed) {
 +				screen.on('display-metrics-changed', onDisplays);
 +				screen.on('display-removed', onDisplays);
++				screen.on('display-added', onDisplays);
++				this.probe();
 +			}
 +		});
 +		this._register(toDisposable(() => {
@@ -650,21 +764,22 @@ index 0000000..51814a1
 +			app.off('browser-window-blur', onFocus);
 +			screen.off('display-metrics-changed', onDisplays);
 +			screen.off('display-removed', onDisplays);
++			screen.off('display-added', onDisplays);
 +			this.overlay?.destroy();
 +			this.overlay = undefined;
 +		}));
 +	}
 +
-+	async update(windowId: number, state: IInsilodeOverlayState | undefined, colors: IInsilodeOverlayColors | undefined): Promise<void> {
++	async update(windowId: number, state: IInsilodeOverlayState | undefined, colors: IInsilodeOverlayColors | undefined): Promise<boolean> {
 +		if (!state) {
 +			this.windows.delete(windowId);
 +			this.render();
-+			return;
++			return false;
 +		}
 +		// Only a window that exists: its `closed` event is what takes its agents off the screen again.
 +		const win = typeof windowId === 'number' ? BrowserWindow.fromId(windowId) : null;
 +		if (!win || win.isDestroyed() || win === this.overlay) {
-+			return;
++			return false;
 +		}
 +		if (!this.gate.pending) {
 +			// Nothing is settling: start from the real focus, so an island pushed from a focused Insilode window never flashes.
@@ -682,6 +797,49 @@ index 0000000..51814a1
 +			});
 +		}
 +		this.render();
++		return this.wanting().some(([id]) => id === windowId);
++	}
++
++	/**
++	 * Asks macOS where the camera housings are (NOTCH_PROBE) and draws again when the answer changed. It runs beside the
++	 * first render, never before it: until it returns the island is placed as on a display without a housing. A probe that
++	 * fails, times out or prints nonsense means no notch information.
++	 */
++	private probe(): void {
++		if (!isMacintosh) {
++			return;
++		}
++		if (this.probing) {
++			this.probeAgain = true;
++			return;
++		}
++		this.probing = true;
++		const done = (notches: Map<number, IslandNotch>) => {
++			this.probing = false;
++			const changed = JSON.stringify([...notches]) !== JSON.stringify([...this.notches]);
++			this.notches = notches;
++			if (this._store.isDisposed) {
++				return;
++			}
++			if (this.probeAgain) {
++				this.probeAgain = false;
++				this.probe();
++			}
++			if (changed) {
++				this.render();
++			}
++		};
++		try {
++			execFile('/usr/bin/osascript', ['-l', 'JavaScript', '-e', NOTCH_PROBE], { timeout: 5000, maxBuffer: 1 << 20 }, (err, stdout) => {
++				if (err) {
++					this.logService.debug(`[insilode overlay] the notch probe failed: ${err}`);
++				}
++				done(err ? new Map() : parseNotchProbe(stdout));
++			});
++		} catch (e) {
++			this.logService.debug(`[insilode overlay] the notch probe did not start: ${e}`);
++			done(new Map());
++		}
 +	}
 +
 +	private loadStore(): void {
@@ -716,12 +874,18 @@ index 0000000..51814a1
 +		}
 +	}
 +
++	/** The windows that want the island: one whose enabled setting is left unset wants it only where a display has a camera housing. */
++	private wanting(): [number, IWindowAgents][] {
++		return [...this.windows].filter(([, w]) => islandWanted(w.state.options.unset, this.notches.size > 0));
++	}
++
 +	/** The window that pushed last decides the options; the agents of all windows are shown together. */
 +	private render(): void {
 +		if (this._store.isDisposed) {
 +			return;
 +		}
-+		const latest = [...this.windows.entries()].sort((a, b) => b[1].at - a[1].at)[0];
++		const wanting = this.wanting();
++		const latest = [...wanting].sort((a, b) => b[1].at - a[1].at)[0];
 +		if (!latest) {
 +			// No window wants the overlay: free it rather than keep a hidden window around.
 +			this.overlay?.destroy();
@@ -731,23 +895,40 @@ index 0000000..51814a1
 +		}
 +		const [ownerId, owner] = latest;
 +		const options = owner.state.options;
++		// Changing where the settings put the island takes it back from where the user dragged it. Each window is compared
++		// with itself: two workspaces may set different positions, which must not wipe the spot at every push.
++		if (layoutChanged(this.layoutKeys, ownerId, `${options.position}/${options.display}`)) {
++			this.store = { ...this.store, spots: {}, last: undefined };
++			this.saveStore();
++		}
++		const chosen = this.display(options.display, ownerId);
++		const displays = screen.getAllDisplays();
++		const spot = resolvePlacement(this.store.spots, this.store.last, displays, chosen);
++		const display = spot ? displays.find(d => d.id === spot.display.id) ?? chosen : chosen;
++		// Top-center with no remembered place is attached: beside the camera housing of a display that has one, else a pill
++		// under the menu bar. The corners, and an island the user moved, float.
++		const attached = !spot && options.position === 'top-center';
++		const notch = attached ? this.notches.get(display.id) : undefined;
++		this.placement = { display, notch, attached, spot: spot?.spot, options };
 +		this.keys = new Map();
 +		const items: (IInsilodeOverlayItem & { key: string })[] = [];
 +		const counts = { needs: 0, working: 0, done: 0 };
 +		let showCounts = false;
 +		// While an Insilode window has focus (and the setting allows) only the other windows' working and waiting agents show.
-+		const others = this.gate.focused && options.autoHide.insilodeFocused;
-+		for (const { windowId, item } of islandAgents([...this.windows].map(([id, agents]) => ({ windowId: id, items: agents.state.items })), others ? this.focusedId : undefined)) {
++		// Beside the camera housing the user has not said so, the island stays whole: it is there to be seen.
++		const others = this.gate.focused && options.autoHide.insilodeFocused && !(notch && options.unset?.focused);
++		const shown = wanting.map(([id, w]) => ({ windowId: id, items: w.state.items }));
++		for (const { windowId, item } of islandAgents(shown, others ? this.focusedId : undefined)) {
 +			const key = `k${this.keys.size}`;
 +			this.keys.set(key, { windowId, id: item.id });
 +			items.push({ ...item, key });
 +		}
-+		for (const [windowId, agents] of this.windows) {
-+			if (agents.state.counts && !(others && windowId === this.focusedId)) {
++		for (const [windowId, w] of wanting) {
++			if (w.state.counts && !(others && windowId === this.focusedId)) {
 +				showCounts = true;
-+				counts.needs += agents.state.counts.needs;
-+				counts.working += agents.state.counts.working;
-+				counts.done += agents.state.counts.done;
++				counts.needs += w.state.counts.needs;
++				counts.working += w.state.counts.working;
++				counts.done += w.state.counts.done;
 +			}
 +		}
 +		if (others) {
@@ -756,32 +937,16 @@ index 0000000..51814a1
 +			counts.working = items.filter(i => i.state === 'working').length;
 +			counts.done = 0;
 +		}
-+		// Changing where the settings put the island takes it back from where the user dragged it. Each window is compared
-+		// with itself: two workspaces may set different positions, which must not wipe the spot at every push.
-+		if (layoutChanged(this.layoutKeys, ownerId, `${options.position}/${options.display}`)) {
-+			this.store = { ...this.store, spots: {}, last: undefined };
-+			this.saveStore();
-+		}
 +		if (!islandVisible({ hasAgents: items.length > 0, autoHide: options.autoHide, othersOnly: others })) {
 +			this.overlay?.hide();
 +			return;
 +		}
-+		const chosen = this.display(options.display, ownerId);
-+		const displays = screen.getAllDisplays();
-+		const spot = resolvePlacement(this.store.spots, this.store.last, displays, chosen);
-+		const display = spot ? displays.find(d => d.id === spot.display.id) ?? chosen : chosen;
-+		// A Mac with a notch has a taller menu bar: the island then covers the notch, top-center only.
-+		// Top-center hangs from the screen's top edge like an island; the corners, and an island the user moved, float.
-+		const menuBar = display.workArea.y - display.bounds.y;
-+		const attached = !spot && options.position === 'top-center';
-+		const notch = isMacintosh && attached && menuBar >= 32 ? menuBar : 0;
-+		this.placement = { display, notch, attached, spot: spot?.spot, options };
 +		const colors = options.theme === 'editor' ? owner.colors ?? PALETTES.dark : PALETTES[options.theme];
 +		const overlay = this.ensureOverlay();
 +		if (!this.loaded) {
 +			return; // did-finish-load renders again
 +		}
-+		const model = { items, counts: showCounts ? counts : undefined, style: options.style, size: options.size, opacity: options.opacity, colors, notch, gap: NOTCH_GAP, attached, avatar: options.avatar, minimized: this.store.minimized, moved: !!spot };
++		const model = { items, counts: showCounts ? counts : undefined, style: options.style, size: options.size, opacity: options.opacity, colors, notch: notch?.height ?? 0, gap: notch ? notch.right - notch.left : 0, attached, avatar: options.avatar, minimized: this.store.minimized, moved: !!spot };
 +		// JSON is a JavaScript expression: the model arrives as data, never as code.
 +		overlay.webContents.executeJavaScript(`window.insilodeRender(${JSON.stringify(model)})`).catch(e => this.logService.warn(`[insilode overlay] render failed: ${e}`));
 +		this.place();
@@ -803,6 +968,11 @@ index 0000000..51814a1
 +		}
 +		if (which === 'secondary') {
 +			return screen.getAllDisplays().find(d => d.id !== primary.id) ?? primary;
++		}
++		// At its default the island goes where the camera housing is, even when Insilode is open on another screen.
++		const notched = screen.getAllDisplays().find(d => this.notches.has(d.id));
++		if (notched) {
++			return notched;
 +		}
 +		const focused = BrowserWindow.getFocusedWindow();
 +		const win = focused && focused !== this.overlay ? focused : BrowserWindow.fromId(ownerId);
@@ -887,7 +1057,7 @@ index 0000000..51814a1
 +	}
 +
 +	private onMessage(raw: string): void {
-+		let message: { type?: unknown; width?: unknown; height?: unknown; key?: unknown };
++		let message: { type?: unknown; width?: unknown; height?: unknown; left?: unknown; right?: unknown; key?: unknown };
 +		try {
 +			message = JSON.parse(raw);
 +		} catch {
@@ -897,7 +1067,11 @@ index 0000000..51814a1
 +			const width = finite(message.width);
 +			const height = finite(message.height);
 +			if (width && height) {
-+				this.size = { width: Math.min(800, Math.max(1, Math.ceil(width))), height: Math.min(900, Math.max(1, Math.ceil(height))) };
++				// The wings' own widths come with a page that sits beside the camera housing.
++				const wing = (v: unknown) => { const w = finite(v); return w === undefined ? undefined : Math.min(800, Math.max(0, Math.ceil(w))); };
++				const left = wing(message.left);
++				const right = wing(message.right);
++				this.size = { width: Math.min(800, Math.max(1, Math.ceil(width))), height: Math.min(900, Math.max(1, Math.ceil(height))), ...(left !== undefined && right !== undefined ? { left, right } : {}) };
 +				this.place();
 +			}
 +		} else if (message.type === 'drag-start' || message.type === 'drag') {
@@ -959,7 +1133,11 @@ index 0000000..51814a1
 +		const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
 +		const id = String(display.id);
 +		this.lastDropAt = Date.now();
-+		this.store = { ...this.store, spots: { ...this.store.spots, [id]: rectToSpot(rect, display.workArea) }, last: id };
++		const notch = this.notches.get(display.id);
++		// Dropped beside the camera housing: back where it belongs, as a double-click would put it.
++		this.store = notch && nearNotch(rect, notch, display.bounds)
++			? { ...this.store, spots: {}, last: undefined }
++			: { ...this.store, spots: { ...this.store.spots, [id]: rectToSpot(rect, display.workArea) }, last: id };
 +		this.saveStore();
 +		this.render();
 +	}
@@ -972,12 +1150,11 @@ index 0000000..51814a1
 +			return;
 +		}
 +		const { display, attached, options, spot } = placement;
-+		const { width, height } = this.size;
 +		if (this.drag) {
 +			// The user is holding it: the pointer decides.
 +			return;
 +		}
-+		overlay.setBounds(islandRect({ spot, attached, position: options.position, size: { width, height }, bounds: display.bounds, workArea: display.workArea }));
++		overlay.setBounds(islandRect({ spot, attached, position: options.position, size: this.size, bounds: display.bounds, workArea: display.workArea, notch: placement.notch }));
 +		if (!overlay.isVisible()) {
 +			overlay.showInactive();
 +		}
@@ -1009,6 +1186,7 @@ index 0000000..51814a1
 +body.size-large { font-size: 14px; }
 +#root { position: absolute; top: 0; left: 0; width: max-content; padding: 6px 8px 10px; }
 +body.attached #root { padding-top: 0; }
++#root.bare { padding: 0; }
 +.box { display: flex; align-items: center; gap: 0.85em; padding: 0.55em 1.1em; background: var(--background); color: var(--foreground); border: 1px solid var(--border); border-radius: 999px; animation: in 140ms ease-out; }
 +body.attached .box { border-top-color: transparent; border-radius: 0 0 1.5em 1.5em; }
 +.box.list { flex-direction: column; align-items: stretch; gap: 0.1em; padding: 0.7em 0.5em 0.5em; border-radius: 1.2em; min-width: 21em; }
@@ -1017,10 +1195,11 @@ index 0000000..51814a1
 +@media (prefers-reduced-motion: reduce) { .box { animation: none; } }
 +.box { cursor: grab; }
 +body.dragging, body.dragging .box { cursor: grabbing; }
-+.box.wings { display: grid; column-gap: 0; padding-left: 0.6em; padding-right: 0.6em; }
-+.wing { display: flex; align-items: center; gap: 0.85em; min-width: 0; }
-+.wing.l { justify-content: flex-end; }
-+.wing.r { justify-content: flex-start; }
++/* Beside the camera housing: a left wing and a right wing with the housing (transparent) between them. */
++.wings { display: flex; }
++.wings .box { box-sizing: border-box; padding-top: 0; padding-bottom: 0; }
++body.notch .box.l { border-radius: 0 0 0 1.5em; border-right-color: transparent; }
++body.notch .box.r { border-radius: 0 0 1.5em 0; border-left-color: transparent; }
 +.box.mini { padding: 0.4em; gap: 0; cursor: pointer; }
 +.ctl { display: flex; gap: 0.15em; margin-left: 0.2em; }
 +.ctl button { all: unset; box-sizing: border-box; display: grid; place-items: center; width: 1.7em; height: 1.7em; border-radius: 50%; color: var(--muted); font-size: 0.95em; line-height: 1; cursor: pointer; }
@@ -1127,19 +1306,30 @@ index 0000000..51814a1
 +	root.style.opacity = String(data.opacity);
 +	const list = !data.minimized && (data.style === 'list' || hover);
 +	const box = el('div', 'box' + (list ? ' list' : '') + (data.minimized ? ' mini' : ''));
++	let shell = box;
++	// Without padding the page is exactly the wings (or the dot beside the housing): the window is sized to what it reports.
++	root.className = data.notch && !list ? 'bare' : '';
 +	if (data.minimized) {
 +		// Only the agent colour and its state: the avatar of the most urgent agent, and a tooltip with the rest.
 +		const lead = data.items[0] || { key: 'none', cli: 'custom', state: 'idle' };
 +		box.append(avatar(lead));
 +		box.title = data.items.length ? data.items.map(i => i.name + ': ' + label(i)).join('\\n') : 'No agents';
 +		box.addEventListener('click', () => { if (!swallow) { say({ type: 'expand' }); } });
++		if (data.notch) {
++			// The dot sits on the right of the housing, as tall as it: the housing's width is left empty before it.
++			box.classList.add('r');
++			box.style.cssText = 'box-sizing: border-box; padding: 0 0.55em; height: ' + data.notch + 'px';
++			const gap = el('span');
++			gap.style.width = data.gap + 'px';
++			shell = el('div', 'wings');
++			shell.append(gap, box);
++		}
 +		const kept = new Map([...root.querySelectorAll('.avw[data-k]')].map(a => [a.dataset.k, a]));
 +		box.querySelectorAll('.avw[data-k]').forEach(a => { const old = kept.get(a.dataset.k); if (old) { kept.delete(a.dataset.k); a.replaceWith(old); } });
-+		root.replaceChildren(box);
++		root.replaceChildren(shell);
 +		requestAnimationFrame(report);
 +		return;
 +	}
-+	if (data.notch) { box.style.minHeight = data.notch + 'px'; }
 +	if (list) {
 +		if (data.notch) { box.style.paddingTop = data.notch + 'px'; }
 +		box.append(head());
@@ -1149,15 +1339,18 @@ index 0000000..51814a1
 +		const dots = el('div', 'dots');
 +		data.items.slice(0, 6).forEach(i => dots.append(avatar(i)));
 +		if (!data.items.length) { dots.append(avatar({ key: 'none', cli: 'custom', state: 'idle' })); }
-+		// Beside the camera the island is a left wing, the gap and a right wing; the wings are equal-width columns, so the
-+		// gap is the middle of the island whatever they hold, and the window is centred on the display.
-+		const right = data.notch ? el('div', 'wing r') : box;
-+		if (data.notch) {
-+			box.classList.add('wings');
-+			box.style.gridTemplateColumns = '1fr ' + data.gap + 'px 1fr';
-+			const left = el('div', 'wing l');
++		// Beside the camera housing the island is two boxes with the housing, left transparent, between them: the left wing's
++		// content ends where the housing starts, the right wing's starts where it ends, and each is as tall as the housing.
++		const left = data.notch ? box : undefined;
++		const right = data.notch ? el('div', 'box r') : box;
++		if (left) {
++			left.classList.add('l');
 +			left.append(dots);
-+			box.append(left, el('span', 'notch-gap'), right);
++			for (const wing of [left, right]) { wing.style.height = data.notch + 'px'; }
++			shell = el('div', 'wings');
++			const gap = el('span');
++			gap.style.width = data.gap + 'px';
++			shell.append(left, gap, right);
 +		} else {
 +			box.append(dots);
 +		}
@@ -1175,17 +1368,23 @@ index 0000000..51814a1
 +		}
 +		right.append(controls());
 +	}
-+	if (!list) { box.title = data.moved ? 'Drag to move, double-click to put it back' : 'Drag to move'; }
++	if (!list) { shell.querySelectorAll('.box').forEach(b => { b.title = data.moved ? 'Drag to move, double-click to put it back' : 'Drag to move'; }); }
 +	// An avatar that did not change keeps its element, so its animation runs on instead of restarting with each update.
 +	const kept = new Map([...root.querySelectorAll('.avw[data-k]')].map(a => [a.dataset.k, a]));
-+	box.querySelectorAll('.avw[data-k]').forEach(a => { const old = kept.get(a.dataset.k); if (old) { kept.delete(a.dataset.k); a.replaceWith(old); } });
-+	root.replaceChildren(box);
++	shell.querySelectorAll('.avw[data-k]').forEach(a => { const old = kept.get(a.dataset.k); if (old) { kept.delete(a.dataset.k); a.replaceWith(old); } });
++	root.replaceChildren(shell);
 +	requestAnimationFrame(report);
 +}
 +function report() {
 +	const r = root.getBoundingClientRect();
 +	const size = { type: 'size', width: Math.ceil(r.width), height: Math.ceil(r.height) };
-+	const key = size.width + 'x' + size.height;
++	if (root.className === 'bare') {
++		// Beside the camera housing the window is sized from the wings: the main process puts each against the housing.
++		const wing = sel => { const e = root.querySelector(sel); return e ? Math.ceil(e.getBoundingClientRect().width) : 0; };
++		size.left = wing('.box.l');
++		size.right = wing('.box.r');
++	}
++	const key = [size.width, size.height, size.left, size.right].join('x');
 +	if (key !== reported) {
 +		reported = key;
 +		say(size);
@@ -1234,10 +1433,10 @@ index 0000000..51814a1
 +</script></body></html>`;
 diff --git a/src/vs/workbench/contrib/insilodeDesktop/electron-browser/insilodeDesktop.contribution.ts b/src/vs/workbench/contrib/insilodeDesktop/electron-browser/insilodeDesktop.contribution.ts
 new file mode 100644
-index 0000000..c00b221
+index 0000000..3f658c4
 --- /dev/null
 +++ b/src/vs/workbench/contrib/insilodeDesktop/electron-browser/insilodeDesktop.contribution.ts
-@@ -0,0 +1,176 @@
+@@ -0,0 +1,181 @@
 +/*---------------------------------------------------------------------------------------------
 + *  Insilode: agent status outside the window, for Insilode's Agents extension (flow-agent, src/desktop.ts).
 + *
@@ -1245,7 +1444,8 @@ index 0000000..c00b221
 + *    macOS, taskbar overlay icon on Windows, launcher on Linux), through the same native call as
 + *    the Sessions badge. 0 clears it.
 + *  - `flow.desktop.setOverlay(state | undefined)`: this window's agents for the status overlay the
-+ *    main process draws (platform/insilodeDesktop), with the colours of this window's theme.
++ *    main process draws (platform/insilodeDesktop), with the colours of this window's theme. It returns
++ *    whether the island is wanted for this window now.
 + *
 + *  Both commands exist only in the desktop app, so the extension finds them missing in the browser
 + *  and does nothing. A click on an agent in the overlay is the user's gesture: the agent's terminal
@@ -1299,7 +1499,7 @@ index 0000000..c00b221
 +		}));
 +		this._register(CommandsRegistry.registerCommand('flow.desktop.setOverlay', (_accessor, state: unknown) => {
 +			this.overlay = state && typeof state === 'object' ? state as IInsilodeOverlayState : undefined;
-+			this.pushOverlay();
++			return this.pushOverlay();
 +		}));
 +
 +		this._register(this.themeService.onDidColorThemeChange(theme => {
@@ -1381,9 +1581,13 @@ index 0000000..c00b221
 +		return canvas.toDataURL('image/png');
 +	}
 +
-+	private pushOverlay(): void {
++	/** Whether the island is wanted for this window, which flow-agent shows its on/off menus by. */
++	private pushOverlay(): Promise<boolean> {
 +		const colors = this.overlay ? this.overlayColors(this.themeService.getColorTheme()) : undefined;
-+		this.overlayService.update(this.nativeHostService.windowId, this.overlay, colors).catch(err => this.logService.warn(`[insilode desktop] overlay failed: ${err}`));
++		return this.overlayService.update(this.nativeHostService.windowId, this.overlay, colors).catch(err => {
++			this.logService.warn(`[insilode desktop] overlay failed: ${err}`);
++			return false;
++		});
 +	}
 +
 +	/** The overlay in this theme's colours: a widget's background and text, the chart colours for the states. */

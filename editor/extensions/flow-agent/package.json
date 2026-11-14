@@ -452,7 +452,7 @@
         "flow.agents.desktop.overlay.enabled": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "A small status overlay that stays on top of other apps and shows each live agent with its state: working, needs you (approval, question, error) or done. It never takes focus; clicking an agent shows its terminal in Insilode. Drag it to move it (double-click puts it back), minimize it to a dot, or close it with its x, which turns this setting off: bring it back from this setting, the status bar, the Agents view menu or the command \"Show the Agent Status Island\". It hides itself while an Insilode window has focus (`#flow.agents.desktop.overlay.autoHide#`). On a Mac with a notch, `top-center` sits over the notch. Desktop app only. Independent of `#flow.agents.desktop.badge#`."
+          "markdownDescription": "A small status overlay that stays on top of other apps and shows each live agent with its state: working, needs you (approval, question, error) or done. It never takes focus; clicking an agent shows its terminal in Insilode. Drag it to move it (double-click puts it back), minimize it to a dot, or close it with its x, which turns this setting off: bring it back from this setting, the status bar, the Agents view menu or the command \"Show the Agent Status Island\". It hides itself while an Insilode window has focus (`#flow.agents.desktop.overlay.autoHide#`). On a Mac with a notch, `top-center` puts one wing on each side of the camera housing. While you have not set this, the island is on for a Mac whose display has a notch (and stays visible while Insilode has focus) and off everywhere else; set it to true or false and that is what you get. Desktop app only. Independent of `#flow.agents.desktop.badge#`."
         },
         "flow.agents.desktop.overlay.position": {
           "type": "string",
@@ -483,7 +483,7 @@
             "secondary"
           ],
           "enumDescriptions": [
-            "The screen the Insilode window is on (it follows the window)",
+            "The screen the Insilode window is on (it follows the window); on a Mac, the built-in screen when it has a notch",
             "The primary screen",
             "The first screen that is not the primary one (the primary one when there is only one)"
           ],
@@ -613,7 +613,7 @@
             "insilodeFocused": {
               "type": "boolean",
               "default": true,
-              "description": "Hide while an Insilode window has focus"
+              "description": "Hide while an Insilode window has focus. While you have not set this, the island does not hide next to the camera housing of a Mac's notch."
             },
             "axleFocused": {
               "type": "boolean",
@@ -666,22 +666,22 @@
       "commandPalette": [
         {
           "command": "flow.agents.desktop.showOverlay",
-          "when": "flow.agents.desktop.available && !config.flow.agents.desktop.overlay.enabled"
+          "when": "flow.agents.desktop.available && !flow.agents.desktop.overlayOn"
         },
         {
           "command": "flow.agents.desktop.hideOverlay",
-          "when": "flow.agents.desktop.available && config.flow.agents.desktop.overlay.enabled"
+          "when": "flow.agents.desktop.available && flow.agents.desktop.overlayOn"
         }
       ],
       "view/title": [
         {
           "command": "flow.agents.desktop.showOverlay",
-          "when": "view == flow.agents && flow.agents.desktop.available && !config.flow.agents.desktop.overlay.enabled",
+          "when": "view == flow.agents && flow.agents.desktop.available && !flow.agents.desktop.overlayOn",
           "group": "1_island"
         },
         {
           "command": "flow.agents.desktop.hideOverlay",
-          "when": "view == flow.agents && flow.agents.desktop.available && config.flow.agents.desktop.overlay.enabled",
+          "when": "view == flow.agents && flow.agents.desktop.available && flow.agents.desktop.overlayOn",
           "group": "1_island"
         },
         {
