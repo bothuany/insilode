@@ -39,7 +39,7 @@ export type DockAction =
 
 const MAX_ID = 200;
 /** A storage folder's name under agents/: 12 hex digits, with `empty-` before it for a window without a folder (peersCore.ts isKey). */
-const PEER_KEY = /^(?:empty-)?[0-9a-f]{12}$/;
+export const PEER_KEY = /^(?:empty-)?[0-9a-f]{12}$/;
 const ID_TYPES = new Set(['show', 'pr', 'xray', 'forget', 'compact', 'rename', 'explain', 'swap']);
 
 export function dockAction(raw: unknown): DockAction | undefined {

@@ -126,4 +126,78 @@ export interface AgentsPageReplyFailed {
 	id: string;
 }
 
-export type AgentsPageMessage = AgentsPageData | AgentsPageTail | AgentsPageReplyFailed;
+// ---- the page's own chat (chatSessions.ts) ------------------------------------------------------------------------------------
+
+/** A past or open chat session of a project, as the host's index knows it. */
+export interface ChatIndexSession {
+	id: string;
+	kind: 'claude' | 'codex';
+	title: string;
+	modified: number;
+}
+
+/** A folder some agent has worked in. `key` is folderKey(folder): the page sends it back, never the path. */
+export interface ChatProject {
+	key: string;
+	name: string;
+	/** The folder with the home directory shortened, for a tooltip. */
+	where: string;
+	/** This window's own folder. */
+	own: boolean;
+	sessions: ChatIndexSession[];
+}
+
+export interface ChatConfigOption {
+	id: string;
+	name: string;
+	value?: string;
+	items: { value: string; name: string }[];
+}
+
+export type ChatEvent =
+	/** `mid` is the message id the agent gave the chunk: chunks join only within one message, and a user chunk without one never joins. */
+	| { t: 'user'; text: string; mid?: string }
+	| { t: 'text'; text: string; mid?: string }
+	| { t: 'thought'; text: string; mid?: string }
+	/** Upserted by `id`: later events of the same tool fill in what the first did not have. */
+	| { t: 'tool'; id: string; kind?: string; title?: string; status?: string; files?: string[]; diffs?: { path: string; old: string; new: string }[]; out?: string }
+	| { t: 'plan'; entries: { text: string; status: string }[] }
+	| { t: 'ask'; req: number; title: string; files: string[]; options: { name: string; kind: string }[] }
+	| { t: 'asked'; req: number }
+	| { t: 'config'; config: ChatConfigOption[] }
+	| { t: 'usage'; used: number; size: number }
+	| { t: 'stop'; reason: string }
+	/** `fatal`: the turn (or the agent process) is over. Any other error is only a line in the transcript. */
+	| { t: 'error'; text: string; fatal?: true };
+
+export interface AgentsPageChatIndex {
+	type: 'chatIndex';
+	projects: ChatProject[];
+}
+
+/** A chat is open: `chat` is the host's id for it, used in every later message. */
+export interface AgentsPageChatOpened {
+	type: 'chatOpened';
+	chat: string;
+	project: string;
+	kind: 'claude' | 'codex';
+	title: string;
+	busy: boolean;
+	config: ChatConfigOption[];
+}
+
+/** `reset` replaces the transcript (a replay); otherwise the events are appended (a tool event updates its card). */
+export interface AgentsPageChatEvents {
+	type: 'chatEvents';
+	chat: string;
+	reset?: true;
+	events: ChatEvent[];
+}
+
+export interface AgentsPageChatFailed {
+	type: 'chatFailed';
+	project: string;
+	text: string;
+}
+
+export type AgentsPageMessage = AgentsPageData | AgentsPageTail | AgentsPageReplyFailed | AgentsPageChatIndex | AgentsPageChatOpened | AgentsPageChatEvents | AgentsPageChatFailed;

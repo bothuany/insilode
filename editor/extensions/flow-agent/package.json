@@ -239,6 +239,11 @@
         "title": "Open Agents Page",
         "category": "Insilode",
         "icon": "$(sparkle)"
+      },
+      {
+        "command": "flow.agents.forgetTrustedFolders",
+        "title": "Forget Folders Trusted for Agents",
+        "category": "Insilode"
       }
     ],
     "keybindings": [

@@ -10,9 +10,11 @@ import { buildRows, skeletonStages } from './agentRows';
 import type { Agents } from './agents';
 import { bypassAllowed, BYPASS_SETTING } from './bypass';
 import type { StartHow } from './dockMessage';
-import type { AgentsPageData, AgentsPageMessage, AgentsPageTail } from './agentsData';
+import type { AgentsPageData, AgentsPageMessage, AgentsPageTail, ChatEvent } from './agentsData';
 import { agentsAction } from './agentsMessage';
 import { agentsHtml } from './agentsPage';
+import { appendEvent } from './chatCore';
+import type { ChatSessions } from './chatSessions';
 import { readAvatar } from './desktopModel';
 import type { Peers } from './peers';
 import { renameFromPalette } from './paletteActions';
@@ -29,8 +31,14 @@ export class AgentsPanel implements vscode.Disposable {
 	/** A repaint waits for flow-view's answers; one that a newer repaint overtook while waiting is dropped, so the older data never lands last. */
 	private paint = 0;
 	private listeners: vscode.Disposable[] = [];
+	/** The chat the page has open, and the events of it not sent yet: bursts of streamed text go out as one message every ~30 ms. */
+	private openChat: string | undefined;
+	private chatQueue: ChatEvent[] = [];
+	private chatTimer: NodeJS.Timeout | undefined;
+	/** Counts the page's opens: when two are asked in a row the last one wins, however long each takes. */
+	private openSeq = 0;
 
-	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows, private readonly peers?: Peers) {}
+	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows, private readonly peers?: Peers, private readonly chats?: ChatSessions) {}
 
 	/**
 	 * Opens the page, or brings the open one to the front. On the desktop it opens in a window of its own (flowAgent.agentsPage.location,
@@ -71,6 +79,7 @@ export class AgentsPanel implements vscode.Disposable {
 		this.listeners = [
 			panel.webview.onDidReceiveMessage(raw => this.onMessage(raw)),
 			this.agents.onDidChange(repaint),
+			...(this.chats ? [this.chats.onEvent(e => this.chatEvent(e.chat, e.event))] : []),
 			...(this.worktrees ? [this.worktrees.onDidChange(repaint)] : []),
 			...(this.peers ? [this.peers.onDidChange(repaint)] : []),
 			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst') || e.affectsConfiguration('flow.agents.custom') || e.affectsConfiguration(BYPASS_SETTING)) && this.post()),
@@ -93,6 +102,9 @@ export class AgentsPanel implements vscode.Disposable {
 		}
 		this.panel = undefined;
 		clearTimeout(this.timer);
+		clearTimeout(this.chatTimer);
+		this.openChat = undefined;
+		this.chatQueue = [];
 		this.listeners.forEach(d => d.dispose());
 		this.listeners = [];
 	}
@@ -104,7 +116,10 @@ export class AgentsPanel implements vscode.Disposable {
 	private onMessage(raw: unknown) {
 		const m = agentsAction(raw);
 		switch (m?.type) {
-			case 'ready': return this.post();
+			case 'ready':
+				this.post();
+				// A page that (re)loads gets the list and the chat it had open, in full.
+				return void this.chatReady();
 			case 'new': return void vscode.commands.executeCommand('flow.agents.start', m.cli);
 			case 'show': return this.agents.show(m.id);
 			case 'flow': return this.agents.openImpactFlow(m.id, m.index);
@@ -137,7 +152,71 @@ export class AgentsPanel implements vscode.Disposable {
 			case 'kept': return void vscode.commands.executeCommand('flow.agents.keptWorktrees');
 			// Another window's project or session: looked up by key and id in what this window read (peers.ts), never a path.
 			case 'peer': return void this.peers?.act(m.action, m.key, m.id);
+			// The page's own chat (chatSessions.ts): every id was issued by the host, and the host re-checks it.
+			case 'chatList': return void this.sendIndex();
+			case 'chatOpen': return void this.chatOpen(m.project, m.kind, m.session);
+			case 'chatPrompt': return void this.chats?.prompt(m.chat, m.text);
+			case 'chatCancel': return void this.chats?.cancel(m.chat);
+			case 'chatAnswer': return this.chats?.answer(m.chat, m.req, m.option);
+			case 'chatSet': return void this.chats?.setOption(m.chat, m.config, m.value);
 		}
+	}
+
+	private async sendIndex() {
+		if (this.chats) {
+			this.send({ type: 'chatIndex', projects: await this.chats.projects() });
+		}
+	}
+
+	/** The open chat in full: its header and its whole transcript, which replaces what the page drew. */
+	private sendChat() {
+		const chat = this.openChat ? this.chats?.get(this.openChat) : undefined;
+		if (!chat || !this.chats) {
+			return;
+		}
+		clearTimeout(this.chatTimer);
+		this.chatTimer = undefined;
+		this.chatQueue = [];
+		const { opened, events } = this.chats.opened(chat);
+		this.send(opened);
+		this.send({ type: 'chatEvents', chat: opened.chat, reset: true, events });
+	}
+
+	private async chatReady() {
+		await this.sendIndex();
+		this.sendChat();
+	}
+
+	private async chatOpen(project: string, kind: 'claude' | 'codex', session: string | undefined) {
+		const seq = ++this.openSeq;
+		try {
+			const chat = await this.chats?.open(project, kind, session);
+			if (chat && seq === this.openSeq) {
+				this.openChat = chat.id;
+				this.sendChat();
+				void this.sendIndex();
+			}
+		} catch (e) {
+			// An older open that failed after a newer one began is not what the page waits for.
+			if (seq === this.openSeq) {
+				this.send({ type: 'chatFailed', project, text: (e as Error).message });
+			}
+		}
+	}
+
+	private chatEvent(chat: string, event: ChatEvent) {
+		if (chat !== this.openChat) {
+			return;
+		}
+		appendEvent(this.chatQueue, event);
+		this.chatTimer ??= setTimeout(() => {
+			this.chatTimer = undefined;
+			const events = this.chatQueue;
+			this.chatQueue = [];
+			if (this.openChat === chat && events.length) {
+				this.send({ type: 'chatEvents', chat, events });
+			}
+		}, 30);
 	}
 
 	/** "In a worktree", "Resume a session…" and Claude's bypass switch of a start button's menu. */

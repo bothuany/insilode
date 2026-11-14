@@ -1,0 +1,5 @@
+{"type":"summary","summary":"x"}
+{"type":"user","cwd":"@APP@","sessionId":"s","isMeta":true,"message":{"role":"user","content":"<command-name>/clear</command-name>"}}
+{"type":"user","cwd":"@APP@","sessionId":"s","message":{"role":"user","content":[{"type":"text","text":"Fix the   login bug"}]}}
+{"type":"assistant","cwd":"@APP@","message":{"role":"assistant","content":[{"type":"text","text":"On it"}]}}
+{"type":"custom-title","customTitle":"Login work","sessionId":"s"}

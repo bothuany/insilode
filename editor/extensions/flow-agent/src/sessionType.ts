@@ -14,6 +14,7 @@ import type {
 	SessionNotification,
 } from '@agentclientprotocol/sdk';
 import { AgentHost, explain, type AgentKind } from './acp';
+import { autoAnswer, currentValue, diffsOf, permissionDecision, selectItems } from './chatCore';
 import { agentCwd } from './env';
 import { gazeAcp, gazeTurn } from './gazeHost';
 
@@ -52,25 +53,6 @@ class EditTracker {
 			this.complete(id);
 		}
 	}
-}
-
-/** One select-type ACP config option, flattened (options may be grouped). */
-function selectItems(opt: SessionConfigOption): { value: string; name: string; description?: string }[] {
-	const raw = (opt as { options?: unknown[] }).options ?? [];
-	const out: { value: string; name: string; description?: string }[] = [];
-	for (const o of raw as Array<{ value?: string; name?: string; description?: string; options?: unknown[] }>) {
-		if (o.options) {
-			out.push(...selectItems({ ...opt, options: o.options } as SessionConfigOption));
-		} else if (o.value !== undefined) {
-			out.push({ value: o.value, name: o.name ?? o.value, description: o.description ?? undefined });
-		}
-	}
-	return out;
-}
-
-function currentValue(opt: SessionConfigOption): string | undefined {
-	const v = (opt as { currentValue?: unknown }).currentValue;
-	return typeof v === 'string' ? v : undefined;
 }
 
 const SKILL_GROUP = 'flow.skill';
@@ -608,15 +590,12 @@ export class AgentSessionType implements vscode.Disposable {
 		const files = (r.toolCall.locations ?? []).map(l => l.path);
 		const isEdit = r.toolCall.kind === 'edit';
 		const mode = this.approval.get(r.sessionId) ?? this.harnessMode ?? 'default';
-		const auto = mode === 'bypassPermissions' || ((mode === 'acceptEdits' || mode === 'auto') && isEdit);
-
-		let option = auto ? r.options.find(o => o.kind === 'allow_once') ?? r.options.find(o => o.kind.startsWith('allow')) : undefined;
+		let option = autoAnswer(mode, r.toolCall.kind, r.options, { cwd: this.cwd, files });
+		const auto = !!option;
 		if (!option) {
 			const title = r.toolCall.title ?? 'Tool';
 			// Insilode's canvas marks the methods this edit would touch while the user decides.
-			const diffs = ((r.toolCall.content ?? []) as Array<{ type: string; path?: string; oldText?: string | null; newText?: string }>)
-				.filter(c => c.type === 'diff' && c.path)
-				.map(c => ({ path: c.path!, oldText: c.oldText ?? null, newText: c.newText ?? '' }));
+			const diffs = diffsOf(r.toolCall.content);
 			if (isEdit) {
 				await Promise.resolve(vscode.commands.executeCommand('flow.agentProposes', { agent: LABEL[this.kind], title, files, diffs })).catch(() => undefined);
 			}
@@ -647,7 +626,7 @@ export class AgentSessionType implements vscode.Disposable {
 			title: r.toolCall.title ?? 'Tool',
 			files,
 			rawInput: (r.toolCall as { rawInput?: unknown }).rawInput ?? undefined,
-			decision: !option ? 'cancelled' : !option.kind.startsWith('allow') ? 'denied' : auto ? 'auto' : 'allowed',
+			decision: permissionDecision(option, auto),
 		})).catch(() => undefined);
 		if (!option) {
 			return { outcome: { outcome: 'cancelled' } };

@@ -9,6 +9,7 @@ import { agentLook } from './agentLook';
 import { installAgentExtensions } from './agentExtensions';
 import { Agents } from './agents';
 import { AgentsPanel, OPEN_AGENTS_PAGE } from './agentsPanel';
+import { ChatSessions, forgetTrustedFolders } from './chatSessions';
 import { AskRouter } from './ask';
 import { DesktopStatus } from './desktop';
 import { AgentsDock } from './dock';
@@ -60,7 +61,9 @@ export function activate(context: vscode.ExtensionContext) {
 	const worktrees = new WorktreeRows(agents);
 	const peers = new Peers(agents, worktrees);
 	const dock = new AgentsDock(agents, worktrees, peers);
-	const page = new AgentsPanel(agents, worktrees, peers);
+	// The Agents page's own chat (not VS Code's chat: it works with or without flow.agents.showChat), with agent processes of its own.
+	const chats = new ChatSessions(context, agents, log);
+	const page = new AgentsPanel(agents, worktrees, peers, chats);
 	const router = new AskRouter(context, agents);
 	context.subscriptions.push(
 		agents,
@@ -68,8 +71,10 @@ export function activate(context: vscode.ExtensionContext) {
 		worktrees,
 		peers,
 		dock,
+		chats,
 		page,
 		vscode.commands.registerCommand(OPEN_AGENTS_PAGE, () => page.open()),
+		vscode.commands.registerCommand('flow.agents.forgetTrustedFolders', () => forgetTrustedFolders(context)),
 		new AttentionNotifier(agents),
 		new PrEvents(agents, context.globalState),
 		new DesktopStatus(agents, log),
