@@ -10,3 +10,8 @@
 export function idInUse(existing: { state: string } | undefined, hasTerminal: boolean): boolean {
 	return !!existing && existing.state !== 'ended' && hasTerminal;
 }
+
+/** What the user is told when a Claude session that some live process runs (the registry in liveSessions.ts says so) is asked to resume: where it runs, and what to do. */
+export function elsewhereMessage(name: string, where: { source: string; pid: number }): string {
+	return `${name || 'That session'} is running in ${where.source} (process ${where.pid}), not started a second time: two processes on one conversation corrupt it. Close it there first.`;
+}

@@ -104,10 +104,13 @@ export class TermHost implements vscode.Disposable {
 			return known.id;
 		}
 		// Two processes on one conversation corrupt it: a session another program runs is only read here.
-		const elsewhere = kind === 'claude' && sessionId ? await this.live?.(sessionId) : undefined;
-		if (elsewhere) {
-			throw new Error(`Not started: that session is running in ${elsewhere}. Close it there first.`);
-		}
+		const elsewhere = () => kind === 'claude' && sessionId ? this.live?.(sessionId) : undefined;
+		const refuse = (where: string | undefined) => {
+			if (where) {
+				throw new Error(`Not started: that session is running in ${where}. Close it there first.`);
+			}
+		};
+		refuse(await elsewhere());
 		let folder: string | undefined;
 		if (cwd !== undefined) {
 			const { where } = await trustFolder(this.context, cwd);
@@ -117,6 +120,8 @@ export class TermHost implements vscode.Disposable {
 			}
 			folder = cwd;
 		}
+		// The question for a folder can stay open for a long time, and the session may have been started elsewhere meanwhile.
+		refuse(await elsewhere());
 		// Codex's session id is the id of the record, as startOrResume (resume.ts) makes it; Claude's too.
 		const past: AgentSession | undefined = !sessionId ? undefined : known ?? { id: sessionId, cli: kind, name: '', state: 'ended', since: Date.now(), todos: [], unread: false, agentId: kind === 'codex' ? sessionId : undefined };
 		const session = await this.agents.spawn(kind, past, undefined, undefined, { cwd: folder, quiet: true });

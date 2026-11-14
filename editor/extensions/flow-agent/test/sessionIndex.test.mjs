@@ -131,8 +131,13 @@ test('the index scans at most once per 10 seconds, and overlapping asks share on
 	assert.equal(x, y)
 	m.claude('-a', user(app, 'two'))
 	assert.equal(await idx.list(t0 + 9_999), x, 'the last answer, still fresh')
+	// The page's poll asks for what there is, however old: it never makes a scan of its own.
+	assert.equal(await idx.list(t0 + 60_000, true), x)
 	const later = await idx.list(t0 + 10_001)
 	assert.equal(later[0].sessions.length, 2)
+	m.claude('-a', user(app, 'three'))
+	assert.equal(await idx.list(t0 + 60_000, true), later, 'cached asks never rescan')
+	assert.equal((await new s.SessionIndex().list(t0, true))[0].sessions.length, 3, 'with nothing scanned yet there is a first scan')
 })
 
 test('a rollout with two session_meta lines before its first prompt is the one named by the last (as the resume list always read it)', async () => {

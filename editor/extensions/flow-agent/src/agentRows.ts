@@ -43,5 +43,6 @@ export function buildRows(agents: Agents, worktrees: WorktreeRows | undefined, s
 			skeletonOn: agents.skeletonOn(s.id), skeletonAvailable: s.state !== 'ended' && s.cli !== 'custom', skeletonStage: stages.get(s.id),
 			clash: s.state === 'ended' ? undefined : conflicts.get(s.id)?.map(c => ({ text: conflictText(c), same: c.sameCheckout, files: c.files.slice(0, 12) })),
 			// The same rule typeInto applies at the moment of typing.
-			acceptsInput: (() => { const a = asking.get(s.id); return !!a && canType(a, customs); })() }));
+			acceptsInput: (() => { const a = asking.get(s.id); return !!a && canType(a, customs); })(),
+			aliases: s.cli === 'claude' && s.state !== 'ended' ? agents.aliasesOf(s.id) : undefined }));
 }

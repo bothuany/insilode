@@ -82,38 +82,48 @@ export class AgentsPanel implements vscode.Disposable {
 
 	/**
 	 * Opens the page, or brings the open one to the front. On the desktop it opens in a window of its own (flow.agents.page.location,
-	 * default "window"); in the web UI, which has no second window, and with "tab" it stays an editor tab. One panel, so a second
-	 * call reveals the same page wherever it lives now.
+	 * default "window"): core makes a compact auxiliary window that shows only the page and keeps every other editor out of it
+	 * (`_insilode.agents.openWindow`, editor/patches/flow-core.patch), and the page is created straight in it. In the web UI, which has no
+	 * second window, with "tab", and on a core without that command it is an editor tab. One panel, so a second call reveals the same
+	 * page wherever it lives now (which also brings its window to the front).
 	 */
 	open(): void {
 		if (this.panel) {
+			// No column: a column is an index over all windows' groups, stale as soon as the main window gains one, and naming one would move the page there.
+			// Without it core finds the group the page is in already (a webview editor is a singleton) and brings its window up.
 			this.panel.reveal();
 			return;
 		}
-		this.create();
+		if (this.opening) {
+			return;
+		}
 		if (vscode.env.uiKind === vscode.UIKind.Desktop && vscode.workspace.getConfiguration('flow.agents.page').get<string>('location', 'window') !== 'tab') {
-			void this.intoWindow(this.panel);
+			this.opening = true;
+			void this.openInWindow().finally(() => { this.opening = false; });
+		} else {
+			this.create(vscode.ViewColumn.Active);
 		}
 	}
 
-	/** Moves the active editor into a new window, once the page is the active editor: the command moves whichever one is active, so a slow open must not move another tab. */
-	private async intoWindow(panel: vscode.WebviewPanel | undefined) {
-		if (panel && !panel.active) {
-			await new Promise<void>(resolve => {
-				const done = () => { d.dispose(); clearTimeout(t); resolve(); };
-				const d = panel.onDidChangeViewState(e => e.webviewPanel.active && done());
-				const t = setTimeout(done, 3000);
-			});
+	/** A window is being made: a second click meanwhile must not make a second one. */
+	private opening = false;
+
+	private async openInWindow() {
+		let column: unknown;
+		try {
+			column = await vscode.commands.executeCommand('_insilode.agents.openWindow');
+		} catch {
+			// A core without the command (an older build) shows the page as a tab.
 		}
-		if (panel && panel.active && panel === this.panel) {
-			await Promise.resolve(vscode.commands.executeCommand('workbench.action.moveEditorToNewWindow')).catch(() => undefined);
-		}
+		this.create(typeof column === 'number' && column >= 1 ? column : vscode.ViewColumn.Active);
 	}
 
-	private create(): void {
-		const panel = vscode.window.createWebviewPanel('flow.agentsPage', 'Agents', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
+	private create(column: vscode.ViewColumn): void {
+		const panel = vscode.window.createWebviewPanel('flow.agentsPage', 'Agents', column, { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
 		this.panel = panel;
-		panel.iconPath = new vscode.ThemeIcon('sparkle') as unknown as vscode.WebviewPanel['iconPath'];
+		// The Agents mark (media/agents*.svg, one drawing per theme kind: a tab icon is an image, not a mask).
+		const icon = (name: string) => vscode.Uri.file(path.join(__dirname, '..', 'media', name));
+		panel.iconPath = { light: icon('agents-light.svg'), dark: icon('agents-dark.svg') };
 		panel.webview.html = agentsHtml(randomBytes(16).toString('base64'), termAssets());
 		const repaint = () => this.post();
 		this.listeners = [
@@ -309,7 +319,8 @@ export class AgentsPanel implements vscode.Disposable {
 		if (!this.projects) {
 			return;
 		}
-		const projects = await this.projects.projects();
+		// The poll never makes a scan of the transcripts of its own (every few seconds that is what it would do); it uses the last one.
+		const projects = await this.projects.projects({ cached: changedOnly });
 		const sig = JSON.stringify(projects);
 		if (!changedOnly || sig !== this.indexSig) {
 			this.indexSig = sig;
@@ -368,7 +379,22 @@ export class AgentsPanel implements vscode.Disposable {
 		return cli === 'claude' ? vscode.commands.executeCommand('flow.agents.resume') : startOrResume(this.agents, 'codex', false);
 	}
 
+	/** The tails being read, by session: the page asks again every few seconds, and a read that has not come back must not be followed by another on the same file. */
+	private readonly tailing = new Set<string>();
+
 	private async tail(id: string, kind?: 'claude' | 'codex') {
+		if (this.tailing.has(id)) {
+			return;
+		}
+		this.tailing.add(id);
+		try {
+			await this.readTailOf(id, kind);
+		} finally {
+			this.tailing.delete(id);
+		}
+	}
+
+	private async readTailOf(id: string, kind?: 'claude' | 'codex') {
 		const s = this.agents.sessions.get(id);
 		const reply = (entries: AgentsPageTail['entries'], note?: string) => this.send({ type: 'tail', id, entries, ...(note ? { note } : {}) });
 		if (!s && kind) {

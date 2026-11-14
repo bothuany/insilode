@@ -3,7 +3,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -117,4 +117,43 @@ test('a tail is read from a transcript the host lists: an indexed one, or the li
 	assert.equal(index.transcriptOf('claude', randomUUID()), undefined)
 	assert.equal(index.transcriptOf('codex', outside.id), undefined, 'the kind must match')
 	assert.notEqual(await index.runningSignature(), await new mod.ProjectIndex(() => m.own, () => [], () => [], async () => []).runningSignature())
+})
+
+test('the poll\'s read asks the registry once, and a cached index never scans the transcripts again', T, async () => {
+	const m = machine()
+	let asked = 0
+	const index = new mod.ProjectIndex(() => m.own, () => [], () => [], async () => { asked++; return [] })
+	await index.projects()
+	assert.equal(asked, 1)
+	// A new transcript appears: only a scan sees it.
+	const dir = join(process.env.CLAUDE_CONFIG_DIR, 'projects', '-own')
+	const late = randomUUID()
+	writeFileSync(join(dir, late + '.jsonl'), transcript(m.own, 'written later'))
+	asked = 0
+	await index.runningSignature()
+	const cached = await index.projects({ cached: true })
+	assert.equal(asked, 1, 'the signature and the index it led to share one look at the registry')
+	assert.equal(cached[0].sessions.some(s => s.id === late), false, 'the cached index does not know the new transcript')
+	await index.projects({ cached: true })
+	assert.equal(asked, 2, 'a look of its own when the signature was not asked first')
+})
+
+test('a Codex rollout that changed after the last scan is "recently active" in a cached look too: its time is read again, on a copy', T, async () => {
+	const m = machine()
+	const id = '11111111-2222-3333-4444-555555555555'
+	const dir = join(process.env.CODEX_HOME, 'sessions', '2026', '01', '01')
+	mkdirSync(dir, { recursive: true })
+	const file = join(dir, 'rollout-2026-01-01T00-00-00-x.jsonl')
+	writeFileSync(file, JSON.stringify({ type: 'session_meta', payload: { id, cwd: m.other } }) + '\n' + JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'Add a retry' } }) + '\n')
+	const old = Date.now() / 1000 - 3600
+	utimesSync(file, old, old)
+	const index = new mod.ProjectIndex(() => m.own, () => [])
+	const codexOf = list => list.flatMap(p => p.sessions).find(s => s.kind === 'codex')
+	assert.equal(codexOf(await index.projects()).live, undefined, 'an hour old: not active')
+	const now = Date.now() / 1000
+	utimesSync(file, now, now)
+	// The scan is not repeated (a cached look), yet the file's new time is seen.
+	const cached = codexOf(await index.projects({ cached: true }))
+	assert.deepEqual(cached.live, { status: 'unknown', source: 'Codex', basis: 'recent' })
+	assert.equal(codexOf(await index.projects()).live?.basis, 'recent', 'and so is a look that is free to scan but reuses a scan under ten seconds old')
 })

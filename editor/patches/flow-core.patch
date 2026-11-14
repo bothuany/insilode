@@ -1290,3 +1290,216 @@ index 248fa9a5..8704b039 100644
  }
  
  function registerOpenTerminalAtIndexCommands(): void {
+diff --git a/src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts b/src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts
+index 9e5aa386..0b1e9f7b 100644
+--- a/src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts
++++ b/src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts
+@@ -7,11 +7,12 @@ import { onDidChangeFullscreen } from '../../../../base/browser/browser.js';
+ import { $, getActiveWindow, hide, show } from '../../../../base/browser/dom.js';
+ import { mainWindow } from '../../../../base/browser/window.js';
+ import { Emitter, Event } from '../../../../base/common/event.js';
+-import { DisposableStore, markAsSingleton, MutableDisposable } from '../../../../base/common/lifecycle.js';
++import { DisposableStore, markAsSingleton, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+ import { isNative } from '../../../../base/common/platform.js';
++import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+ import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+-import { ContextKeyExpr, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+-import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
++import { ContextKeyExpr, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
++import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+ import { ServiceCollection } from '../../../../platform/instantiation/common/serviceCollection.js';
+ import { IStorageService } from '../../../../platform/storage/common/storage.js';
+ import { IThemeService } from '../../../../platform/theme/common/themeService.js';
+@@ -21,7 +22,8 @@ import { EditorPart, IEditorPartUIState } from './editorPart.js';
+ import { IAuxiliaryTitlebarPart } from '../titlebar/titlebarPart.js';
+ import { WindowTitle } from '../titlebar/windowTitle.js';
+ import { IAuxiliaryWindowOpenOptions, IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
+-import { GroupDirection, GroupsOrder, IAuxiliaryEditorPart, GroupActivationReason } from '../../../services/editor/common/editorGroupsService.js';
++import { GroupDirection, GroupsOrder, IAuxiliaryEditorPart, GroupActivationReason, IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
++import { editorGroupToColumn } from '../../../services/editor/common/editorGroupColumn.js';
+ import { IEditorService } from '../../../services/editor/common/editorService.js';
+ import { IHostService } from '../../../services/host/browser/host.js';
+ import { IWorkbenchLayoutService, Parts, shouldShowCustomTitleBar } from '../../../services/layout/browser/layoutService.js';
+@@ -33,12 +35,23 @@ import { localize, localize2 } from '../../../../nls.js';
+ import { Codicon } from '../../../../base/common/codicons.js';
+ import { IsAuxiliaryWindowContext, IsAuxiliaryWindowFocusedContext, IsCompactTitleBarContext } from '../../../common/contextkeys.js';
+ import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
+-import { GroupIdentifier } from '../../../common/editor.js';
++import { GroupIdentifier, GroupModelChangeKind } from '../../../common/editor.js';
++import { EditorInput } from '../../../common/editor/editorInput.js';
+ 
+ export interface IAuxiliaryEditorPartOpenOptions extends IAuxiliaryWindowOpenOptions {
+ 	readonly state?: IEditorPartUIState;
++
++	/**
++	 * Insilode: a window that shows its one editor and nothing else, like the Agents page. It is compact for good (nothing turns compact
++	 * mode off), accepts no dropped tab, and once its editor is there it is locked, so editors opened without naming a group go to the
++	 * main window; one that still arrives (an explicit group) is moved to the main window.
++	 */
++	readonly exclusive?: boolean;
+ }
+ 
++/** Insilode: the window is exclusive (see {@link IAuxiliaryEditorPartOpenOptions.exclusive}): its compact toggle is not offered. */
++export const IsExclusiveAuxiliaryWindowContext = new RawContextKey<boolean>('insilodeExclusiveWindow', false);
++
+ export interface ICreateAuxiliaryEditorPartResult {
+ 	readonly part: AuxiliaryEditorPartImpl;
+ 	readonly instantiationService: IInstantiationService;
+@@ -73,7 +86,7 @@ registerAction2(class extends Action2 {
+ 			icon: Codicon.screenFull,
+ 			menu: {
+ 				id: MenuId.LayoutControlMenu,
+-				when: ContextKeyExpr.and(IsCompactTitleBarContext.toNegated(), IsAuxiliaryWindowContext),
++				when: ContextKeyExpr.and(IsCompactTitleBarContext.toNegated(), IsAuxiliaryWindowContext, IsExclusiveAuxiliaryWindowContext.toNegated()),
+ 				order: 0,
+ 				group: 'navigation'
+ 			}
+@@ -94,7 +107,7 @@ registerAction2(class extends Action2 {
+ 			icon: Codicon.screenNormal,
+ 			menu: {
+ 				id: MenuId.LayoutControlMenu,
+-				when: ContextKeyExpr.and(IsCompactTitleBarContext, IsAuxiliaryWindowContext),
++				when: ContextKeyExpr.and(IsCompactTitleBarContext, IsAuxiliaryWindowContext, IsExclusiveAuxiliaryWindowContext.toNegated()),
+ 				order: 0,
+ 				group: 'navigation'
+ 			}
+@@ -106,6 +119,20 @@ registerAction2(class extends Action2 {
+ 	}
+ });
+ 
++/**
++ * Insilode: opens the Agents page's window and returns the view column (as `vscode.ViewColumn` numbers them) of its group, which the
++ * extension passes to createWebviewPanel; nothing when the window could not be made. The extension host cannot ask for a window (the API
++ * has no such column), and a tab moved into one afterwards would show for a moment in the main window first.
++ */
++CommandsRegistry.registerCommand('_insilode.agents.openWindow', async (accessor: ServicesAccessor): Promise<number | undefined> => {
++	const editorGroupsService = accessor.get(IEditorGroupsService);
++	// A variable, not a literal: `exclusive` is read by the implementation, which takes the wider options type.
++	const options: IAuxiliaryEditorPartOpenOptions = { compact: true, exclusive: true, bounds: { width: 1280, height: 840 } };
++	const part = await editorGroupsService.createAuxiliaryEditorPart(options);
++	const column = editorGroupToColumn(editorGroupsService, part.activeGroup);
++	return column >= 0 ? column + 1 : undefined;
++});
++
+ export class AuxiliaryEditorPart {
+ 
+ 	private static STATUS_BAR_VISIBILITY = 'workbench.statusBar.visible';
+@@ -127,7 +154,8 @@ export class AuxiliaryEditorPart {
+ 		const that = this;
+ 		const disposables = new DisposableStore();
+ 
+-		let compact = Boolean(options?.compact);
++		const exclusive = Boolean(options?.exclusive);
++		let compact = Boolean(options?.compact) || exclusive;
+ 
+ 		function computeEditorPartHeightOffset(): number {
+ 			let editorPartHeightOffset = 0;
+@@ -172,7 +200,7 @@ export class AuxiliaryEditorPart {
+ 		}
+ 
+ 		function updateCompact(newCompact: boolean): void {
+-			if (newCompact === compact) {
++			if (newCompact === compact || (exclusive && !newCompact)) {
+ 				return;
+ 			}
+ 
+@@ -196,7 +224,7 @@ export class AuxiliaryEditorPart {
+ 		editorPartContainer.style.position = 'relative';
+ 		auxiliaryWindow.container.appendChild(editorPartContainer);
+ 
+-		const editorPart = disposables.add(this.instantiationService.createInstance(AuxiliaryEditorPartImpl, auxiliaryWindow.window.vscodeWindowId, this.editorPartsView, options?.state, label));
++		const editorPart = disposables.add(this.instantiationService.createInstance(AuxiliaryEditorPartImpl, auxiliaryWindow.window.vscodeWindowId, this.editorPartsView, options?.state, label, exclusive));
+ 		editorPart.updateOptions({ compact });
+ 		disposables.add(this.editorPartsView.registerPart(editorPart));
+ 		editorPart.create(editorPartContainer);
+@@ -205,6 +233,34 @@ export class AuxiliaryEditorPart {
+ 			[IEditorService, this.editorService.createScoped(editorPart, disposables)]
+ 		)));
+ 
++		// Exclusive: the first editor is the window's own; later ones are not welcome here
++		if (exclusive) {
++			const group = editorPart.activeGroup;
++			let owner: EditorInput | undefined;
++			disposables.add(group.onDidModelChange(e => {
++				if (e.kind !== GroupModelChangeKind.EDITOR_OPEN || !e.editor) {
++					return;
++				}
++
++				if (!owner) {
++					owner = e.editor;
++					group.lock(true); // from now on an editor opened without a group goes to another group
++					return;
++				}
++
++				const stray = e.editor;
++				if (stray !== owner) {
++					// After the open that brought it has finished
++					const handle = setTimeout(() => {
++						if (!disposables.isDisposed && group.contains(stray)) {
++							group.moveEditor(stray, this.editorPartsView.mainPart.activeGroup);
++						}
++					}, 0);
++					disposables.add(toDisposable(() => clearTimeout(handle)));
++				}
++			}));
++		}
++
+ 		// Titlebar
+ 		let titlebarPart: IAuxiliaryTitlebarPart | undefined = undefined;
+ 		let titlebarVisible = false;
+@@ -351,6 +407,7 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
+ 		editorPartsView: IEditorPartsView,
+ 		private readonly state: IEditorPartUIState | undefined,
+ 		groupsLabel: string,
++		private readonly exclusive: boolean,
+ 		@IInstantiationService instantiationService: IInstantiationService,
+ 		@IThemeService themeService: IThemeService,
+ 		@IConfigurationService configurationService: IConfigurationService,
+@@ -366,6 +423,7 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
+ 	protected override handleContextKeys(): void {
+ 		const isAuxiliaryWindowContext = IsAuxiliaryWindowContext.bindTo(this.scopedContextKeyService);
+ 		isAuxiliaryWindowContext.set(true);
++		IsExclusiveAuxiliaryWindowContext.bindTo(this.scopedContextKeyService).set(this.exclusive);
+ 
+ 		super.handleContextKeys();
+ 	}
+@@ -378,7 +436,8 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
+ 				this.optionsDisposable.value = this.enforcePartOptions({
+ 					showTabs: 'none',
+ 					showBreadcrumbs: false,
+-					closeEmptyGroups: true
++					closeEmptyGroups: true,
++					...(this.exclusive ? { allowDropIntoGroup: false } : {})
+ 				});
+ 			}
+ 		} else {
+diff --git a/src/vs/workbench/electron-browser/actions/windowActions.ts b/src/vs/workbench/electron-browser/actions/windowActions.ts
+index e2659d27..5538be13 100644
+--- a/src/vs/workbench/electron-browser/actions/windowActions.ts
++++ b/src/vs/workbench/electron-browser/actions/windowActions.ts
+@@ -32,6 +32,7 @@ import { IOpenedAuxiliaryWindow, IOpenedMainWindow, isOpenedAuxiliaryWindow } fr
+ import { IsAuxiliaryWindowContext, IsAuxiliaryWindowFocusedContext, IsWindowAlwaysOnTopContext } from '../../common/contextkeys.js';
+ import { isAuxiliaryWindow, mainWindow } from '../../../base/browser/window.js';
+ import { ContextKeyExpr } from '../../../platform/contextkey/common/contextkey.js';
++import { IsExclusiveAuxiliaryWindowContext } from '../../browser/parts/editor/auxiliaryEditorPart.js';
+ 
+ export class CloseWindowAction extends Action2 {
+ 
+@@ -525,7 +526,7 @@ export class EnableWindowAlwaysOnTopAction extends Action2 {
+ 			icon: Codicon.pin,
+ 			menu: {
+ 				id: MenuId.LayoutControlMenu,
+-				when: ContextKeyExpr.and(IsWindowAlwaysOnTopContext.toNegated(), IsAuxiliaryWindowContext),
++				when: ContextKeyExpr.and(IsWindowAlwaysOnTopContext.toNegated(), IsAuxiliaryWindowContext, IsExclusiveAuxiliaryWindowContext.toNegated()),
+ 				order: 1,
+ 				group: 'navigation'
+ 			}
+@@ -555,7 +556,7 @@ export class DisableWindowAlwaysOnTopAction extends Action2 {
+ 			icon: Codicon.pinned,
+ 			menu: {
+ 				id: MenuId.LayoutControlMenu,
+-				when: ContextKeyExpr.and(IsWindowAlwaysOnTopContext, IsAuxiliaryWindowContext),
++				when: ContextKeyExpr.and(IsWindowAlwaysOnTopContext, IsAuxiliaryWindowContext, IsExclusiveAuxiliaryWindowContext.toNegated()),
+ 				order: 1,
+ 				group: 'navigation'
+ 			}

@@ -16,6 +16,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type { ChatProject, LiveMark, LiveStatus } from './agentsData';
 import { samePath } from './chatCore';
+import { openRegular } from './safeFile';
 
 export interface LiveSession {
 	/** Claude's session id (a uuid). */
@@ -33,15 +34,20 @@ export interface LiveSession {
 export interface LiveIo {
 	readdir(dir: string): Promise<string[]>;
 	/** Not following links: a link is not a regular file. */
-	lstat(file: string): Promise<{ isFile(): boolean; size: number }>;
-	/** At most `max` bytes. */
+	lstat(file: string): Promise<{ isFile(): boolean; size: number; mtimeMs: number }>;
+	/** At most `max` bytes; rejects, without waiting, for anything but a regular file of at most that size (safeFile.ts). */
 	read(file: string, max: number): Promise<string>;
 	isAlive(pid: number): boolean;
 }
 
 /** One file is a few hundred bytes; anything bigger is not one of Claude's. */
 export const MAX_FILE_BYTES = 64 * 1024;
+/** How many sessions `listLive` returns; the cap is applied to what is alive, never to the files before that is known. */
 export const MAX_FILES = 200;
+/** How many file names of the registry are looked at: a folder with more is not Claude's (a pid is looked up from the name, which costs a syscall each). */
+const MAX_NAMES = 5000;
+/** `listLive` returns what it has by then, like `scan()` in sessionIndex.ts: a registry on a hung mount must not hold the page's poll up. */
+export const LIST_MS = 2000;
 /** A Codex rollout that changed this recently counts as recently active. */
 export const RECENT_MS = 2 * 60 * 1000;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -102,54 +108,80 @@ export function parseLive(text: string, fileName: string): LiveSession | undefin
 	};
 }
 
-/** The real thing: node's fs, and `kill(pid, 0)` (no signal is sent; EPERM means the process exists but is another user's). */
+/**
+ * The real thing: node's fs, and `kill(pid, 0)` (no signal is sent). EPERM means the process exists but is another user's: the registry
+ * is in this user's home, so such a pid cannot be this user's Claude (a reused number), and it is not alive for this purpose.
+ */
 export const nodeIo: LiveIo = {
 	readdir: dir => fs.readdir(dir),
 	lstat: file => fs.lstat(file),
 	read: async (file, max) => {
-		const h = await fs.open(file, 'r');
+		// Sized by the file (a few hundred bytes), not by `max`: this runs for every file on every poll.
+		const { handle, size } = await openRegular(file, max);
 		try {
-			const buf = Buffer.alloc(max);
-			const { bytesRead } = await h.read(buf, 0, max, 0);
+			const buf = Buffer.alloc(size);
+			const { bytesRead } = await handle.read(buf, 0, size, 0);
 			return buf.toString('utf8', 0, bytesRead);
 		} finally {
-			await h.close();
+			await handle.close();
 		}
 	},
 	isAlive: pid => {
 		try {
 			process.kill(pid, 0);
 			return true;
-		} catch (e) {
-			return (e as NodeJS.ErrnoException).code === 'EPERM';
+		} catch {
+			return false;
 		}
 	},
 };
 
-/** The live sessions, newest activity first; one per session id. Never throws: no folder, an unreadable or garbled file is skipped. */
-export async function listLive(io: LiveIo = nodeIo, dir = claudeSessionsDir()): Promise<LiveSession[]> {
-	const names = (await io.readdir(dir).catch(() => [] as string[])).filter(n => FILE_NAME.test(n)).sort((a, b) => parseInt(b) - parseInt(a)).slice(0, MAX_FILES);
-	const found = await Promise.all(names.map(async name => {
-		try {
-			const file = path.join(dir, name);
-			const st = await io.lstat(file);
-			if (!st.isFile() || st.size > MAX_FILE_BYTES) {
-				return undefined;
+/**
+ * The live sessions, newest activity first, at most `max` (200); one per session id. Never throws: no folder, an unreadable or garbled
+ * file is skipped. A file's name carries its pid, so liveness is checked before any file is read, and the cap applies only to what
+ * is returned. At `budgetMs` what has been read so far is returned (a read that never ends is simply missing).
+ */
+export async function listLive(io: LiveIo = nodeIo, dir = claudeSessionsDir(), o: { max?: number; budgetMs?: number } = {}): Promise<LiveSession[]> {
+	const found: LiveSession[] = [];
+	const work = (async () => {
+		const names = (await io.readdir(dir).catch(() => [] as string[])).filter(n => FILE_NAME.test(n) && parseInt(n) > 0).slice(0, MAX_NAMES);
+		await Promise.all(names.filter(n => io.isAlive(parseInt(n))).map(async name => {
+			try {
+				const file = path.join(dir, name);
+				const st = await io.lstat(file);
+				if (!st.isFile() || st.size > MAX_FILE_BYTES) {
+					return;
+				}
+				const s = parseLive(await io.read(file, MAX_FILE_BYTES), name);
+				if (s) {
+					// A file with no time of its own is as old as its last write: stable between two looks, unlike "now".
+					found.push(s.updatedAt === undefined && s.startedAt === undefined ? { ...s, updatedAt: st.mtimeMs } : s);
+				}
+			} catch {
+				// skipped
 			}
-			const s = parseLive(await io.read(file, MAX_FILE_BYTES), name);
-			return s && io.isAlive(s.pid) ? s : undefined;
-		} catch {
-			return undefined;
-		}
-	}));
+		}));
+	})();
+	let timer: NodeJS.Timeout | undefined;
+	await Promise.race([work.catch(() => undefined), new Promise<void>(resolve => timer = setTimeout(resolve, o.budgetMs ?? LIST_MS))]);
+	clearTimeout(timer);
 	const byId = new Map<string, LiveSession>();
-	for (const s of found) {
-		const old = s && byId.get(s.id);
-		if (s && (!old || (s.updatedAt ?? 0) > (old.updatedAt ?? 0))) {
+	for (const s of [...found]) {
+		const old = byId.get(s.id);
+		if (!old || (s.updatedAt ?? 0) > (old.updatedAt ?? 0)) {
 			byId.set(s.id, s);
 		}
 	}
-	return [...byId.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+	return [...byId.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, o.max ?? MAX_FILES);
+}
+
+/**
+ * The live session, if any, that has one of these ids (a session's own, and the ids its conversation went on under after /clear). Asked of
+ * the registry itself, whole: a resume must not go through because the page's capped list did not show the session.
+ */
+export async function runningElsewhere(ids: Iterable<string | undefined>, io: LiveIo = nodeIo, dir = claudeSessionsDir()): Promise<LiveSession | undefined> {
+	const want = new Set([...ids].filter((i): i is string => !!i).map(i => i.toLowerCase()));
+	return want.size ? (await listLive(io, dir, { max: Infinity })).find(l => want.has(l.id)) : undefined;
 }
 
 export interface MergeOptions {

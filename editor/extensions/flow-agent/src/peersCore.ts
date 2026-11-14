@@ -36,12 +36,19 @@ const PR_STATES = new Set(['open', 'draft', 'merged', 'closed']);
 /** What this window publishes of a row: the sanitised row, slimmed again to what a sidebar draws. */
 const THREAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const MAX_ALIASES = 8;
+/** The ids of a conversation that went on under new ones: uuids only, and few. */
+const idsOf = (v: unknown): { aliases?: string[] } => {
+	const ids = Array.isArray(v) ? v.filter((a): a is string => typeof a === 'string' && THREAD_ID.test(a)).slice(-MAX_ALIASES) : [];
+	return ids.length ? { aliases: ids } : {};
+};
+
 export function slimRow(r: AgentRow): PeerRow {
 	const cut = (s: string | undefined) => s === undefined ? undefined : s.slice(0, MAX_TEXT);
 	const u = r.usage;
 	const t = r.cost?.session.tokens;
 	return {
-		id: r.id, ...(r.agentId && THREAD_ID.test(r.agentId) ? { agentId: r.agentId } : {}), cli: r.cli, name: r.name.slice(0, 200), state: r.state, since: r.since, attention: r.attention,
+		id: r.id, ...(r.agentId && THREAD_ID.test(r.agentId) ? { agentId: r.agentId } : {}), ...idsOf(r.aliases), cli: r.cli, name: r.name.slice(0, 200), state: r.state, since: r.since, attention: r.attention,
 		activity: cut(r.activity), prompt: r.prompt?.slice(0, MAX_PROMPT), need: cut(r.need?.text),
 		todos: r.todos.slice(0, MAX_TODOS).map(x => ({ text: x.text.slice(0, MAX_TEXT), status: x.status })),
 		tokens: t ? t.input + t.output + t.cacheRead + t.cacheWrite : undefined, usd: r.cost?.session.usd,
@@ -75,7 +82,7 @@ export function parseRow(raw: unknown): PeerRow | undefined {
 		return undefined;
 	}
 	return {
-		id: o.id, ...(typeof o.agentId === 'string' && THREAD_ID.test(o.agentId) ? { agentId: o.agentId } : {}), cli: o.cli as PeerRow['cli'], name: o.name, state: o.state as PeerRow['state'], since: o.since, attention: o.attention as PeerRow['attention'],
+		id: o.id, ...(typeof o.agentId === 'string' && THREAD_ID.test(o.agentId) ? { agentId: o.agentId } : {}), ...idsOf(o.aliases), cli: o.cli as PeerRow['cli'], name: o.name, state: o.state as PeerRow['state'], since: o.since, attention: o.attention as PeerRow['attention'],
 		activity: o.activity as string | undefined, prompt: o.prompt as string | undefined, need: o.need as string | undefined,
 		todos: (o.todos as { text: string; status: PeerRow['todos'][number]['status'] }[]).map(x => ({ text: x.text, status: x.status })),
 		tokens: o.tokens as number | undefined, usd: o.usd as number | undefined, contextPercent: o.contextPercent as number | undefined, model: o.model as string | undefined,

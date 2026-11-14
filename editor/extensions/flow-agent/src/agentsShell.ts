@@ -718,7 +718,9 @@ let qsig = '', qcursor;
 // Claude sessions that other programs run and that say they wait for the user (Claude's "waiting" status); Codex has no such status.
 function externalWaiting() {
 	const out = [];
-	for (const p of chat.projects) { for (const s of p.sessions) { const l = liveOf(s); if (l && l.basis === 'live' && l.status === 'needs') { out.push({ p, s, l }); } } }
+	// A session that this window or another Insilode window runs is an agent row already (under any id its conversation has had): never the same one twice.
+	const ours = new Set([...data.rows, ...data.peers.flatMap(p => p.rows)].flatMap(r => [r.id, r.agentId, ...(r.aliases || [])]));
+	for (const p of chat.projects) { for (const s of p.sessions) { const l = liveOf(s); if (l && l.basis === 'live' && l.status === 'needs' && !ours.has(s.id)) { out.push({ p, s, l }); } } }
 	return out;
 }
 // Each item: { key, title, project, run } in the order they are worked: this window's longest-waiting first, then the other windows', then the other programs'.

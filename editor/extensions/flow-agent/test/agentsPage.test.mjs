@@ -1805,6 +1805,15 @@ test('with nothing waiting there is no strip; waiting sessions of this window, o
 	assert.equal(p.body.byClass('count')[0].find(n => n.tagName === 'B')[0].textContent, '3')
 })
 
+test('a session another Insilode window runs is one chip, not also an external one, even when its registry entry carries the id /clear gave it', T, () => {
+	const p = boot()
+	const waiting = peerRow({ id: 'p2', name: 'Waiting', state: 'blocked', attention: 'approval', need: 'Run rm', flows: 0, aliases: [SESSION] })
+	p.data([], { peers: [{ key: '0123456789ab', name: 'other-app', rows: [waiting] }] })
+	p.send(outside(LIVE({ status: 'needs' })))
+	assert.deepEqual(chips(p).map(c => c.byClass('qt')[0].textContent), ['Waiting'])
+	assert.match(queue(p).textContent, /Needs you · 1/)
+})
+
 test('an ended session, a Done one and a working or idle external session are not in the queue; Codex has no waiting status, so none is', T, () => {
 	const p = boot()
 	p.data(rows(), { peers: peers() })

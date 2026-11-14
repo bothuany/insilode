@@ -261,6 +261,17 @@ test('the folder is asked about by its real path and checked again right before 
 	assert.equal(t.spawns.length, 0)
 })
 
+test('a session that started elsewhere while the folder question was open is not resumed: the registry is asked again after the yes', T, async () => {
+	let asks = 0
+	const t = setup(async () => ++asks > 1 ? 'Claude Code CLI' : undefined)
+	const folder = join(tmp, 'project-e')
+	mkdirSync(folder)
+	await assert.rejects(t.host.open('claude', SID, folder), /running in Claude Code CLI/)
+	assert.equal(asks, 2)
+	assert.equal(t.vs.warnings.length, 1, 'the question was asked first')
+	assert.equal(t.spawns.length, 0)
+})
+
 test('control characters in a folder name never reach the dialog', { ...T, skip: process.platform === 'win32' && 'a Windows file name cannot hold a control character' }, async () => {
 	const t = setup()
 	const odd = join(tmp, 'bad\nname\u001b[31m')

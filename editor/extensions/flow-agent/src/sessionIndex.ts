@@ -8,15 +8,15 @@
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { openRegular } from './safeFile';
 import { folderKey } from './storageKey';
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Transcripts can be hundreds of MB: only their ends are read. */
 export async function slice(file: string, from: 'head' | 'tail', bytes: number): Promise<string[]> {
-	const h = await fs.open(file, 'r');
+	const { handle: h, size } = await openRegular(file);
 	try {
-		const { size } = await h.stat();
 		const start = from === 'head' ? 0 : Math.max(0, size - bytes);
 		const buf = Buffer.alloc(Math.min(bytes, size));
 		const { bytesRead } = await h.read(buf, 0, buf.length, start);
@@ -266,8 +266,9 @@ export class SessionIndex {
 	private last: { at: number; projects: IndexedProject[] } | undefined;
 	private running: Promise<IndexedProject[]> | undefined;
 
-	async list(now = Date.now()): Promise<IndexedProject[]> {
-		if (this.last && now - this.last.at < RESCAN_MS) {
+	/** `cached`: the last scan however old it is (a scan only when there is none): for a caller that polls and must not make a scan of its own. */
+	async list(now = Date.now(), cached = false): Promise<IndexedProject[]> {
+		if (this.last && (cached || now - this.last.at < RESCAN_MS)) {
 			return this.last.projects;
 		}
 		this.running ??= scan().then(projects => {

@@ -5,6 +5,7 @@
 
 import * as fs from 'fs';
 import type { TailEntry } from './agentsData';
+import { openRegular } from './safeFile';
 
 const TEXT_CHARS = 600;
 const TOOL_CHARS = 140;
@@ -183,8 +184,10 @@ export function tailEntries(lines: string[], cli: 'claude' | 'codex', max: numbe
 export async function readTail(file: string, cli: 'claude' | 'codex', max: number): Promise<TailEntry[]> {
 	let handle: fs.promises.FileHandle | undefined;
 	try {
-		handle = await fs.promises.open(file, 'r');
-		const size = (await handle.stat()).size;
+		// Only a regular file: a FIFO put in a transcript's place must not hold a thread of the host.
+		const opened = await openRegular(file);
+		handle = opened.handle;
+		const size = opened.size;
 		for (const window of WINDOWS) {
 			const start = Math.max(0, size - window);
 			const buf = Buffer.alloc(size - start);

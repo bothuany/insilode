@@ -20,12 +20,12 @@ module.exports = {
 	ThemeColor: class {},
 	ViewColumn: { Active: -1 },
 	UIKind: { Desktop: 1, Web: 2 },
-	env: { uiKind: 2 },
+	env: { get uiKind() { return globalThis.__uiKind ?? 2 } },
 	ProgressLocation: {},
 	Uri: { file: p => ({ fsPath: p }) },
 	Range: class { constructor(...a) { this.a = a } },
-	workspace: { get workspaceFolders() { return globalThis.__folders ?? [] }, getConfiguration: () => ({ get: (k, d) => d }), onDidChangeConfiguration: none },
-	window: { createWebviewPanel: () => globalThis.__panel(), showTextDocument: (...a) => { (globalThis.__shown ??= []).push(a); return Promise.resolve() } },
+	workspace: { get workspaceFolders() { return globalThis.__folders ?? [] }, getConfiguration: () => ({ get: (k, d) => globalThis.__config?.[k] ?? d }), onDidChangeConfiguration: none },
+	window: { createWebviewPanel: (...a) => { (globalThis.__created ??= []).push(a); return globalThis.__panel() }, showTextDocument: (...a) => { (globalThis.__shown ??= []).push(a); return Promise.resolve() } },
 	commands: { executeCommand: (...a) => (globalThis.__exec ?? (async () => undefined))(...a) },
 }`
 
@@ -287,6 +287,70 @@ test('without a terminal host the panes answer "gone" and "failed" instead of th
 	assert.deepEqual(t.posted, [{ type: 'termGone', id: 's1' }, { type: 'termFailed', requestId: 'r1', message: 'Terminals are not available.' }])
 })
 
+// ---- where the page opens ----------------------------------------------------------------------------------------------------
+
+/** A panel stub that records `reveal`, and the stub vscode's window creation and commands; `ui` 1 is the desktop. */
+function withOpening({ ui = 1, config = {}, exec }) {
+	const revealed = []
+	const executed = []
+	globalThis.__created = []
+	globalThis.__uiKind = ui
+	globalThis.__config = config
+	globalThis.__exec = async (...a) => { executed.push(a); return exec?.(...a) }
+	const none = () => ({ dispose() {} })
+	let column
+	globalThis.__panel = () => ({
+		visible: false, active: true, get viewColumn() { return column }, webview: { html: '', postMessage: async () => true, onDidReceiveMessage: none }, onDidChangeViewState: none, onDidDispose: none,
+		reveal: (...a) => revealed.push(a), dispose() {},
+	})
+	const panel = new AgentsPanel({ onDidChange: none, sessions: new Map() })
+	return { panel, revealed, executed, created: () => globalThis.__created, setColumn: c => { column = c },
+		done: () => { delete globalThis.__created; delete globalThis.__uiKind; delete globalThis.__config; delete globalThis.__exec } }
+}
+
+test('on the desktop the page is made straight in the window core opens for it, once however often it is asked for, and a second ask reveals it where it is', TT, async () => {
+	const t = withOpening({ exec: id => id === '_insilode.agents.openWindow' ? 3 : undefined })
+	try {
+		t.panel.open()
+		t.panel.open()
+		await sleep(10)
+		assert.deepEqual(t.executed, [['_insilode.agents.openWindow']], 'one window')
+		assert.equal(t.created().length, 1)
+		assert.deepEqual(t.created()[0].slice(0, 3), ['flow.agentsPage', 'Agents', 3], 'in the column of the new window\'s group')
+		t.setColumn(3)
+		t.panel.open()
+		assert.deepEqual(t.revealed, [[]], 'revealed with no column: a column would be an index that goes stale, and core finds the group the page is in')
+		assert.equal(t.created().length, 1)
+		assert.equal(t.executed.length, 1)
+	} finally { t.done() }
+})
+
+test('a core without the window command, the tab setting and the web UI show the page as an editor tab; the tab carries the Agents icon', TT, async () => {
+	const cases = [
+		['a core without the command', () => withOpening({ exec: () => { throw new Error('command \'_insilode.agents.openWindow\' not found') } }), 1],
+		['the tab setting', () => withOpening({ config: { location: 'tab' } }), 0],
+		['the web UI', () => withOpening({ ui: 2 }), 0],
+	]
+	for (const [why, make, asked] of cases) {
+		const t = make()
+		try {
+			t.panel.open()
+			await sleep(10)
+			assert.equal(t.created().length, 1, why)
+			assert.equal(t.created()[0][2], -1, why + ': the active group')
+			assert.equal(t.executed.length, asked, why)
+		} finally { t.done() }
+	}
+	const t = withOpening({ config: { location: 'tab' } })
+	try {
+		t.panel.open()
+		assert.deepEqual(t.executed, [], 'no window was asked for')
+		const icon = t.panel.panel.iconPath
+		assert.match(icon.light.fsPath, /media[\\/]agents-light\.svg$/)
+		assert.match(icon.dark.fsPath, /media[\\/]agents-dark\.svg$/)
+	} finally { t.done() }
+})
+
 // Sessions that other programs run: the page is told while it is visible, and only when something changed.
 
 /** A panel whose visibility the test drives, and whose 3-second poll the test runs by hand. */
@@ -316,7 +380,8 @@ function withLive(projects) {
 
 test('a visible page looks for running sessions every few seconds and is sent the index only when it changed; hidden or closed, it stops', TT, async () => {
 	let sig = 'a', name = 'one'
-	const projects = { projects: async () => [{ key: KEY, name, where: '~/app', cwd: '/work/app', own: true, sessions: [] }], runningSignature: async () => sig }
+	const asks = []
+	const projects = { projects: async o => { asks.push(o); return [{ key: KEY, name, where: '~/app', cwd: '/work/app', own: true, sessions: [] }] }, runningSignature: async () => sig }
 	const t = withLive(projects)
 	try {
 		assert.equal(t.timers.size, 0, 'nothing to look for before the page has said ready')
@@ -337,6 +402,8 @@ test('a visible page looks for running sessions every few seconds and is sent th
 		name = 'three'
 		for (let i = 0; i < 4; i++) { await t.tick() }
 		assert.equal(t.indexes().at(-1).projects[0].name, 'three')
+		// Only the page's own asks may scan the transcripts; the poll's reads the registry and re-uses the last scan.
+		assert.deepEqual(asks.map(o => o?.cached), [false, ...asks.slice(1).map(() => true)])
 		t.show(false)
 		assert.equal(t.timers.size, 0, 'a hidden page is not looked after')
 		t.show(true)
@@ -386,6 +453,19 @@ test('a tail of an indexed session is read from the transcript the host lists, n
 	assert.deepEqual(tails.find(m => m.id === SID(1)).entries.map(e => [e.role, e.text]), [['user', 'Fix the login redirect'], ['assistant', 'On it.']])
 	assert.deepEqual(tails.find(m => m.id === SID(2)), { type: 'tail', id: SID(2), entries: [], note: 'This session is not listed any more.' })
 	assert.deepEqual(asked, [['claude', SID(1)], ['claude', SID(2)]])
+})
+
+test('a second ask for a tail that is still being read is dropped: one read per session at a time, and it is asked again after it came back', TT, async () => {
+	const file = join(tmp, 'pending-tail.jsonl')
+	writeFileSync(file, JSON.stringify({ type: 'user', message: { role: 'user', content: 'Hello' } }) + '\n')
+	const t = setup({ projects: { transcriptOf: () => file } })
+	t.page({ type: 'tail', id: SID(1), kind: 'claude' })
+	t.page({ type: 'tail', id: SID(1), kind: 'claude' })
+	await sleep(30)
+	assert.equal(t.posted.filter(m => m.type === 'tail').length, 1)
+	t.page({ type: 'tail', id: SID(1), kind: 'claude' })
+	await sleep(30)
+	assert.equal(t.posted.filter(m => m.type === 'tail').length, 2)
 })
 
 // ---- the Harness panel's host side -----------------------------------------------------------------------------------------

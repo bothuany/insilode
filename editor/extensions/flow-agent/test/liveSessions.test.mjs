@@ -4,7 +4,8 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -56,13 +57,13 @@ test('a running session is listed with the fields the page needs and nothing els
 	assert.doesNotMatch(JSON.stringify(s), /SECRET|KEYMATERIAL|socket/)
 })
 
-test('sessions whose process is gone are dropped; one that exists but is another user\'s still counts (EPERM)', T, async () => {
+test('sessions whose process is gone are dropped; one that exists but is another user\'s does not count (EPERM): the registry is this user\'s own', T, async () => {
 	const a = entry(11), b = entry(12)
 	assert.deepEqual((await list({ '11.json': a, '12.json': b }, [12])).map(s => s.pid), [11])
 	const kill = process.kill
 	try {
 		process.kill = () => { throw Object.assign(new Error('x'), { code: 'EPERM' }) }
-		assert.equal(m.nodeIo.isAlive(1), true)
+		assert.equal(m.nodeIo.isAlive(1), false)
 		process.kill = () => { throw Object.assign(new Error('x'), { code: 'ESRCH' }) }
 		assert.equal(m.nodeIo.isAlive(1), false)
 	} finally {
@@ -101,13 +102,62 @@ test('field types are checked: a name is shortened and stripped of control chara
 	assert.equal(s.status, 'unknown')
 })
 
-test('at most 200 files are read, and one session id listed twice is the newer file\'s', T, async () => {
+test('at most 200 sessions are returned, and one session id listed twice is the newer file\'s', T, async () => {
 	const files = {}
 	for (let pid = 1; pid <= 230; pid++) files[pid + '.json'] = entry(pid)
 	assert.equal((await list(files)).length, 200)
 	const id = randomUUID()
 	const two = await list({ '7.json': entry(7, { sessionId: id, statusUpdatedAt: 10 }), '8.json': entry(8, { sessionId: id, statusUpdatedAt: 20 }) })
 	assert.deepEqual(two.map(s => s.pid), [8])
+})
+
+test('stale files with higher pids do not hide a live session: the cap is on what is returned, after liveness is known', T, async () => {
+	const files = {}
+	const dead = []
+	for (let pid = 1; pid <= 230; pid++) { files[pid + '.json'] = entry(pid); if (pid > 3) dead.push(pid) }
+	assert.deepEqual((await list(files, dead)).map(s => s.pid).sort((a, b) => a - b), [1, 2, 3])
+	// The resume check looks one id up without the cap on what a page is shown.
+	const f = folder(files, dead.filter(p => p > 100))
+	const lowest = JSON.parse(JSON.stringify(files['4.json']))
+	const found = await m.runningElsewhere([lowest.sessionId.toUpperCase(), undefined], f.io, f.dir)
+	assert.equal(found?.pid, 4)
+	assert.equal(await m.runningElsewhere(['not-running', undefined], f.io, f.dir), undefined)
+})
+
+test('a dead pid costs no file read: the name says the pid, so it is checked first', T, async () => {
+	const f = folder({ '21.json': entry(21), '22.json': entry(22) }, [22])
+	const read = []
+	const io = { ...f.io, read: async (file, max) => { read.push(file); return f.io.read(file, max) } }
+	assert.deepEqual((await m.listLive(io, f.dir)).map(s => s.pid), [21])
+	assert.deepEqual(read.map(x => x.slice(-7)), ['21.json'])
+})
+
+test('a registry file that hangs does not hold the list up: at the time budget the sessions read so far are returned', T, async () => {
+	const f = folder({ '31.json': entry(31), '32.json': entry(32) })
+	const io = { ...f.io, read: (file, max) => file.endsWith('32.json') ? new Promise(() => undefined) : f.io.read(file, max) }
+	const t0 = Date.now()
+	assert.deepEqual((await m.listLive(io, f.dir, { budgetMs: 200 })).map(s => s.pid), [31])
+	assert.equal(Date.now() - t0 < 2000, true)
+	const hangs = { ...f.io, readdir: () => new Promise(() => undefined) }
+	assert.deepEqual(await m.listLive(hangs, f.dir, { budgetMs: 100 }), [])
+})
+
+test('a FIFO swapped in after the directory listing is not waited for: reading it fails at once', { timeout: 5000, skip: process.platform === 'win32' && 'no FIFOs' }, async () => {
+	const dir = join(tmp, 'fifo' + n++)
+	mkdirSync(dir)
+	const fifo = join(dir, '41.json')
+	execFileSync('mkfifo', [fifo])
+	const outcome = await Promise.race([m.nodeIo.read(fifo, 1000).then(() => 'read', () => 'refused'), new Promise(r => setTimeout(() => r('blocked'), 1500))])
+	try { openSync(fifo, 'r+') } catch { /* nothing waits */ }
+	assert.equal(outcome, 'refused')
+})
+
+test('a file that carries neither time takes its modification time: the same on every look, so the page is not sent the index again', T, async () => {
+	const f = folder({ '51.json': entry(51, { startedAt: undefined, statusUpdatedAt: undefined, updatedAt: undefined }) })
+	const [a] = await m.listLive(f.io, f.dir)
+	const [b] = await m.listLive(f.io, f.dir)
+	assert.equal(typeof a.updatedAt, 'number')
+	assert.equal(a.updatedAt, b.updatedAt)
 })
 
 // ---- the merge into the sidebar's projects --------------------------------------------------------------------------------------

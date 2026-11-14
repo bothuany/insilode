@@ -15,6 +15,7 @@ import { projectDir, type Agents, type AgentSession } from './agents';
 import { codexCommand, codexLaunch } from './codexHooks';
 import { agentCwd, agentProcessEnv } from './env';
 import { codexHome, rolloutFiles } from './resume';
+import { openRegular } from './safeFile';
 import { claudeTranscript, codexImportRequests, codexImportStep, codexRolloutId, codexTurns, IMPORT_COPY, keptTitle, MAX_ROLLOUT_BYTES, rolloutDays, swappedName } from './swapCore';
 import { findOnPath } from './usage';
 
@@ -155,12 +156,22 @@ async function claudeFromCodex(s: AgentSession, cwd: string): Promise<{ id: stri
 	if (!rollout) {
 		throw new Error(`the Codex session ${s.agentId} was not found under ${path.join(codexHome(), 'sessions')}`);
 	}
-	const st = await fs.stat(rollout);
-	if (st.size > MAX_ROLLOUT_BYTES) {
-		throw new Error(`the Codex session is ${Math.round(st.size / (1 << 20))} MB, more than Insilode moves (${MAX_ROLLOUT_BYTES >> 20} MB)`);
+	// Opened as a regular file only (safeFile.ts): the path came from a directory listing, and a FIFO there would hang the read for ever.
+	const opened = await openRegular(rollout).catch(() => undefined);
+	if (!opened) {
+		throw new Error(`the Codex session ${s.agentId} is not a readable file`);
+	}
+	let rolloutText: string;
+	try {
+		if (opened.size > MAX_ROLLOUT_BYTES) {
+			throw new Error(`the Codex session is ${Math.round(opened.size / (1 << 20))} MB, more than Insilode moves (${MAX_ROLLOUT_BYTES >> 20} MB)`);
+		}
+		rolloutText = await opened.handle.readFile('utf8');
+	} finally {
+		await opened.handle.close().catch(() => undefined);
 	}
 	const id = randomUUID();
-	const text = claudeTranscript(codexTurns(await fs.readFile(rollout, 'utf8')), {
+	const text = claudeTranscript(codexTurns(rolloutText), {
 		cwd, sessionId: id, gitBranch: s.worktree?.branch, title: carriedTitle(s.name), newId: randomUUID, now: new Date().toISOString(),
 	});
 	if (!text) {
@@ -231,6 +242,8 @@ Codex sends no status until its hooks are trusted (/hooks in Codex), so Insilode
 				const dir = path.dirname(s.transcript);
 				await sweepImportCopies(dir);
 				const copy = path.join(dir, `insilode-swap-${randomUUID()}.jsonl`);
+				// A FIFO put in the transcript's place would hang the copy for ever: only a regular file is copied.
+				await openRegular(s.transcript).then(o => o.handle.close());
 				await fs.copyFile(s.transcript, copy, constants.COPYFILE_EXCL);
 				// copyFile keeps the original's time on Windows: the copy is dated now, so another window's sweep sees it is in use.
 				const now = new Date();

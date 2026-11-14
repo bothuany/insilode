@@ -30,7 +30,8 @@ import { shimScript } from './shim';
 import { canExplain, explainPrompt } from './explain';
 import { claudeHookCommand, hookRunner, hookScript, type HookRunner } from './hookScript';
 import { ShellEditSweep } from './shellEdits';
-import { idInUse } from './spawnGuard';
+import { openRegular } from './safeFile';
+import { elsewhereMessage, idInUse } from './spawnGuard';
 import { bypassAllowed } from './bypass';
 import { SKELETON_GATE, SKELETON_PROMPT_GATE } from './skeleton';
 import { canType, notReady, oneLine, slashRefusal, slashText, type AgentCli, type AgentState, type CustomCli, type SessionInfo, type SlashKind, type SlashResult } from './askTarget';
@@ -332,6 +333,12 @@ export class Agents implements vscode.Disposable {
 	private orphanTimer: NodeJS.Timeout | undefined;
 	/** Claude session ids that continue a Insilode agent after /clear or /resume gave the conversation a new one. */
 	private readonly aliases = new Map<string, string>();
+
+	/** The ids a session's conversation went on under after /clear or /resume (not its own): the registry of running Claude sessions names the conversation by the new one. */
+	aliasesOf(id: string): string[] {
+		return [...this.aliases].filter(([, owner]) => owner === id).map(([alias]) => alias);
+	}
+
 	/** Set once start() has run: spawn waits on it so an agent never starts before the hook settings exist. */
 	private ready: Promise<void> | undefined;
 	private settingsOk = false;
@@ -356,7 +363,11 @@ export class Agents implements vscode.Disposable {
 	/** Everything a session has edited since it started (files, and the methods and flows once a turn's impact is known), for conflicts.ts. */
 	private readonly edits = new Map<string, SessionEdits>();
 
-	constructor(private readonly context: vscode.ExtensionContext, private readonly log: vscode.LogOutputChannel) {
+	/**
+	 * `elsewhere`: the live Claude session, if any, that has one of these ids (liveSessions.ts runningElsewhere, passed in by extension.ts: that
+	 * module imports this one's types, so it cannot be imported here). Every resume goes through spawn, which asks it.
+	 */
+	constructor(private readonly context: vscode.ExtensionContext, private readonly log: vscode.LogOutputChannel, private readonly elsewhere?: (ids: (string | undefined)[]) => Promise<{ source: string; pid: number } | undefined>) {
 		this.disposables.push(
 			vscode.window.onDidCloseTerminal(t => this.closed(t)),
 			vscode.window.onDidChangeActiveTerminal(t => this.seen(t)),
@@ -764,6 +775,15 @@ export class Agents implements vscode.Disposable {
 		if (resume && idInUse(this.sessions.get(id), this.terminals.has(id))) {
 			void vscode.window.showErrorMessage(`Insilode: ${this.sessions.get(id)?.name || 'that session'} is already running in a terminal; it was not started a second time.`);
 			return undefined;
+		}
+		// Every way to resume (the palette, the page, a click on an ended row) ends here, so the check is here: a Claude session that the
+		// registry says another live process runs is never resumed. Asked of the registry now, under every id the conversation has had.
+		if (cli === 'claude' && resume) {
+			const where = await this.elsewhere?.([id, resume.agentId, ...this.aliasesOf(id)]).catch(() => undefined);
+			if (where) {
+				void vscode.window.showErrorMessage(`Insilode: ${elsewhereMessage(resume.name, where)}`);
+				return undefined;
+			}
 		}
 		const base = cli === 'claude' ? 'Claude' : cli === 'codex' ? 'Codex' : custom?.name ?? 'Agent';
 		const same = [...this.sessions.values()].filter(s => s.state !== 'ended' && (s.cli === 'custom' ? s.command === custom?.command : s.cli === cli)).length;
@@ -1702,7 +1722,7 @@ export class Agents implements vscode.Disposable {
 	}
 
 	private async head(file: string, bytes: number) {
-		const h = await fs.open(file, 'r');
+		const { handle: h } = await openRegular(file);
 		try {
 			const buf = Buffer.alloc(bytes);
 			const { bytesRead } = await h.read(buf, 0, bytes, 0);
@@ -1714,9 +1734,8 @@ export class Agents implements vscode.Disposable {
 	}
 
 	private async tail(file: string, bytes = 65536) {
-		const h = await fs.open(file, 'r');
+		const { handle: h, size } = await openRegular(file);
 		try {
-			const { size } = await h.stat();
 			const start = Math.max(0, size - bytes);
 			const buf = Buffer.alloc(size - start);
 			await h.read(buf, 0, buf.length, start);

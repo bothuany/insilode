@@ -35,6 +35,8 @@ export type AgentRow = Omit<AgentSession, 'impact' | 'worktree'> & {
 	clash?: { text: string; same: boolean; files: string[] }[];
 	/** Text may be typed into its prompt from the page's reply box (agents.ts `canType`). */
 	acceptsInput: boolean;
+	/** Claude: the session ids the conversation went on under after /clear or /resume (agents.ts aliasesOf), which the machine's registry of running sessions names it by. */
+	aliases?: string[];
 };
 
 /**
@@ -45,6 +47,8 @@ export interface PeerRow {
 	id: string;
 	/** The id the CLI itself gave the session (Codex's thread id), a uuid: what the machine's index lists it by, so the page does not offer it as running elsewhere. */
 	agentId?: string;
+	/** Claude: the ids the conversation went on under after /clear (AgentRow.aliases), so the page does not offer it as running elsewhere under its new id. */
+	aliases?: string[];
 	cli: AgentSession['cli'];
 	name: string;
 	state: AgentSession['state'];
