@@ -7,7 +7,7 @@
 import { createHash } from 'crypto';
 import type { Overrides } from '../../../../../board-canvas/canvas';
 import { compareBoards, hasChanges } from './compare';
-import type { BoardHighlight, BoardNode, BoardSpec, ChangeMark, NodeStatus } from './spec';
+import type { BoardHighlight, BoardNode, BoardSpec, ChangeMark, NodeStatus } from '../../../../../board-canvas/spec';
 
 export interface NodePatch { status?: NodeStatus; note?: string; change?: ChangeMark }
 

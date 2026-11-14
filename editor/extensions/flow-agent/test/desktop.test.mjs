@@ -35,6 +35,27 @@ test('settings: defaults are the badge on and the overlay off', () => {
 	assert.deepEqual(s.autoHide, { noAgents: true, insilodeFocused: true })
 })
 
+test('settings: an object-valued setting counts as written per key across scopes', () => {
+	assert.deepEqual(d.writtenValue(undefined), undefined)
+	assert.deepEqual(d.writtenValue({ globalValue: false, workspaceValue: true }), true, 'the narrower scope wins for a plain value')
+	assert.deepEqual(d.writtenValue({ globalValue: false }), false)
+	const merged = d.writtenValue({ globalValue: { insilodeFocused: true }, workspaceValue: { noAgents: false } })
+	assert.deepEqual(merged, { insilodeFocused: true, noAgents: false })
+	const set = key => key === 'overlay.autoHide' ? merged : undefined
+	assert.deepEqual(d.readSettings(() => undefined, set).unset, { enabled: true, focused: false })
+	assert.deepEqual(d.writtenValue({ globalValue: { noAgents: true, insilodeFocused: false }, workspaceFolderValue: { noAgents: false } }), { noAgents: false, insilodeFocused: false })
+})
+
+test('settings: the island is wanted when on, or when unset on a Mac; an explicit false never is', () => {
+	const wanted = (values, platform) => d.overlayWanted(d.readSettings(key => values[key], key => values[key]), platform)
+	assert.equal(wanted({}, 'darwin'), true, 'unset on a Mac: core decides by the notch')
+	assert.equal(wanted({}, 'win32'), false)
+	assert.equal(wanted({}, 'linux'), false)
+	assert.equal(wanted({ 'overlay.enabled': false }, 'darwin'), false, 'explicit false, even with a notch')
+	assert.equal(wanted({ 'overlay.enabled': true }, 'darwin'), true)
+	assert.equal(wanted({ 'overlay.enabled': true }, 'win32'), true, 'explicit true, no notch')
+})
+
 test('settings: badge and overlay switch on and off independently', () => {
 	for (const badge of [true, false]) {
 		for (const overlay of [true, false]) {
@@ -128,8 +149,20 @@ test('overlay model: prompts never travel, cost only when asked for, context and
 	assert.equal(more.items[1].usd, undefined)
 })
 
+test('settings: what the user never wrote is unset, so core can settle it by the screen', () => {
+	const written = values => key => values[key]
+	// Nothing written: both are left to core. Without a `set` reader (the site) nothing is.
+	assert.deepEqual(d.readSettings(() => undefined, written({})).unset, { enabled: true, focused: true })
+	assert.deepEqual(settings().unset, { enabled: false, focused: false })
+	// A written value, true or false, is a choice; so is a written autoHide.insilodeFocused, but not a written noAgents alone.
+	assert.deepEqual(d.readSettings(() => undefined, written({ 'overlay.enabled': false })).unset, { enabled: false, focused: true })
+	assert.deepEqual(d.readSettings(() => undefined, written({ 'overlay.autoHide': { noAgents: false } })).unset, { enabled: true, focused: true })
+	assert.deepEqual(d.readSettings(() => undefined, written({ 'overlay.enabled': true, 'overlay.autoHide': { insilodeFocused: true } })).unset, { enabled: false, focused: false })
+	assert.deepEqual(d.overlayOptions(d.readSettings(() => undefined, written({}))).unset, { enabled: true, focused: true })
+})
+
 test('overlay options carry only where and how to draw', () => {
-	assert.deepEqual(Object.keys(d.overlayOptions(settings())).sort(), ['autoHide', 'avatar', 'display', 'opacity', 'position', 'size', 'style', 'theme'])
+	assert.deepEqual(Object.keys(d.overlayOptions(settings())).sort(), ['autoHide', 'avatar', 'display', 'opacity', 'position', 'size', 'style', 'theme', 'unset'])
 	assert.equal(d.overlayOptions(settings(), 'pixel').avatar, 'pixel')
 	assert.equal(d.readAvatar('pixel'), 'pixel')
 	assert.equal(d.readAvatar('robot'), 'gyro')

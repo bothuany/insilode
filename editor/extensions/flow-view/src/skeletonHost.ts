@@ -9,7 +9,7 @@
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import type { BoardSpec } from './board/spec';
+import type { BoardSpec } from '../../../../board-canvas/spec';
 import type { BoardStore } from './board/store';
 import { ChangeBatcher } from './skeleton/changes';
 import { stubFor } from './skeleton/paths';

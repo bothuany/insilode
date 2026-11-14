@@ -24,7 +24,7 @@ before(async () => {
 	}
 	k = mods.skeleton
 	d = mods.dockMessage
-	page = mods.dockPage.dockHtml()
+	page = mods.dockPage.dockHtml('n0nce')
 })
 after(() => rmSync(tmp, { recursive: true, force: true }))
 
@@ -39,7 +39,7 @@ test('the page asks for one agent\'s Skeleton on or off, and nothing else', () =
 })
 
 test('the row shows only the Skeleton button: pressed or not, explained in its tooltip, keyboard reachable', () => {
-	const script = /<script>([\s\S]*)<\/script>/.exec(page)[1]
+	const script = /<script nonce="n0nce">([\s\S]*)<\/script>/.exec(page)[1]
 	const list = { innerHTML: '', querySelectorAll: () => [], addEventListener() { } }
 	const document = { getElementById: () => list, querySelectorAll: () => [], addEventListener() { } }
 	let onMessage

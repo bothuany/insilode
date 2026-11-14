@@ -6,7 +6,7 @@
  *  in ui/ and flow-view never imports it.
  *--------------------------------------------------------------------------------------------*/
 
-import type { BoardEdge, BoardGroup, BoardSpec } from './spec';
+import type { BoardEdge, BoardGroup, BoardSpec } from '../../../../../board-canvas/spec';
 
 export interface LintItem {
 	level: 'error' | 'warn' | 'info';

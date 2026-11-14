@@ -30,11 +30,12 @@ import { shimScript } from './shim';
 import { canExplain, explainPrompt } from './explain';
 import { claudeHookCommand, hookRunner, hookScript, type HookRunner } from './hookScript';
 import { ShellEditSweep } from './shellEdits';
+import { bypassAllowed } from './bypass';
 import { SKELETON_GATE, SKELETON_PROMPT_GATE } from './skeleton';
 import { canType, notReady, oneLine, slashRefusal, slashText, type AgentCli, type AgentState, type CustomCli, type SessionInfo, type SlashKind, type SlashResult } from './askTarget';
 import { applyUsage, claudeTranscriptUsage, codexRolloutUsage, endUsage, findOnPath, hasOwnStatusLine, LimitsSender, parseClaudeStatus, statusScript, type ContextUsage, type UsageLimits } from './usage';
 import { SETUP_FILE, setupOfferKey, setupTemplate, shouldOfferSetup } from './worktreeSetup';
-import { createWorktree, sameDir, validBranch, worktreeSlug, type Worktree } from './worktrees';
+import { createWorktree, git, sameDir, validBranch, worktreeSlug, type Worktree } from './worktrees';
 
 // Declared with the ask rules, which must not import this file (it needs vscode); every other file takes them from here.
 export type { AgentCli, AgentState } from './askTarget';
@@ -80,6 +81,11 @@ export interface AgentSession {
 	cwd?: string;
 	/** The git worktree it was started in, when it has one of its own (see worktrees.ts). */
 	worktree?: Worktree;
+	/**
+	 * Where it began: the folder it works in and that folder's HEAD then, for "the changes since this session started".
+	 * Kept across a reload and a resume; a session resumed from a transcript Insilode never saw starts here, at its resume.
+	 */
+	start?: { root: string; head: string };
 }
 
 /** What flow-view answers to `flow.agent.turnImpact`. */
@@ -104,7 +110,7 @@ export interface CustomAgent {
 
 interface Saved {
 	token: string;
-	sessions: Pick<AgentSession, 'id' | 'cli' | 'name' | 'pid' | 'prompt' | 'transcript' | 'command' | 'agentId' | 'worktree'>[];
+	sessions: Pick<AgentSession, 'id' | 'cli' | 'name' | 'pid' | 'prompt' | 'transcript' | 'command' | 'agentId' | 'worktree' | 'start'>[];
 	/** Worktrees of agents taken off the list whose folder the user kept: the only record of where they are. */
 	kept?: KeptWorktree[];
 }
@@ -211,6 +217,13 @@ function bounded<T>(p: Promise<T>, ms: number): Promise<T | undefined> {
 	return Promise.race([p, new Promise<undefined>(r => timer = setTimeout(() => r(undefined), ms))]).finally(() => clearTimeout(timer));
 }
 
+/** The folder and its HEAD now, or nothing when it is not a git checkout (or has no commit yet). */
+async function sessionStart(cwd: string | undefined): Promise<AgentSession['start']> {
+	const r = cwd ? await git(cwd, ['rev-parse', 'HEAD'], 8000) : undefined;
+	const head = r?.stdout.trim() ?? '';
+	return cwd && r?.code === 0 && /^[0-9a-f]{7,64}$/i.test(head) ? { root: cwd, head } : undefined;
+}
+
 /** sessions.json is plain text on disk: take only what has the right shape, so a damaged file cannot throw at startup. */
 function parseSaved(raw: unknown): Saved | undefined {
 	const o = raw as { token?: unknown; sessions?: unknown } | null;
@@ -221,7 +234,7 @@ function parseSaved(raw: unknown): Saved | undefined {
 	const sessions: Saved['sessions'] = [];
 	for (const e of Array.isArray(o.sessions) ? o.sessions as Record<string, unknown>[] : []) {
 		if (e && typeof e === 'object' && typeof e.id === 'string' && (e.cli === 'claude' || e.cli === 'codex' || e.cli === 'custom')) {
-			sessions.push({ id: e.id, cli: e.cli, name: str(e.name) ?? e.id, pid: typeof e.pid === 'number' ? e.pid : undefined, prompt: str(e.prompt), transcript: str(e.transcript), command: str(e.command), agentId: str(e.agentId), worktree: parseWorktree(e.worktree) });
+			sessions.push({ id: e.id, cli: e.cli, name: str(e.name) ?? e.id, pid: typeof e.pid === 'number' ? e.pid : undefined, prompt: str(e.prompt), transcript: str(e.transcript), command: str(e.command), agentId: str(e.agentId), worktree: parseWorktree(e.worktree), start: parseStart(e.start) });
 		}
 	}
 	const kept: KeptWorktree[] = [];
@@ -232,6 +245,12 @@ function parseSaved(raw: unknown): Saved | undefined {
 		}
 	}
 	return { token: str(o.token) ?? '', sessions, kept };
+}
+
+/** A saved session start, taken only when its HEAD is a commit hash: it reaches git later as the base of a diff. */
+function parseStart(raw: unknown): AgentSession['start'] {
+	const s = raw as { root?: unknown; head?: unknown } | null;
+	return s && typeof s === 'object' && typeof s.root === 'string' && path.isAbsolute(s.root) && typeof s.head === 'string' && /^[0-9a-f]{7,64}$/i.test(s.head) ? { root: s.root, head: s.head } : undefined;
 }
 
 /** A saved worktree, taken only when every part has the right shape: its branch names reach git when it is merged or removed. */
@@ -677,7 +696,7 @@ export class Agents implements vscode.Disposable {
 		}
 		const saved: Saved = {
 			token: this.token,
-			sessions: [...[...this.sessions.values()].map(({ id, cli, name, pid, prompt, transcript, command, agentId, worktree }) => ({ id, cli, name, pid, prompt, transcript, command, agentId, worktree })), ...this.orphans.values()],
+			sessions: [...[...this.sessions.values()].map(({ id, cli, name, pid, prompt, transcript, command, agentId, worktree, start }) => ({ id, cli, name, pid, prompt, transcript, command, agentId, worktree, start })), ...this.orphans.values()],
 			kept: this.kept,
 		};
 		// One write at a time, through a temp file: overlapping writes could interleave and lose every saved session.
@@ -761,6 +780,9 @@ export class Agents implements vscode.Disposable {
 			}
 		}
 		const cwd = agentCwd(worktree?.path ?? folder);
+		// Taken before the agent runs, so nothing it does is in it. A resumed session keeps its original start; one with none
+		// saved (it came from a transcript, not from Insilode) starts here.
+		const start = resume?.start ?? await sessionStart(cwd);
 		// Codex reads the `insilode` server from Insilode's profile, which names the variables it takes from this terminal
 		// (CODEX_MCP_ENV). The tools find this window by its folder, so a worktree agent gets the main folder.
 		const codex = cli === 'codex' ? await this.codexProfileFor() : undefined;
@@ -778,7 +800,7 @@ export class Agents implements vscode.Disposable {
 		const codexHooks = !!codex?.hooks;
 		const profile = codex ? ` -p ${CODEX_PROFILE}` : '';
 		const command = cli === 'claude'
-			? claudeCommand({ resume: !!resume, id, settings: this.server && this.settingsOk ? this.claudeSettings() : undefined, mcp, allowBypass: vscode.workspace.getConfiguration('flowAgent.claude').get<boolean>('allowBypassPermissions', false) === true })
+			? claudeCommand({ resume: !!resume, id, settings: this.server && this.settingsOk ? this.claudeSettings() : undefined, mcp, allowBypass: bypassAllowed() })
 			// Codex chose its session id; until a hook told us, `codex resume` without one opens its own picker.
 			// The id is typed into the shell: one that is not a uuid (from a hook, or Codex's importer) is never typed; Codex's picker opens instead.
 			: cli === 'codex' ? (resume ? `codex resume${profile}${resume.agentId && UUID.test(resume.agentId) ? ` ${resume.agentId}` : ''}` : `codex${profile}`)
@@ -788,7 +810,7 @@ export class Agents implements vscode.Disposable {
 		const session: AgentSession = {
 			id, cli, name, state: cli === 'claude' ? 'starting' : 'unknown', since: Date.now(), todos: [], unread: false,
 			prompt: resume?.prompt, command: cli === 'custom' ? command : undefined, agentId: resume?.agentId, worktree,
-			cwd, pr: cwd ? this.prs.get(cwd) : undefined,
+			cwd, pr: cwd ? this.prs.get(cwd) : undefined, start,
 			transcript: cli === 'claude' ? resume?.transcript ?? transcriptPath(id, cwd) : undefined,
 		};
 		this.sessions.set(id, session);

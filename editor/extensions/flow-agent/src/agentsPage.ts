@@ -72,6 +72,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, .card:focus-v
 
 .split { display: flex; flex: 1; min-height: 0; }
 .side { flex: 0 0 236px; overflow: auto; border-right: 1px solid var(--line); padding: 10px 8px 24px; background: var(--col); }
+.sebox { margin: 0 4px 10px; }
+.sesearch { width: 100%; box-sizing: border-box; height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--input); }
+.sresult .sact.snip { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.snip mark { background: color-mix(in srgb, var(--focus) 30%, transparent); color: inherit; border-radius: 2px; }
 .sgroup { margin: 0 0 14px; }
 .shead { display: flex; align-items: center; gap: 6px; margin: 0 4px 4px; min-width: 0; }
 .sproj { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -191,6 +195,48 @@ ${AVATAR_CSS}
 .clash .f { font-family: var(--mono); font-size: 11.5px; color: var(--muted); overflow-wrap: anywhere; }
 .stage { color: var(--muted); font-size: 12px; } .stage .skipped { margin-left: 6px; padding: 0 6px; border: 1px solid var(--line); border-radius: 9px; }
 .hidden { display: none !important; }
+
+.cstart { display: flex; gap: 6px; margin: 2px 4px 6px; }
+.crow .sglyph { flex: none; width: 8px; margin-top: 1px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.cmore { margin: 2px 4px 0; }
+.chat { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+.chathead { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--line); min-width: 0; }
+.chathead .nm { flex: 1; min-width: 0; }
+.chathead h2 { margin: 0; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chatlog { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 16px; display: flex; flex-direction: column; gap: 10px; }
+.chatlog .cb { min-width: 0; }
+.cmsg { max-width: 860px; overflow-wrap: anywhere; }
+.cmsg.user { align-self: flex-end; max-width: min(760px, 88%); padding: 7px 11px; border-radius: 10px; background: color-mix(in srgb, var(--focus) 16%, transparent); white-space: pre-wrap; }
+.cmsg p { margin: 0 0 8px; white-space: pre-wrap; }
+.cmsg p:last-child, .cmsg ul:last-child { margin-bottom: 0; }
+.cmsg h1, .cmsg h2, .cmsg h3, .cmsg h4, .cmsg h5, .cmsg h6 { margin: 10px 0 6px; font-size: 14px; }
+.cmsg h1 { font-size: 16px; }
+.cmsg ul { margin: 0 0 8px; padding-left: 20px; }
+.cmsg code { font-family: var(--mono); font-size: 12px; padding: 0 4px; border-radius: 4px; background: var(--col); }
+.cmsg pre { margin: 0 0 8px; padding: 8px 10px; overflow: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--col); font-family: var(--mono); font-size: 12px; line-height: 1.45; white-space: pre; }
+.cmsg pre code { padding: 0; background: none; }
+.ctool, .cthought { max-width: 860px; border: 1px solid var(--line); border-radius: 8px; background: var(--col); font-size: 12.5px; }
+.ctool > summary, .cthought > summary { display: flex; align-items: center; gap: 8px; padding: 5px 9px; cursor: pointer; min-width: 0; }
+.ctool > summary .tt { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctool .st { flex: none; width: 12px; color: var(--muted); }
+.ctool.completed .st { color: var(--done); } .ctool.failed .st { color: var(--danger-text); } .ctool.in_progress .st { color: var(--working); }
+.ctool .tb, .cthought .tb { padding: 0 9px 8px; }
+.ctool pre, .cthought .tb { margin: 6px 0 0; font-family: var(--mono); font-size: 11.5px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ctool pre { max-height: 280px; overflow: auto; padding: 6px 8px; border-radius: 6px; background: var(--bg); white-space: pre; overflow-wrap: normal; }
+.ctool .fl { margin-top: 4px; color: var(--muted); font-family: var(--mono); font-size: 11.5px; overflow-wrap: anywhere; }
+.ctool .del { color: var(--danger-text); } .ctool .add { color: var(--done); }
+.cthought { color: var(--muted); font-style: italic; }
+.cplan { max-width: 860px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 8px; }
+.cask { max-width: 860px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--blocked) 55%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--blocked) 10%, transparent); }
+.cask .row2 { margin-top: 7px; }
+.cask.done { opacity: .65; border-color: var(--line); background: transparent; }
+.cerr { color: var(--danger-text); }
+.cnote { color: var(--muted); font-size: 12px; }
+.composer { padding: 8px 16px 12px; border-top: 1px solid var(--line); }
+.composer textarea { width: 100%; min-height: 58px; max-height: 220px; resize: vertical; padding: 7px 9px; border: 1px solid var(--line); border-radius: 8px; background: var(--input); }
+.cbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.cbar select { height: 26px; max-width: 180px; border: 1px solid var(--line); border-radius: 7px; background: var(--input); padding: 0 6px; }
+@media (max-width: 1000px) { .chat { flex: none; height: 82vh; } }
 `;
 
 /** The page's script. Plain JavaScript in String.raw (no backticks and no dollar-brace in it), so it can be tested as text. */
@@ -255,6 +301,14 @@ const replyError = new Map();
 let ticks = [];
 let cardEls = new Map();
 let openMenu = false;
+// The page's own chat (host: chatSessions.ts). projects is the host's index; open is the chat on screen: { chat, project, kind, title, busy, config }.
+const chat = { projects: [], got: false, open: undefined, loading: false, error: '', usage: undefined, more: new Set(), drafts: new Map(), q: '', found: undefined };
+let sseq = 0;              // counts the typing in the session search: a debounced post is sent only when no later keystroke came
+const cev = [];            // the open chat's events, as the host sent them (chunks of one kind joined, a tool card filled in by id)
+const cels = [];           // one wrapper element per event: a changed event is drawn again inside its own wrapper
+const cdirty = new Set();  // indexes of the events that need drawing again
+let cflushing = false;
+const raf = typeof requestAnimationFrame === 'function' ? requestAnimationFrame : f => setTimeout(f, 16);
 
 // ---- derived ---------------------------------------------------------------------------------------------------------------
 const rowById = id => data.rows.find(r => r.id === id);
@@ -313,14 +367,37 @@ const dTop = h('div'), dConv = h('div'), dReply = h('div', { class: 'sec reply h
 add(detail, dTop, dConv, dReply, dRest);
 const boardEl = h('div'), keptEl = h('div');
 add(main, boardEl, keptEl);
+const chatTitle = h('h2'), chatSub = h('div', { class: 'sub' });
+const chatLog = h('div', { class: 'chatlog', tabindex: '0', role: 'log', 'aria-label': 'Chat transcript' });
+const chatErr = h('div', { class: 'err', role: 'alert' });
+const chatInput = h('textarea', { rows: '2', placeholder: 'Message the agent… (Enter sends, Shift+Enter adds a line)', 'aria-label': 'Message the agent', maxlength: '8000' });
+const chatBar = h('div', { class: 'cbar' });
+const chatSend = h('button', { type: 'button', class: 'btn small primary' }, 'Send');
+const chatEl = h('section', { class: 'chat hidden', 'aria-label': 'Chat' },
+	h('div', { class: 'chathead' }, h('div', { class: 'nm' }, chatTitle, chatSub)),
+	chatLog, chatErr, h('div', { class: 'composer' }, chatInput, h('div', { class: 'cbar' }, chatBar, h('span', { class: 'grow' }), chatSend)));
 // Hidden until the first rows arrive: drawn empty first, the whole page would jump when they come (a layout shift), and the
 // "No agents running" prompt would flash for agents that are running. Without a host it shows itself after a moment.
-const root = h('div', { id: 'app' }, head, tools, h('div', { class: 'split' }, side, main, detail));
+const root = h('div', { id: 'app' }, head, tools, h('div', { class: 'split' }, side, main, detail, chatEl));
 root.hidden = true;
 const reveal = () => { root.hidden = false; };
 setTimeout(reveal, 2000);
 document.body.appendChild(root);
 
+// The session search (host: chatSearch / chatFound). It is shown once the host has answered chatList, so a page with no host never offers it.
+const sesearch = h('input', { class: 'sesearch', type: 'search', placeholder: 'Search past sessions', 'aria-label': 'Search past sessions', maxlength: '200' });
+const sebox = h('div', { class: 'sebox hidden' }, sesearch);
+const sideList = h('div');
+add(side, sebox, sideList);
+sesearch.addEventListener('input', () => {
+	const q = sesearch.value.trim();
+	const mine = ++sseq;
+	chat.found = undefined;
+	chat.q = q.length >= 2 ? q : '';
+	paintSide();
+	// The host also needs two characters; one that arrives while typing goes out only when the typing paused.
+	if (chat.q) { setTimeout(() => { if (mine === sseq) { post({ type: 'chatSearch', query: q }); } }, 250); }
+});
 const search = h('input', { class: 'search', type: 'search', placeholder: 'Search agents  ( / )', 'aria-label': 'Search agents' });
 search.addEventListener('input', () => { filter.q = search.value; paint(); });
 const menu = h('div', { class: 'menu', role: 'menu', hidden: true });
@@ -337,6 +414,7 @@ function setMenu(on) {
 			item('Codex in a worktree', { type: 'start', cli: 'codex', how: 'worktree' }),
 			item('Resume a Claude session…', { type: 'start', cli: 'claude', how: 'resume' }),
 			item('Resume a Codex session…', { type: 'start', cli: 'codex', how: 'resume' }),
+			item(data.bypass ? '✓ Claude: bypass permissions mode offered (turn off)' : 'Claude: allow bypass permissions mode…', { type: 'start', cli: 'claude', how: 'bypass' }),
 			h('hr'),
 			data.customs.map((n, i) => item(n, { type: 'custom', index: i, name: n })),
 			data.customs.length ? h('hr') : null,
@@ -348,8 +426,8 @@ const chip = (label, key, tip) => { const b = h('button', { type: 'button', clas
 const chips = [chip('Unread', 'unread', 'Only agents with something you have not looked at'), chip('Worktree', 'wt', 'Only agents in a worktree of their own'), chip('Show ended', 'ended', 'Show agents whose CLI has exited')];
 const cliSel = h('select', { class: 'clisel', 'aria-label': 'Filter by CLI', onchange: () => { filter.cli = cliSel.value; paint(); } },
 	h('option', { value: 'all' }, 'All CLIs'), h('option', { value: 'claude' }, 'Claude'), h('option', { value: 'codex' }, 'Codex'), h('option', { value: 'custom' }, 'Custom'));
-const viewBtn = (v, label) => { const b = h('button', { type: 'button', class: 'btn small', 'aria-pressed': 'false', onclick: () => { view = v; paint(); } }, label); b.view = v; return b; };
-const viewBtns = [viewBtn('board', 'Board'), viewBtn('list', 'List')];
+const viewBtn = (v, label) => { const b = h('button', { type: 'button', class: 'btn small', 'aria-pressed': 'false', onclick: () => { view = v; if (v === 'chat') { post({ type: 'chatList' }); } paint(); } }, label); b.view = v; return b; };
+const viewBtns = [viewBtn('board', 'Board'), viewBtn('list', 'List'), viewBtn('chat', 'Chat')];
 add(tools, h('div', { class: 'newwrap' }, newBtn('claude', 'Claude'), newBtn('codex', 'Codex'), moreBtn, menu), search, cliSel, chips, h('span', { class: 'grow' }), viewBtns);
 
 // ---- sidebar: this window's project first, then the other open projects, then the closed ones ---------------------------------
@@ -361,30 +439,94 @@ function srow(s) {
 	el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); select(s.id); } });
 	return el;
 }
+// A chat session of the host's index: its chat id is the one the host will give it once open (kind and session id).
+function crow(p, s) {
+	const open = chat.open && chat.open.chat === s.kind + ':' + s.id;
+	const el = h('div', { class: 'srow crow' + (open && view === 'chat' ? ' sel' : ''), tabindex: '0', role: 'button', 'aria-label': 'Chat: ' + s.title },
+		h('span', { class: 'sglyph', 'aria-hidden': 'true' }, '💬'), h('span', { class: 'sbody' }, h('span', { class: 'sname', title: s.title }, s.title), h('span', { class: 'sact' }, (s.kind === 'codex' ? 'Codex' : 'Claude') + ' · ' + dur(Math.max(0, now() - s.modified)) + ' ago')));
+	const go = () => openChat(p.key, s.kind, s.id);
+	el.addEventListener('click', go);
+	el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); go(); } });
+	return el;
+}
+function chatRows(key) {
+	const p = chat.projects.find(x => x.key === key);
+	if (!p) { return null; }
+	const list = chat.more.has(key) ? p.sessions : p.sessions.slice(0, 5);
+	const start = (kind, label) => h('button', { type: 'button', class: 'btn small', title: 'Start a ' + label + ' chat in ' + p.where, onclick: () => openChat(key, kind) }, '+ ' + label);
+	return [h('div', { class: 'cstart' }, start('claude', 'Claude'), start('codex', 'Codex')), list.map(s => crow(p, s)),
+		p.sessions.length > 5 ? h('button', { type: 'button', class: 'btn small cmore', onclick: () => { if (chat.more.has(key)) { chat.more.delete(key); } else { chat.more.add(key); } paintSide(); } }, chat.more.has(key) ? 'Show fewer' : 'Show ' + (p.sessions.length - 5) + ' more') : null];
+}
+// The snippet is transcript text: text nodes only, the match in a <mark> built here. Folded as the host does (sessionSearch.ts fold):
+// the same length as the text, so the index found in the folded copy cuts the original at the right place.
+const fold = s => s.replace(/[\u0130\u0131]/g, 'i').toLowerCase();
+function snippet(text, q) {
+	const needle = fold(q.replace(/\s+/g, ' '));
+	const at = fold(text).indexOf(needle);
+	return at < 0 ? h('span', { class: 'sact snip' }, text) : h('span', { class: 'sact snip' }, text.slice(0, at), h('mark', null, text.slice(at, at + needle.length)), text.slice(at + needle.length));
+}
+function searchResults() {
+	const f = chat.found;
+	if (!f) { return h('p', { class: 'note', role: 'status' }, 'Searching…'); }
+	if (!f.hits.length) { return h('p', { class: 'note', role: 'status' }, f.cut ? 'No match in the sessions searched; the search stopped early.' : 'No past session mentions "' + chat.q + '".'); }
+	const out = [];
+	const groups = new Map();
+	for (const hit of f.hits) {
+		if (!groups.has(hit.project)) { groups.set(hit.project, []); }
+		groups.get(hit.project).push(hit);
+	}
+	for (const [key, hits] of groups) {
+		const p = chat.projects.find(x => x.key === key);
+		out.push(h('div', { class: 'sgroup sresult' }, h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p ? p.where : '' }, p ? p.name : 'Project')),
+			hits.map(hit => {
+				const go = () => openChat(hit.project, hit.kind, hit.session);
+				const el = h('div', { class: 'srow crow', tabindex: '0', role: 'button', 'aria-label': 'Chat: ' + hit.title },
+					h('span', { class: 'sglyph', 'aria-hidden': 'true' }, '💬'),
+					h('span', { class: 'sbody' }, h('span', { class: 'sname', title: hit.title }, hit.title), snippet(hit.snippet, chat.q), h('span', { class: 'sact' }, KIND_NAME[hit.kind] + ' · ' + dur(Math.max(0, now() - hit.modified)) + ' ago')));
+				el.addEventListener('click', go);
+				el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); go(); } });
+				return el;
+			})));
+	}
+	if (f.more) { out.push(h('p', { class: 'note' }, (f.cut ? 'The search stopped early, so older sessions may match too. ' : '') + 'Showing the newest matches. Type more to narrow the search.')); }
+	return out;
+}
 function paintSide() {
 	const shown = rows => rows.filter(s => filter.ended || s.state !== 'ended');
 	const mine = shown(data.rows);
 	const pick = (label, msg, tip) => h('button', { type: 'button', class: 'btn small', title: tip, onclick: () => post(msg) }, label);
+	const ownChat = chat.projects.find(p => p.own);
 	const out = [h('div', { class: 'sgroup' },
 		h('div', { class: 'shead' }, h('span', { class: 'sproj', title: 'This window' }, (data.project && data.project.name) || 'This window'), pick('New session', { type: 'pick' }, 'Start an agent in this project')),
-		mine.length ? mine.map(srow) : h('p', { class: 'note' }, 'No sessions yet.'))];
+		mine.length ? mine.map(srow) : (ownChat && ownChat.sessions.length ? null : h('p', { class: 'note' }, 'No sessions yet.')),
+		ownChat ? chatRows(ownChat.key) : null)];
 	// Every open project, with or without sessions: the sidebar is also the way to jump between the open project windows.
 	if (data.peers.length) { out.push(h('div', { class: 'slabel' }, 'Open projects')); }
 	for (const p of data.peers) {
 		const list = shown(p.rows);
 		out.push(h('div', { class: 'sgroup' },
 			h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p.name }, p.name), pick('Open in IDE', { type: 'peer', action: 'ide', key: p.key }, 'Bring up the window of ' + p.name)),
-			list.length ? list.map(srow) : h('p', { class: 'note' }, 'No sessions')));
+			list.length ? list.map(srow) : h('p', { class: 'note' }, 'No sessions'),
+			chatRows(p.key)));
 	}
 	if (data.recent.length) {
 		out.push(h('div', { class: 'slabel' }, 'Recent'));
 		for (const p of data.recent) {
 			out.push(h('div', { class: 'srecent' },
 				h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p.name }, p.name), pick('Open project', { type: 'peer', action: 'ide', key: p.key }, 'Open ' + p.name + ' in a window')),
-				h('div', { class: 'sact', title: p.sessions.join(', ') }, p.sessions.join(', ') + ' (closed)')));
+				h('div', { class: 'sact', title: p.sessions.join(', ') }, p.sessions.join(', ') + ' (closed)'),
+				chatRows(p.key)));
 		}
 	}
-	fill(side, out);
+	// Projects the agents have worked in that this window does not know as open or recent.
+	const known = new Set(data.peers.map(p => p.key).concat(data.recent.map(p => p.key)));
+	const others = chat.projects.filter(p => !p.own && !known.has(p.key));
+	if (others.length) { out.push(h('div', { class: 'slabel' }, 'On this machine')); }
+	for (const p of others) {
+		out.push(h('div', { class: 'sgroup' }, h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p.where }, p.name)), chatRows(p.key)));
+	}
+	sebox.className = cls('sebox', !chat.got && 'hidden');
+	fill(sideList, chat.q ? searchResults() : out);
 }
 
 // ---- header ----------------------------------------------------------------------------------------------------------------
@@ -679,8 +821,202 @@ function askTail(id, force) {
 	post({ type: 'tail', id });
 }
 
+// ---- the chat --------------------------------------------------------------------------------------------------------------
+// md(): a small Markdown subset (fenced code, inline code, bold, headings, bullets) built node by node through h(), so no
+// text of the agent is ever parsed as HTML. Links are left as the plain text they are written as.
+const TICK = '\x60';
+const FENCE = TICK + TICK + TICK;
+function inline(t) {
+	const out = [];
+	let buf = '';
+	let i = 0;
+	const flush = () => { if (buf) { out.push(buf); buf = ''; } };
+	while (i < t.length) {
+		if (t[i] === TICK) {
+			const j = t.indexOf(TICK, i + 1);
+			if (j > i + 1) { flush(); out.push(h('code', null, t.slice(i + 1, j))); i = j + 1; continue; }
+		}
+		if (t.slice(i, i + 2) === '**') {
+			const j = t.indexOf('**', i + 2);
+			if (j > i + 2) { flush(); out.push(h('b', null, t.slice(i + 2, j))); i = j + 2; continue; }
+		}
+		buf += t[i];
+		i++;
+	}
+	flush();
+	return out;
+}
+function md(text) {
+	const out = [];
+	const lines = String(text).split('\n');
+	let para = [];
+	let items = [];
+	const endPara = () => { if (para.length) { out.push(h('p', null, inline(para.join('\n')))); para = []; } };
+	const endList = () => { if (items.length) { out.push(h('ul', null, items)); items = []; } };
+	for (let i = 0; i < lines.length; i++) {
+		const line = lines[i];
+		const trimmed = line.trim();
+		if (trimmed.slice(0, 3) === FENCE) {
+			endPara(); endList();
+			const code = [];
+			// An unclosed fence (the answer is still streaming) runs to the end.
+			for (i++; i < lines.length && lines[i].trim().slice(0, 3) !== FENCE; i++) { code.push(lines[i]); }
+			out.push(h('pre', null, h('code', null, code.join('\n'))));
+			continue;
+		}
+		const head = /^(#{1,6})\s+(.*)$/.exec(trimmed);
+		const bullet = /^[-*+]\s+(.*)$/.exec(trimmed) || /^\d+[.)]\s+(.*)$/.exec(trimmed);
+		if (head) { endPara(); endList(); out.push(h('h' + head[1].length, null, inline(head[2]))); }
+		else if (bullet) { endPara(); items.push(h('li', null, inline(bullet[1]))); }
+		else if (!trimmed) { endPara(); endList(); }
+		else { endList(); para.push(line); }
+	}
+	endPara(); endList();
+	return out;
+}
+
+const cls = (...a) => a.filter(Boolean).join(' ');
+const MAX_DIFF_LINES = 300;
+const diffLines = (text, mark, klass) => text ? text.split('\n').slice(0, MAX_DIFF_LINES).map(l => h('span', { class: klass }, mark + ' ' + l + '\n')) : [];
+const TOOL_MARK = { completed: '✓', failed: '✗', in_progress: '●', pending: '○' };
+function renderEvent(e) {
+	switch (e.t) {
+		case 'user': return h('div', { class: 'cmsg user' }, e.text);
+		case 'text': return h('div', { class: 'cmsg' }, md(e.text));
+		case 'thought': {
+			const d = h('details', { class: 'cthought', open: e.open || null, ontoggle: () => { e.open = d.open; } }, h('summary', null, 'Thinking'), h('div', { class: 'tb' }, e.text));
+			return d;
+		}
+		case 'tool': {
+			const body = [];
+			if (e.files && e.files.length) { body.push(h('div', { class: 'fl' }, e.files.join('\n'))); }
+			for (const d of e.diffs || []) { body.push(h('div', { class: 'fl' }, d.path), h('pre', null, diffLines(d.old, '-', 'del'), diffLines(d.new, '+', 'add'))); }
+			if (e.out) { body.push(h('pre', null, e.out)); }
+			const d = h('details', { class: cls('ctool', e.status), open: e.open || null, ontoggle: () => { e.open = d.open; } },
+				h('summary', null, h('span', { class: 'st' }, TOOL_MARK[e.status] || '○'), h('span', { class: 'tt', title: e.title || e.kind || 'tool' }, e.title || e.kind || 'tool')),
+				body.length ? h('div', { class: 'tb' }, body) : null);
+			return d;
+		}
+		case 'plan': return h('div', { class: 'cplan' }, h('ul', { class: 'todol' }, e.entries.map(x => h('li', { class: x.status }, h('span', { class: 'm' }, x.status === 'completed' ? '✓' : x.status === 'in_progress' ? '●' : '○'), x.text))));
+		case 'ask': {
+			const id = chat.open && chat.open.chat;
+			return h('div', { class: cls('cask', e.done && 'done'), role: 'group', 'aria-label': 'The agent asks' },
+				h('b', null, e.title), e.files.length ? h('div', { class: 'fl mono' }, e.files.join('\n')) : null,
+				h('div', { class: 'row2' }, e.options.map((o, i) => h('button', { type: 'button', class: 'btn small' + (o.kind.indexOf('reject') === 0 ? ' danger' : ''), disabled: e.done || null, onclick: () => { e.done = true; cdirty.add(cev.indexOf(e)); cSchedule(); post({ type: 'chatAnswer', chat: id, req: e.req, option: i }); } }, o.name))));
+		}
+		case 'stop': return e.reason === 'end_turn' || e.reason === 'cancelled' ? null : h('div', { class: 'cnote' }, 'Stopped: ' + e.reason);
+		case 'error': return h('div', { class: 'cerr', role: 'alert' }, e.text);
+		default: return null;
+	}
+}
+function cApply(e) {
+	const last = cev[cev.length - 1];
+	// Chunks of one message join (the host's rule, chatCore.ts appendEvent): a user chunk with no message id is a message of its own.
+	if ((e.t === 'text' || e.t === 'thought' || e.t === 'user') && last && last.t === e.t && last.mid === e.mid && !(e.t === 'user' && e.mid === undefined)) { last.text += e.text; cdirty.add(cev.length - 1); return; }
+	if (e.t === 'tool') {
+		const at = cev.findIndex(x => x.t === 'tool' && x.id === e.id);
+		if (at >= 0) { Object.assign(cev[at], e); cdirty.add(at); return; }
+	}
+	if (e.t === 'plan') {
+		const at = cev.findIndex(x => x.t === 'plan');
+		if (at >= 0) { cev[at] = Object.assign({}, e); cdirty.add(at); return; }
+	}
+	if (e.t === 'asked') {
+		const at = cev.findIndex(x => x.t === 'ask' && x.req === e.req);
+		if (at >= 0) { cev[at].done = true; cdirty.add(at); }
+		return;
+	}
+	if (e.t === 'config') { if (chat.open) { chat.open.config = e.config; paintBar(); } return; }
+	if (e.t === 'usage') { chat.usage = e; paintChatHead(); return; }
+	if (e.t === 'stop' || (e.t === 'error' && e.fatal)) {
+		// The turn is over (a plain error line is not: the host emits those mid-turn): a question still open can no longer be answered.
+		cev.forEach((x, i) => { if (x.t === 'ask' && !x.done) { x.done = true; cdirty.add(i); } });
+		if (chat.open) { chat.open.busy = false; }
+		paintChatHead();
+	}
+	cev.push(Object.assign({}, e));
+	cdirty.add(cev.length - 1);
+}
+function cFlush() {
+	cflushing = false;
+	const atEnd = chatLog.scrollTop === undefined || chatLog.scrollTop + chatLog.clientHeight >= chatLog.scrollHeight - 40;
+	for (let i = cels.length; i < cev.length; i++) { cels[i] = h('div', { class: 'cb' }); chatLog.appendChild(cels[i]); cdirty.add(i); }
+	for (const i of [...cdirty].sort((a, b) => a - b)) { if (cels[i]) { fill(cels[i], [renderEvent(cev[i])]); } }
+	cdirty.clear();
+	if (atEnd && chatLog.scrollTop !== undefined) { chatLog.scrollTop = chatLog.scrollHeight; }
+}
+function cSchedule() { if (!cflushing) { cflushing = true; raf(cFlush); } }
+function cReset(events) {
+	cev.length = 0; cels.length = 0; cdirty.clear();
+	wipe(chatLog);
+	// A replayed turn that ended says "stop", which must not undo "working" for the turn still running.
+	const busy = chat.open && chat.open.busy;
+	for (const e of events) { cApply(e); }
+	if (chat.open) { chat.open.busy = busy; }
+	paintChatHead();
+	cFlush();
+	if (chatLog.scrollTop !== undefined) { chatLog.scrollTop = chatLog.scrollHeight; }
+}
+const KIND_NAME = { claude: 'Claude', codex: 'Codex' };
+function paintChatHead() {
+	const o = chat.open;
+	chatTitle.textContent = o ? o.title : 'Chat';
+	const project = o ? chat.projects.find(p => p.key === o.project) : undefined;
+	const u = chat.usage;
+	chatSub.textContent = o ? KIND_NAME[o.kind] + (project ? ' · ' + project.name : '') + (o.busy ? ' · working…' : '') + (u && u.size ? ' · ctx ' + Math.min(100, Math.round(u.used / u.size * 100)) + '%' : '') : '';
+	if (project) { chatSub.setAttribute('title', project.where); }
+	chatSend.textContent = o && o.busy ? 'Stop' : 'Send';
+	chatSend.disabled = !o;
+	chatInput.disabled = !o;
+	chatErr.textContent = chat.error;
+}
+// Mode and model (whatever the agent offers), as the host built them from its config options.
+function paintBar() {
+	const o = chat.open;
+	fill(chatBar, o ? o.config.map(c => {
+		const sel = h('select', { 'aria-label': c.name, title: c.name, onchange: () => post({ type: 'chatSet', chat: o.chat, config: c.id, value: sel.value }) }, c.items.map(i => h('option', { value: i.value }, i.name)));
+		sel.value = c.value === undefined ? '' : c.value;
+		return sel;
+	}) : []);
+}
+function paintChat() {
+	paintChatHead();
+	paintBar();
+	if (!chat.open) {
+		cev.length = 0; cels.length = 0; cdirty.clear();
+		fill(chatLog, [h('p', { class: 'cnote' }, chat.loading ? 'Opening…' : chat.got ? 'Pick a session on the left, or start one with + Claude or + Codex under a project.' : 'The chat is not available here: it needs the Insilode editor.')]);
+	}
+}
+function openChat(project, kind, session) {
+	view = 'chat';
+	chat.error = '';
+	chat.loading = true;
+	chat.open = undefined;
+	paintChat();
+	paint();
+	post({ type: 'chatOpen', project, kind, ...(session ? { session } : {}) });
+}
+function sendChat() {
+	const o = chat.open;
+	if (!o) { return; }
+	if (o.busy) { post({ type: 'chatCancel', chat: o.chat }); return; }
+	const text = chatInput.value;
+	if (!text.trim() || text.length > 8000) { return; }
+	o.busy = true;
+	chat.drafts.delete(o.chat);
+	chatInput.value = '';
+	paintChatHead();
+	post({ type: 'chatPrompt', chat: o.chat, text });
+}
+chatSend.addEventListener('click', sendChat);
+chatInput.addEventListener('input', () => { if (chat.open) { chat.drafts.set(chat.open.chat, chatInput.value); } });
+chatInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); if (chat.open && !chat.open.busy) { sendChat(); } } });
+
 // ---- selection and painting ------------------------------------------------------------------------------------------------
 function select(id) {
+	// A terminal agent was picked while the chat is on screen: go back to the board, where its detail is.
+	const fromChat = !!id && view === 'chat';
+	if (fromChat) { view = 'board'; sel = undefined; }
 	if (id === sel) { return; }
 	sel = id;
 	if (id) { askTail(id, true); }
@@ -691,6 +1027,7 @@ function select(id) {
 	}
 	paintSide();
 	paintDetail();
+	if (fromChat) { paint(); }
 }
 function paint() {
 	if (sel && !rowById(sel) && !peerById(sel)) { sel = undefined; }
@@ -701,6 +1038,11 @@ function paint() {
 	paintBoard();
 	paintKept();
 	paintDetail();
+	paintChatHead();
+	const chatView = view === 'chat';
+	main.className = cls('main', chatView && 'hidden');
+	detail.className = cls('detail', chatView && 'hidden');
+	chatEl.className = cls('chat', !chatView && 'hidden');
 	for (const b of chips) { b.setAttribute('aria-pressed', filter[b.fkey] ? 'true' : 'false'); }
 	for (const b of viewBtns) { b.setAttribute('aria-pressed', view === b.view ? 'true' : 'false'); }
 	main.scrollTop = mainTop; detail.scrollTop = detTop;
@@ -725,6 +1067,31 @@ window.addEventListener('message', e => {
 		tails.set(m.id, { entries: Array.isArray(m.entries) ? m.entries : [], note: m.note });
 		const s = sel === m.id ? rowById(m.id) : undefined;
 		if (s) { paintConv(s); }
+	} else if (m.type === 'chatIndex') {
+		chat.projects = Array.isArray(m.projects) ? m.projects : [];
+		chat.got = true;
+		paintSide();
+		if (!chat.open) { paintChat(); }
+	} else if (m.type === 'chatFound') {
+		// An answer to an earlier query, or to one that was cleared since, is not for what is typed now.
+		if (m.query !== chat.q || !Array.isArray(m.hits)) { return; }
+		chat.found = { hits: m.hits.filter(x => x && typeof x.project === 'string' && typeof x.session === 'string').map(x => ({ project: x.project, kind: x.kind === 'codex' ? 'codex' : 'claude', session: x.session, title: String(x.title || ''), modified: Number(x.modified) || 0, snippet: String(x.snippet || '') })), more: !!m.more, cut: !!m.cut };
+		paintSide();
+	} else if (m.type === 'chatOpened') {
+		if (!chat.open || chat.open.chat !== m.chat) { chat.usage = undefined; }
+		chat.open = { chat: m.chat, project: m.project, kind: m.kind, title: m.title, busy: !!m.busy, config: Array.isArray(m.config) ? m.config : [] };
+		chat.loading = false;
+		chat.error = '';
+		chatInput.value = chat.drafts.get(m.chat) || '';
+		paintChat();
+		paintSide();
+	} else if (m.type === 'chatEvents') {
+		if (!chat.open || m.chat !== chat.open.chat || !Array.isArray(m.events)) { return; }
+		if (m.reset) { cReset(m.events); } else { for (const e of m.events) { cApply(e); } cSchedule(); }
+	} else if (m.type === 'chatFailed') {
+		chat.loading = false;
+		chat.error = String(m.text || 'The chat could not be opened.');
+		paintChat();
 	} else if (m.type === 'replyFailed') {
 		const text = sentText.get(m.id);
 		replyError.set(m.id, 'The agent is not at its prompt, so the reply could not be typed in. Your text is kept.');
@@ -746,6 +1113,8 @@ document.addEventListener('keydown', e => {
 		return;
 	}
 	if (typing(e.target) || e.ctrlKey || e.metaKey || e.altKey) { return; }
+	// The keys below move through the board's agents, which are not on screen in the chat view.
+	if (view === 'chat') { return; }
 	const order = orderOf(grouped());
 	const at = order.findIndex(s => s.id === sel);
 	if (e.key === 'j' || e.key === 'ArrowDown' || e.key === 'k' || e.key === 'ArrowUp') {
@@ -768,11 +1137,13 @@ document.addEventListener('keydown', e => {
 	}
 });
 document.addEventListener('click', e => { if (openMenu && !menu.contains(e.target)) { setMenu(false); } });
+paintChat();
 paint();
 post({ type: 'ready' });
 `;
 
-export function agentsHtml(): string {
-	const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';`;
-	return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agents</title><style>${CSS}</style></head><body><script>${SCRIPT}</script></body></html>`;
+/** `nonce` is made per load by agentsPanel.ts (the website passes its own): the one script runs by it. */
+export function agentsHtml(nonce: string): string {
+	const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
+	return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agents</title><style>${CSS}</style></head><body><script nonce="${nonce}">${SCRIPT}</script></body></html>`;
 }

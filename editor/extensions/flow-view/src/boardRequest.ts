@@ -4,7 +4,7 @@
  *  base), so every message is checked here. Pure: no `vscode`, unit-tested directly.
  *--------------------------------------------------------------------------------------------*/
 
-import type { BoardSpec } from './board/spec';
+import type { BoardSpec } from '../../../../board-canvas/spec';
 import type { ArchitectureBoardOptions, DtoBoardOptions } from './types/boards';
 import type { TypeRole } from './types/model';
 

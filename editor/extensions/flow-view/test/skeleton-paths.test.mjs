@@ -18,7 +18,7 @@ after(() => {
 
 const match = await load('src/skeleton/match.ts')
 const paths = await load('src/skeleton/paths.ts')
-const spec = await load('src/board/spec.ts')
+const spec = await load('../../../board-canvas/spec.ts')
 const changes = await load('src/skeleton/changes.ts')
 
 const A = 'analytics-service/src/main/java/com/turkcell/analyticsservice'

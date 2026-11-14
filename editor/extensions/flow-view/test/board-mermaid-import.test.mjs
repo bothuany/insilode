@@ -6,7 +6,7 @@ import { cleanup, load } from './bundle.mjs'
 let imp, spec, mermaid
 before(async () => {
 	imp = await load('src/board/mermaidImport.ts')
-	spec = await load('src/board/spec.ts')
+	spec = await load('../../../board-canvas/spec.ts')
 	mermaid = await load('src/board/mermaid.ts')
 })
 after(cleanup)

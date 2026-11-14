@@ -6,7 +6,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { FlowNode } from '../../../../../../protocol/flow';
-import type { NodeKind } from '../spec';
+import type { NodeKind } from '../../../../../../board-canvas/spec';
 import { GUESS_LEGEND, baseName, skip, type GenEdge, type GenNode, type Generated } from './board';
 
 export interface SequenceOptions {

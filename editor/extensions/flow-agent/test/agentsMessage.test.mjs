@@ -78,3 +78,46 @@ test('the dock-only chat link and anything unknown are dropped', () => {
 		assert.equal(a.agentsAction(m), undefined, JSON.stringify(m))
 	}
 })
+
+// The page's own chat: ids are the host's (a project key, a session id, a chat id, an option index); a path never passes.
+const PROJECT = 'a1b2c3d4e5f6'
+const SESSION = '0a99a3dd-7db0-4ba0-882d-a4dd922189be'
+
+test('the six chat actions are accepted', () => {
+	assert.deepEqual(a.agentsAction({ type: 'chatList' }), { type: 'chatList' })
+	assert.deepEqual(a.agentsAction({ type: 'chatOpen', project: PROJECT, kind: 'claude' }), { type: 'chatOpen', project: PROJECT, kind: 'claude' })
+	assert.deepEqual(a.agentsAction({ type: 'chatOpen', project: PROJECT, kind: 'codex', session: SESSION }), { type: 'chatOpen', project: PROJECT, kind: 'codex', session: SESSION })
+	assert.deepEqual(a.agentsAction({ type: 'chatPrompt', chat: 'c1', text: 'hi' }), { type: 'chatPrompt', chat: 'c1', text: 'hi' })
+	assert.deepEqual(a.agentsAction({ type: 'chatCancel', chat: 'c1' }), { type: 'chatCancel', chat: 'c1' })
+	assert.deepEqual(a.agentsAction({ type: 'chatAnswer', chat: 'c1', req: 0, option: 19 }), { type: 'chatAnswer', chat: 'c1', req: 0, option: 19 })
+	assert.deepEqual(a.agentsAction({ type: 'chatSet', chat: 'c1', config: 'mode', value: 'plan' }), { type: 'chatSet', chat: 'c1', config: 'mode', value: 'plan' })
+})
+
+test('chat actions with a path, a bad id, an oversize text, option 20 or an unknown kind are dropped', () => {
+	for (const project of ['/Users/me/app', '../x', 'C:\\app', PROJECT + '0', 'ABCDEF123456', 5, undefined]) {
+		assert.equal(a.agentsAction({ type: 'chatOpen', project, kind: 'claude' }), undefined, String(project))
+	}
+	assert.equal(a.agentsAction({ type: 'chatOpen', project: PROJECT, kind: 'custom' }), undefined)
+	assert.equal(a.agentsAction({ type: 'chatOpen', project: PROJECT, kind: 'claude', session: '../../etc/passwd' }), undefined)
+	assert.equal(a.agentsAction({ type: 'chatOpen', project: PROJECT, kind: 'claude', session: 'not-a-uuid' }), undefined)
+	assert.equal(a.agentsAction({ type: 'chatOpen', project: PROJECT, kind: 'claude', session: null }), undefined)
+	assert.equal(a.agentsAction({ type: 'chatPrompt', chat: 'c1', text: 'x'.repeat(a.MAX_REPLY + 1) }), undefined)
+	assert.equal(a.agentsAction({ type: 'chatPrompt', chat: 'c1', text: '  \n' }), undefined)
+	assert.equal(a.agentsAction({ type: 'chatPrompt', chat: 'x'.repeat(201), text: 'hi' }), undefined)
+	assert.equal(a.agentsAction({ type: 'chatPrompt', text: 'hi' }), undefined)
+	assert.equal(a.agentsAction({ type: 'chatAnswer', chat: 'c1', req: 0, option: 20 }), undefined)
+	assert.equal(a.agentsAction({ type: 'chatAnswer', chat: 'c1', req: -1, option: 0 }), undefined)
+	assert.equal(a.agentsAction({ type: 'chatAnswer', chat: 'c1', req: 1.5, option: 0 }), undefined)
+	assert.equal(a.agentsAction({ type: 'chatSet', chat: 'c1', config: 'x'.repeat(65), value: 'a' }), undefined)
+	assert.equal(a.agentsAction({ type: 'chatSet', chat: 'c1', config: 'mode', value: 'x'.repeat(201) }), undefined)
+	assert.equal(a.agentsAction({ type: 'chatCancel' }), undefined)
+})
+
+test('chatSearch takes a text of two to two hundred characters (once trimmed) and nothing else', () => {
+	assert.deepEqual(a.agentsAction({ type: 'chatSearch', query: 'login bug' }), { type: 'chatSearch', query: 'login bug' })
+	assert.deepEqual(a.agentsAction({ type: 'chatSearch', query: 'x'.repeat(200) }), { type: 'chatSearch', query: 'x'.repeat(200) })
+	assert.deepEqual(a.agentsAction({ type: 'chatSearch', query: 'ab', project: '/etc' }), { type: 'chatSearch', query: 'ab' }, 'extra fields are not carried over')
+	for (const query of ['', 'a', '  a  ', 'x'.repeat(201), 5, null, undefined, ['ab']]) {
+		assert.equal(a.agentsAction({ type: 'chatSearch', query }), undefined, String(query))
+	}
+})

@@ -6,7 +6,7 @@ import { cleanup, load } from './bundle.mjs'
 
 let spec, store
 before(async () => {
-	spec = await load('src/board/spec.ts')
+	spec = await load('../../../board-canvas/spec.ts')
 	store = await load('src/board/store.ts')
 })
 after(cleanup)

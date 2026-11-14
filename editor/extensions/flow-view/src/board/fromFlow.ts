@@ -6,7 +6,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import type { FlowNode } from '../../../../../protocol/flow';
-import { MAX_NODES, type BoardEdge, type BoardNode, type BoardSpec, type NodeKind } from './spec';
+import { MAX_NODES, type BoardEdge, type BoardNode, type BoardSpec, type NodeKind } from '../../../../../board-canvas/spec';
 
 const KIND: Record<FlowNode['kind'], NodeKind> = {
 	controller: 'controller', handler: 'service', method: 'service', db: 'entity', ambiguous: 'interface', external: 'external',

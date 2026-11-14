@@ -3,7 +3,7 @@
  *  The descriptions are written for the model: they say when to reach for each tool, in a few sentences
  *  (a test caps them at 600 characters); the rules and examples live in prompts.ts and the server instructions
  *  in protocol.ts. No tool writes a file. Keep draw_board's schema in sync with
- *  ../board/spec.ts (a test compares the enums).
+ *  board-canvas/spec.ts (a test compares the enums).
  *--------------------------------------------------------------------------------------------*/
 
 export interface ToolDef {
@@ -346,8 +346,8 @@ export const TOOLS: ToolDef[] = [
 	},
 	{
 		name: 'open_diff',
-		description: "Show git changes in Insilode's diff view so the user can REVIEW them. Use it when the user asks to open, show or review the diff or the changes in the IDE, including after you finished a piece of work (\"show what you did\"). By default the uncommitted changes against HEAD; `base` \"branch\" shows everything since the branch left main, \"last_commit\" the last commit plus anything on top. New untracked files and nested git repositories are included; `files` (files or folders) narrows it. Returns the list of files it opened.",
-		inputSchema: { type: 'object', properties: { files: { type: 'array', items: { type: 'string' }, description: 'Files or folders to show (absolute, or relative to the workspace folder). Omit for all changes.' }, base: { type: 'string', enum: ['uncommitted', 'branch', 'last_commit'], description: 'What to compare with: uncommitted (HEAD, default), branch (where this branch left main/master; on main itself, its upstream: the unpushed commits) or last_commit (HEAD~1). Use branch or last_commit when your work is already committed.' }, title: str('Title of the diff tab.'), flow: { type: 'boolean', description: "Also show the changes on Insilode's flow canvas, all on one canvas: every endpoint flow they reach, cut down to the changed methods, plus changed methods no endpoint reaches; each changed card shows added lines in green and removed lines in red. Use it when the user wants the diff or the work \"in flow\"." } }, additionalProperties: false },
+		description: "Show git changes in Insilode's diff view so the user can REVIEW them. Use it when the user asks to open, show or review the diff or the changes in the IDE, including after you finished a piece of work (\"show what you did\"). By default the uncommitted changes against HEAD; `base` picks another starting point (\"session\" is your own work since this session began, \"ref\" a commit or branch). New untracked files and nested git repositories are included; `files` (files or folders) narrows it. Returns the list of files it opened.",
+		inputSchema: { type: 'object', properties: { files: { type: 'array', items: { type: 'string' }, description: 'Files or folders to show (absolute, or relative to the workspace folder). Omit for all changes.' }, base: { type: 'string', enum: ['uncommitted', 'branch', 'last_commit', 'ref', 'session'], description: 'What to compare with: uncommitted (HEAD, default), branch (where this branch left main/master; on main itself, its upstream: the unpushed commits), last_commit (HEAD~1), ref (the commit or branch in `ref`) or session (where this agent session started, also when you committed along the way; works only for agents started from the Insilode dock, so if it errors use branch or ref). Uncommitted work that existed before the session started in the same files shows up too.' }, ref: str('With base "ref": a commit hash or branch name (letters, digits and . _ / - only, not starting with "-").'), title: str('Title of the diff tab.'), flow: { type: 'boolean', description: "Also show the changes on Insilode's flow canvas, all on one canvas: every endpoint flow they reach, cut down to the changed methods, plus changed methods no endpoint reaches; each changed card shows added lines in green and removed lines in red. Use it when the user wants the diff or the work \"in flow\"." } }, additionalProperties: false },
 		annotations: ro('Open diff in Insilode'),
 	},
 	{
@@ -522,7 +522,8 @@ export const TOOLS: ToolDef[] = [
 						method: str('Method or function name in `file`.'),
 						line: int('1-based line inside the method.'),
 						changes: { type: 'boolean', description: 'Play on the change set (the flows the changed files reach, cut down to the changed cards).' },
-						base: { type: 'string', enum: ['uncommitted', 'branch', 'last_commit'], description: 'With changes: what they are measured against (default uncommitted).' },
+						base: { type: 'string', enum: ['uncommitted', 'branch', 'last_commit', 'ref', 'session'], description: 'With changes: what they are measured against (default uncommitted). session: since this agent session started; ref: since the commit or branch in `ref`.' },
+						ref: str('With base "ref": a commit hash or branch name.'),
 					},
 					additionalProperties: false,
 				},

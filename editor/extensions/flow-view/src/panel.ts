@@ -15,7 +15,7 @@ import { refreshPlan } from './changeSet';
 import { isTestPath } from './diffNoise';
 import { Command } from './commands';
 import { engineOf, type Engine } from './cursorMessage';
-import { agentContext } from './harness';
+import { editHooks } from './editHooks';
 import { CardLanguage, cardQuery } from './language';
 import { CardOverlays } from './overlay';
 import type { FlowNode, FlowProvider, FlowTarget } from './providers';
@@ -30,7 +30,7 @@ import { TypeService } from './types/typeService';
 interface Request {
 	type: 'request';
 	id: number;
-	op: 'graph' | 'callers' | 'save' | 'keep' | 'keepCard' | 'keepAll' | 'undo' | 'undoAll' | 'impact' | 'context' | 'timeline' | 'undoFrom' | 'editHooks' | 'complete' | 'signature' | 'hover' | 'definition' | 'endEdit' | 'typeChips' | 'typeDetail';
+	op: 'graph' | 'callers' | 'save' | 'keep' | 'keepCard' | 'keepAll' | 'undo' | 'undoAll' | 'impact' | 'timeline' | 'undoFrom' | 'editHooks' | 'complete' | 'signature' | 'hover' | 'definition' | 'endEdit' | 'typeChips' | 'typeDetail';
 	turn?: number;
 	target?: FlowTarget;
 	file?: string;
@@ -575,7 +575,7 @@ export class FlowPanel implements vscode.Disposable {
 				}
 				case 'impact': data = await this.providerFor(m.target!).impact(m.target!); break;
 				case 'timeline': data = await this.changes.timeline(); break;
-				case 'editHooks': data = (await agentContext(m.file!)).items.filter(i => i.group === 'hooks' && i.detail.startsWith('After')).map(i => i.title); break;
+				case 'editHooks': data = await editHooks(vscode.workspace.getWorkspaceFolder(vscode.Uri.file(m.file!))?.uri.fsPath ?? path.dirname(m.file!)); break;
 				case 'undoFrom': data = await this.whileCardEdited() ?? await this.changes.undoFrom(m.turn!); break;
 				case 'save': data = await this.save(m); break;
 				case 'keep': this.changes.keep(m.file!); data = { ok: true }; break;

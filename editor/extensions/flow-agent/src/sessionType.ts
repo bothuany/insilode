@@ -14,6 +14,7 @@ import type {
 	SessionNotification,
 } from '@agentclientprotocol/sdk';
 import { AgentHost, explain, type AgentKind } from './acp';
+import { adapterMode, autoAnswer, currentValue, diffsOf, gateAnswer, isElevated, modeAfterAdapter, modeWarning, permissionDecision, pickedMode, selectItems, settleGate } from './chatCore';
 import { agentCwd } from './env';
 import { gazeAcp, gazeTurn } from './gazeHost';
 
@@ -54,25 +55,6 @@ class EditTracker {
 	}
 }
 
-/** One select-type ACP config option, flattened (options may be grouped). */
-function selectItems(opt: SessionConfigOption): { value: string; name: string; description?: string }[] {
-	const raw = (opt as { options?: unknown[] }).options ?? [];
-	const out: { value: string; name: string; description?: string }[] = [];
-	for (const o of raw as Array<{ value?: string; name?: string; description?: string; options?: unknown[] }>) {
-		if (o.options) {
-			out.push(...selectItems({ ...opt, options: o.options } as SessionConfigOption));
-		} else if (o.value !== undefined) {
-			out.push({ value: o.value, name: o.name ?? o.value, description: o.description ?? undefined });
-		}
-	}
-	return out;
-}
-
-function currentValue(opt: SessionConfigOption): string | undefined {
-	const v = (opt as { currentValue?: unknown }).currentValue;
-	return typeof v === 'string' ? v : undefined;
-}
-
 const SKILL_GROUP = 'flow.skill';
 /** Slash aliases for the permission modes the adapters report. */
 const MODE_LOOK: Record<string, { icon: string; color: string }> = {
@@ -98,6 +80,18 @@ export class AgentSessionType implements vscode.Disposable {
 	 * after snapshotting the files, which is what makes Keep/Undo work for every edit.
 	 */
 	private readonly approval = new Map<string, string>();
+	/** The mode Insilode last put each adapter session in (plan or default), to tell the adapter's own change from the echo of ours. */
+	private readonly applied = new Map<string, string>();
+	/** The session each open picker belongs to, so a mode the agent moves to can be shown in its chip. */
+	private readonly stateSession = new WeakMap<vscode.ChatSessionInputState, string>();
+	/** The mode each picker showed when it was last read: a change event whose mode is still this one is not that picker's user pick. */
+	private readonly seenMode = new WeakMap<vscode.ChatSessionInputState, string | undefined>();
+	/** The elevated mode `followAgentMode` is deciding on per session: the adapter reports each change twice, and the modal is asked once. */
+	private readonly adopting = new Map<string, string>();
+	/** The elevated mode the user's own gated answer to a plan question asked for: the only elevated report `followAgentMode` adopts. */
+	private readonly granted = new Map<string, string>();
+	/** Modes the user confirmed per session (bypass), so each is asked about once. */
+	private readonly confirmed = new Map<string, Set<string>>();
 	private harnessMode: string | undefined;
 	/** Slash commands the agent offers (skills, custom commands, built-ins), from `available_commands_update`. */
 	private commands: { name: string; description: string }[] = [];
@@ -118,6 +112,7 @@ export class AgentSessionType implements vscode.Disposable {
 		this.disposables.push(this.host.onDidExit(() => {
 			this.live.clear();
 			this.configs.clear();
+			this.applied.clear();
 			this.spare = undefined;
 			this.sparePending = undefined;
 		}));
@@ -202,7 +197,7 @@ export class AgentSessionType implements vscode.Disposable {
 			this.configs.set(id, (s.configOptions ?? []) as SessionConfigOption[]);
 		}
 		this.live.add(id);
-		await this.applyInput(conn, id, ctx.inputState);
+		await this.applyInput(conn, id, ctx.inputState, true);
 		const item = this.ctrl.createChatSessionItem(this.uri(id), ctx.request.prompt.slice(0, 60) || LABEL[this.kind]);
 		item.timing = { created: Date.now() };
 		this.ctrl.items.add(item);
@@ -264,7 +259,12 @@ export class AgentSessionType implements vscode.Disposable {
 			});
 		groups.push(...this.skillGroup());
 		const state = this.ctrl.createChatSessionInputState(groups);
+		this.seenMode.set(state, groups.find(g => g.id === 'mode')?.selected?.id);
 		this.states.add(state);
+		const sid = resource && this.sessionIdOf(resource);
+		if (sid) {
+			this.stateSession.set(state, sid);
+		}
 		// Picking a skill writes `/<skill> ` into the input and goes back to the label: it is a shortcut, not a setting.
 		const skillSub = state.onDidChange(() => {
 			const pick = state.groups.find(g => g.id === SKILL_GROUP)?.selected?.id;
@@ -292,13 +292,23 @@ export class AgentSessionType implements vscode.Disposable {
 		return state;
 	}
 
-	private async applyInput(conn: ClientSideConnection, sessionId: string, state: vscode.ChatSessionInputState | undefined) {
+	/** `force`: a turn (or a new session) is starting, so the mode is sent whatever the chip did; otherwise only a chip of this session that moved sends it. */
+	private async applyInput(conn: ClientSideConnection, sessionId: string, state: vscode.ChatSessionInputState | undefined, force = false) {
 		const config = this.configs.get(sessionId) ?? [];
 		this.harnessMode ??= currentValue(config.find(o => o.id === 'mode') ?? ({} as SessionConfigOption));
+		let picked = false;
 		for (const group of state?.groups ?? []) {
 			const want = group.selected?.id;
-			if (want && group.id === 'mode') {
-				this.approval.set(sessionId, want);
+			if (group.id === 'mode') {
+				// A change event also reaches the pickers of other sessions when one picker is written: only a moved selection is a pick.
+				const pick = state && pickedMode(want, this.seenMode.get(state));
+				if (state) {
+					this.seenMode.set(state, want);
+				}
+				if (pick) {
+					this.approval.set(sessionId, pick);
+					picked = true;
+				}
 			} else if (want) {
 				await this.setOption(conn, sessionId, group.id, want);
 			}
@@ -307,13 +317,104 @@ export class AgentSessionType implements vscode.Disposable {
 		if (userMode) {
 			this.approval.set(sessionId, userMode);
 		}
-		await this.setOption(conn, sessionId, 'mode', userMode === 'plan' ? 'plan' : 'default');
+		if (!force && !picked) {
+			return;
+		}
+		const mode = adapterMode(userMode);
+		this.applied.set(sessionId, mode);
+		// Forced: the adapter's own move (`current_mode_update`) never reaches the cached config, so a cached `default` proves nothing.
+		await this.setOption(conn, sessionId, 'mode', mode, true);
 	}
 
-	private async setOption(conn: ClientSideConnection, sessionId: string, configId: string, value: string) {
+	/**
+	 * The agent left plan mode (or entered it): the chip and the next prompt follow it, until the user picks another in the chip. An
+	 * elevated mode it moved itself to (a plan approved with "accept edits" or "bypass" in its own dialog) is taken back out of the
+	 * adapter first, so the folder rule and the snapshot keep every write. The chat adopts it as its own mode only when it is the one
+	 * the user's own (gated) answer asked for (`granted`, bypass after the same warning the Agents page shows); any other elevated
+	 * report leaves the chat in `default`.
+	 */
+	private async followAgentMode(id: string, reported: string | undefined) {
+		if (!reported || !this.applied.has(id)) {
+			return;
+		}
+		// The adapter reports each change twice: while the first is being decided, the repeat must not touch `applied` (it holds the
+		// `default` the reset stored, and a later `default` report would then look like the agent's own move out of the elevated mode).
+		if (this.adopting.get(id) === reported) {
+			return;
+		}
+		const next = modeAfterAdapter(reported, this.applied.get(id), this.approval.get(id), this.granted.get(id));
+		this.applied.set(id, reported);
+		if (isElevated(reported)) {
+			this.adopting.set(id, reported);
+			try {
+				await this.resetAdapter(id);
+			} catch {
+				this.adopting.delete(id);
+				return;
+			}
+		}
+		let mode = next;
+		if (mode === 'bypassPermissions' && !(await this.confirmMode(id, mode))) {
+			mode = 'default';
+		}
+		this.adopting.delete(id);
+		if (isElevated(reported)) {
+			this.granted.delete(id);
+		}
+		if (mode) {
+			this.setHostMode(id, mode);
+		}
+	}
+
+	/** The chat's own mode: what answers its questions, and what its chip shows (every open picker of this session). */
+	private setHostMode(id: string, mode: string) {
+		this.approval.set(id, mode);
+		for (const st of this.states) {
+			if (this.stateSession.get(st) === id) {
+				st.groups = st.groups.map(g => g.id === 'mode' ? { ...g, selected: g.items.find(i => i.id === mode) ?? g.selected } : g);
+				this.seenMode.set(st, mode);
+			}
+		}
+	}
+
+	/** Puts the adapter back in `default`; when it will not go, nothing vouches for what it runs now: the turn is cancelled and the session closed, as the Agents page does. */
+	private async resetAdapter(id: string) {
+		this.applied.set(id, 'default');
+		try {
+			await this.setOption(await this.host.connection(), id, 'mode', 'default', true);
+		} catch (e) {
+			this.log.warn(`[${this.kind}] could not leave the elevated mode: ${explain(this.kind, e)}`);
+			void vscode.window.showWarningMessage(`${LABEL[this.kind]} switched to a mode that asks nothing and would not go back. The session was closed; open it again to continue.`);
+			const conn = await this.host.connection().catch(() => undefined);
+			await Promise.resolve(conn?.cancel({ sessionId: id })).catch(() => undefined);
+			await Promise.resolve(conn?.closeSession({ sessionId: id })).catch(() => undefined);
+			this.live.delete(id);
+			for (const m of [this.configs, this.applied, this.approval, this.granted, this.confirmed] as Map<string, unknown>[]) {
+				m.delete(id);
+			}
+			throw e;
+		}
+	}
+
+	private async confirmMode(id: string, mode: string): Promise<boolean> {
+		const done = this.confirmed.get(id) ?? new Set<string>();
+		if (done.has(mode)) {
+			return true;
+		}
+		const label = selectItems(this.configs.get(id)?.find(o => o.id === 'mode') ?? ({} as SessionConfigOption)).find(i => i.value === mode)?.name ?? mode;
+		const w = modeWarning(label, mode, this.cwd);
+		const yes = await vscode.window.showWarningMessage(w.message, { modal: true, detail: w.detail }, w.yes) === w.yes;
+		if (yes) {
+			this.confirmed.set(id, done.add(mode));
+		}
+		return yes;
+	}
+
+	private async setOption(conn: ClientSideConnection, sessionId: string, configId: string, value: string, force = false) {
 		const config = this.configs.get(sessionId) ?? [];
 		const opt = config.find(o => o.id === configId);
-		if (!opt || currentValue(opt) === value) {
+		// `force`: the adapter's own move may not have reached the cached config, which would make the reset look like a no-op.
+		if (!opt || (!force && currentValue(opt) === value)) {
 			return;
 		}
 		const res = await conn.setSessionConfigOption({ sessionId, configId, value } as Parameters<ClientSideConnection['setSessionConfigOption']>[0]);
@@ -476,12 +577,14 @@ export class AgentSessionType implements vscode.Disposable {
 		try {
 			conn = await this.host.connection();
 			await this.ensureLoaded(id, false);
-			await this.applyInput(conn, id, ctx.chatSessionContext?.inputState);
+			await this.applyInput(conn, id, ctx.chatSessionContext?.inputState, true);
 		} catch (e) {
 			stream.markdown(explain(this.kind, e));
 			return { errorDetails: { message: explain(this.kind, e) } };
 		}
 
+		// A grant the adapter never reported (its turn was cancelled) must not vouch for a report in this turn.
+		this.granted.delete(id);
 		// A new trail for the gaze, before anything the agent looks at during this prompt.
 		gazeTurn(id);
 		// Insilode's timeline: every prompt is one step, so its edits can be shown and undone on their own.
@@ -552,6 +655,10 @@ export class AgentSessionType implements vscode.Disposable {
 				}
 				case 'config_option_update':
 					this.configs.set(id, ((u as { configOptions?: SessionConfigOption[] }).configOptions ?? []) as SessionConfigOption[]);
+					void this.followAgentMode(id, currentValue(this.configs.get(id)!.find(o => o.id === 'mode') ?? ({} as SessionConfigOption)));
+					break;
+				case 'current_mode_update':
+					this.followAgentMode(id, (u as { currentModeId?: string }).currentModeId);
 					break;
 			}
 		};
@@ -560,7 +667,10 @@ export class AgentSessionType implements vscode.Disposable {
 			onUpdate: n => onUpdate(n.update),
 			onPermission: r => this.askPermission(r, edits, stream, token),
 		});
-		const cancel = token.onCancellationRequested(() => void conn.cancel({ sessionId: id }).catch(() => undefined));
+		const cancel = token.onCancellationRequested(() => {
+			this.granted.delete(id);
+			void conn.cancel({ sessionId: id }).catch(() => undefined);
+		});
 		try {
 			const r = await conn.prompt({ sessionId: id, prompt: this.promptBlocks(req) });
 			if (r.stopReason !== 'end_turn' && r.stopReason !== 'cancelled') {
@@ -608,15 +718,12 @@ export class AgentSessionType implements vscode.Disposable {
 		const files = (r.toolCall.locations ?? []).map(l => l.path);
 		const isEdit = r.toolCall.kind === 'edit';
 		const mode = this.approval.get(r.sessionId) ?? this.harnessMode ?? 'default';
-		const auto = mode === 'bypassPermissions' || ((mode === 'acceptEdits' || mode === 'auto') && isEdit);
-
-		let option = auto ? r.options.find(o => o.kind === 'allow_once') ?? r.options.find(o => o.kind.startsWith('allow')) : undefined;
+		let option = autoAnswer(mode, r.toolCall.kind, r.options, { cwd: this.cwd, files });
+		const auto = !!option;
 		if (!option) {
 			const title = r.toolCall.title ?? 'Tool';
 			// Insilode's canvas marks the methods this edit would touch while the user decides.
-			const diffs = ((r.toolCall.content ?? []) as Array<{ type: string; path?: string; oldText?: string | null; newText?: string }>)
-				.filter(c => c.type === 'diff' && c.path)
-				.map(c => ({ path: c.path!, oldText: c.oldText ?? null, newText: c.newText ?? '' }));
+			const diffs = diffsOf(r.toolCall.content);
 			if (isEdit) {
 				await Promise.resolve(vscode.commands.executeCommand('flow.agentProposes', { agent: LABEL[this.kind], title, files, diffs })).catch(() => undefined);
 			}
@@ -647,8 +754,30 @@ export class AgentSessionType implements vscode.Disposable {
 			title: r.toolCall.title ?? 'Tool',
 			files,
 			rawInput: (r.toolCall as { rawInput?: unknown }).rawInput ?? undefined,
-			decision: !option ? 'cancelled' : !option.kind.startsWith('allow') ? 'denied' : auto ? 'auto' : 'allowed',
+			decision: permissionDecision(option, auto),
 		})).catch(() => undefined);
+		if (option) {
+			// What the user picked does not reach the adapter as it is when it elevates (chatCore.gateAnswer): "all edits" would put it in
+			// acceptEdits unasked about, skipping the snapshot and the folder rule, and a plan's bypass would apply before any warning.
+			// This chat always runs in the window's own folder.
+			const sid = r.sessionId;
+			const g = gateAnswer(option, r.options, { edit: isEdit, own: true, confirmed: this.confirmed.get(sid) ?? new Set() });
+			this.granted.delete(sid);
+			const yes = g.confirm ? await this.confirmMode(sid, g.mode!) : true;
+			// Cancelled while the modal was open: the adapter will not report the mode, and a later yes must not leave a grant behind.
+			if (token.isCancellationRequested) {
+				return { outcome: { outcome: 'cancelled' } };
+			}
+			const s = settleGate(g, yes);
+			option = s.option;
+			if (s.mode) {
+				if (s.viaAdapter) {
+					this.granted.set(sid, s.mode);
+				} else {
+					this.setHostMode(sid, s.mode);
+				}
+			}
+		}
 		if (!option) {
 			return { outcome: { outcome: 'cancelled' } };
 		}

@@ -4,7 +4,7 @@ import { cardinalityAt, orderBadge, routeEdge, veeOf } from './route'
 import { CARD_PAD, DETAIL_H, detailOf, GROUP_HEAD, HEADER_H, MARK_SIZE, ROW_H, type Layout, type VNode } from './model'
 import { edgeText, KIND_COLOR, lineStyle, STEREOTYPE } from './protocol'
 import { buildSequence, sequenceShapes, type Shape, type Tone } from './sequence'
-import type { BoardSpec } from './spec'
+import type { BoardSpec } from '../../../board-canvas/spec'
 
 export interface Palette {
   canvas: string

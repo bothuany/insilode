@@ -59,7 +59,8 @@ The agent sends a tour, and the window resolves it, shows it and answers with a 
           "id": { "type": "string", "description": "Entry point id from find_entry_points." },
           "file": { "type": "string" }, "method": { "type": "string" }, "line": { "type": "integer", "minimum": 1 },
           "changes": { "type": "boolean" },
-          "base": { "type": "string", "enum": ["uncommitted", "branch", "last_commit"] }
+          "base": { "type": "string", "enum": ["uncommitted", "branch", "last_commit", "ref", "session"] },
+          "ref": { "type": "string" }
         },
         "additionalProperties": false
       },

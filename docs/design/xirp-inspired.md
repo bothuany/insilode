@@ -1,6 +1,8 @@
 # Ideas taken from Xirp (decided 2026-10-28)
 
-Xirp is Spotify's desktop app for running Claude Code and Codex sessions in parallel. We read the code of version 0.61.0; we did not run it. The notes on how each feature works are in `C:\development\xirp-opus\xirp-mekanizmalar.md`, outside this repo. This page records which ideas Insilode takes, and which it leaves and why.
+Status: done. Every idea under "Taken" is built: the shared contract and the harness flow diagram in 9549458 and the PR/CI events in 969dada (first released in v0.6.0), the rest in `flow-agent` (`prEvents.ts`, `worktreeSetup.ts`, `worktreeCleanup.ts`, `usage.ts`, the notification digest) and the `search_sessions` tool of the `insilode` MCP server. "Left out" stands.
+
+Xirp is Spotify's desktop app for running Claude Code and Codex sessions in parallel. We read the code of version 0.61.0; we did not run it. The notes on how each feature works were kept outside this repo. This page records which ideas Insilode takes, and which it leaves and why.
 
 ## Taken
 

@@ -6,7 +6,7 @@ import { useStore } from '@xyflow/react'
 import type { Layout } from './model'
 import { cardinalityAt, orderBadge, routeEdge, veeOf, type Route } from './route'
 import { edgeText, lineStyle } from './protocol'
-import type { ChangeMark, EdgeLine } from './spec'
+import type { ChangeMark, EdgeLine } from '../../../board-canvas/spec'
 
 interface Drawn {
   key: string

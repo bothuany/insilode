@@ -10,7 +10,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { boardMarkdown } from './markdown';
 import { boardFileName, type BoardHost, type BoardStore, type StoredBoard } from './store';
-import type { BoardSpec } from './spec';
+import type { BoardSpec } from '../../../../../board-canvas/spec';
 import { isAlive } from '../mcp/registry';
 
 const PREVIEW = 'vscode.markdown.preview.editor';

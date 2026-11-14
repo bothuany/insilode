@@ -82,8 +82,8 @@ module.exports = {
 		{
 			name: 'headless-entries-stay-off-vscode',
 			severity: 'error',
-			comment: 'The polyglot worker (a worker thread) and the insilode MCP server (a plain Node process) have no `vscode` module: importing it, even transitively, crashes them at load.',
-			from: { path: '^editor/extensions/flow-view/(src/poly/worker\\.ts|mcp/insilode-mcp\\.ts)$' },
+			comment: 'The polyglot worker (a worker thread), the insilode MCP server and the harness lint CLI (plain Node processes) have no `vscode` module: importing it, even transitively, crashes them at load.',
+			from: { path: '^editor/extensions/(flow-view/(src/poly/worker\\.ts|mcp/insilode-mcp\\.ts)|flow-harness/cli/harness-lint\\.ts)$' },
 			to: { reachable: true, path: '^vscode$' },
 		},
 		{
@@ -105,7 +105,7 @@ module.exports = {
 			name: 'harness-logic-stays-off-vscode',
 			severity: 'error',
 			comment: 'The harness map\'s matching, counting, parsing and lint modules are tested under plain Node (flow-harness/test/*.test.mjs), so none of them may reach `vscode`, even through another file. scan.ts imports effective.ts, never the other way round.',
-			from: { path: '^editor/extensions/flow-harness/src/(permmatch|effective|transcript|activity|friction|xraymodel|lint|gaps|cost|memory|hookverdict)\\.ts$' },
+			from: { path: '^editor/extensions/flow-harness/src/(permmatch|effective|transcript|activity|friction|xraymodel|lint|gaps|cost|memory|hookverdict|scanCore|scanFsHost)\\.ts$' },
 			to: { path: '^vscode$', reachable: true },
 		},
 		{
@@ -114,7 +114,7 @@ module.exports = {
 			comment: 'A module nothing imports is dead code or a missing entry point.',
 			from: {
 				orphan: true,
-				pathNot: ['\\.d\\.ts$', '(^|/)(esbuild|vite\\.[^/]+\\.config)\\.(mjs|ts)$', '/src/extension\\.ts$', '/poly/worker\\.ts$', '/mcp/insilode-mcp\\.ts$', '^ui/src/(webview|board/board|harness/harness)\\.tsx$', '^site/src/(canvas|home|try)\\.ts$'],
+				pathNot: ['\\.d\\.ts$', '(^|/)(esbuild|vite\\.[^/]+\\.config)\\.(mjs|ts)$', '/src/extension\\.ts$', '/poly/worker\\.ts$', '/mcp/insilode-mcp\\.ts$', '/cli/harness-lint\\.ts$', '^ui/src/(webview|board/board|harness/harness)\\.tsx$', '^site/src/(canvas|home|try)\\.ts$'],
 			},
 			to: {},
 		},

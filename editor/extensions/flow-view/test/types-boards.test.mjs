@@ -12,7 +12,7 @@ after(cleanup)
 
 const boards = await mod('boards')
 const exporter = await mod('export')
-const spec = await load('src/board/spec.ts')
+const spec = await load('../../../board-canvas/spec.ts')
 
 const names = board => board.nodes.map(n => n.label).sort()
 const edgeKey = (board, e) => `${short(e.from)}->${short(e.to)}`

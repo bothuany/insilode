@@ -4,7 +4,7 @@
  *  their reply maps to. Kept in the window's memory; persist.ts writes the stage of each session to the workspace state so a reload keeps it. Pure: no vscode.
  *--------------------------------------------------------------------------------------------*/
 
-import type { BoardSpec } from '../board/spec';
+import type { BoardSpec } from '../../../../../board-canvas/spec';
 import type { Header, Warning } from './guard';
 import { warningText } from './guard';
 import { designSummary, designText, diffText, type Baseline, type DesignSummary, type SkeletonDiff } from './match';

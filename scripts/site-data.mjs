@@ -10,6 +10,7 @@
 import { Worker } from 'node:worker_threads'
 import { createRequire } from 'node:module'
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -224,16 +225,28 @@ async function version(index) {
 /** What VS Code gives every webview before its own page: the font variables and a transparent body. */
 const WEBVIEW_BASE = `:root{--vscode-font-family:"Segoe UI Variable Text","Segoe UI Variable",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;--vscode-font-size:13px;--vscode-editor-font-family:ui-monospace,Menlo,Consolas,monospace;--vscode-editor-font-size:12px}html{color-scheme:dark}`
 
-/** One of flow-agent's pages (the Agents dock or the Agents page), with the theme variables and an `acquireVsCodeApi` that talks to the page around it as `source`. */
-function dockPage(dockHtml, themeCss, source = 'insilode-dock', file = 'dockPage.ts') {
+/** The nonce the extension pages are rendered with here, only so it can be replaced by the hashes of their inline scripts. */
+const NONCE_MARK = 'site-nonce'
+
+/**
+ * One of flow-agent's pages (the Agents dock or the Agents page), with the theme variables and an `acquireVsCodeApi` that talks to the page
+ * around it as `source`. A static page has no per-load nonce to give, so its Content-Security-Policy allows exactly the inline scripts it
+ * holds by their sha256 (as the workbench page does in the core patch): the same bytes always give the same hashes, so builds are reproducible.
+ */
+function dockPage(render, themeCss, source = 'insilode-dock', file = 'dockPage.ts') {
+	const dockHtml = render(NONCE_MARK).split(`<script nonce="${NONCE_MARK}">`).join('<script>')
 	// The dock page listens to every window that can post to it: it hears only the page around it (a site that frames this one could not feed it).
 	const guard = `<script>(function(){var add=window.addEventListener.bind(window);window.addEventListener=function(t,f,o){if(t==='message'){var g=f;f=function(e){if(e.source===parent&&e.origin===location.origin)g(e)}}add(t,f,o)}})()</script>`
 	const shim = `${guard}<script>window.acquireVsCodeApi=function(){return{postMessage:function(m){parent.postMessage({source:'${source}',message:m},location.origin)}}}</script>`
 	const head = `<meta name="robots" content="noindex"><style>${themeCss}</style><style>${WEBVIEW_BASE}</style>${shim}`
-	if (!dockHtml.includes('<head>')) {
-		throw new Error(`The page has no <head>: flow-agent/src/${file} changed shape, and the site has to follow.`)
+	const csp = /<meta http-equiv="Content-Security-Policy"[^>]*>/.exec(dockHtml)
+	if (!csp || !dockHtml.includes(`script-src 'nonce-${NONCE_MARK}'`)) {
+		throw new Error(`The page has no nonce policy: flow-agent/src/${file} changed shape, and the site has to follow.`)
 	}
-	return dockHtml.replace('<head>', () => `<head>${head}`).replace("default-src 'none';", () => "default-src 'none'; base-uri 'none'; form-action 'none';")
+	// The policy comes before any script, so none of them runs without it.
+	const page = dockHtml.replace(csp[0], () => csp[0] + head)
+	const hashes = [...page.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => `'sha256-${createHash('sha256').update(m[1]).digest('base64')}'`)
+	return page.replace(`script-src 'nonce-${NONCE_MARK}'`, () => `script-src ${hashes.join(' ')}`).replace("default-src 'none';", () => "default-src 'none'; base-uri 'none'; form-action 'none';")
 }
 
 /** The desktop status overlay page: it is a string inside the core patch, so it is cut out of the patch's added lines. */
@@ -470,8 +483,8 @@ try {
 	const theme = readFileSync(join(ROOT, 'site', 'src', 'theme', 'vscode-theme.css'), 'utf8')
 	const island = islandPage(avatars)
 	mkdirSync(join(PUBLIC, 'pages'), { recursive: true })
-	writeFileSync(join(PUBLIC, 'pages', 'dock.html'), dockPage(dockModule.dockHtml(), theme))
-	writeFileSync(join(PUBLIC, 'pages', 'agents.html'), dockPage(agentsModule.agentsHtml(), theme, 'insilode-agents', 'agentsPage.ts'))
+	writeFileSync(join(PUBLIC, 'pages', 'dock.html'), dockPage(dockModule.dockHtml, theme))
+	writeFileSync(join(PUBLIC, 'pages', 'agents.html'), dockPage(agentsModule.agentsHtml, theme, 'insilode-agents', 'agentsPage.ts'))
 	writeFileSync(join(PUBLIC, 'pages', 'island.html'), island.html)
 
 	const data = relocate({ before, after: { entries, flows }, changes: { label: 'Claude Code: discount codes on orders', root, impact, timeline }, agentImpact, edits, harness, islandColors: island.colors }, dirs.before, dirs.after)

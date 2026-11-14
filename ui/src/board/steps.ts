@@ -3,7 +3,7 @@
 // turns a board into a tour and says what is lit at each step. Pure: no DOM, no React.
 import type { Scene } from '../../../board-canvas/canvas'
 import type { Tour, TourStep } from '../types'
-import type { BoardSpec, BoardStep } from './spec'
+import type { BoardSpec, BoardStep } from '../../../board-canvas/spec'
 
 /** What stays at full strength while a step (or a route) is showing; everything else fades. */
 export interface StepLit {

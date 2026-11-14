@@ -1,0 +1,22 @@
+{
+	// CI only (the extensions-typecheck job of workflows/ci.yml): what the extensions' own tsconfig.json checks, minus the generated VS Code checkout.
+	// The options are editor/vscode/extensions/tsconfig.base.json's; the typings come from @types/vscode and @types/node, which the job installs.
+	"compilerOptions": {
+		"esModuleInterop": true,
+		"target": "ES2024",
+		"lib": ["ES2024"],
+		"strict": true,
+		"useUnknownInCatchVariables": false,
+		"noImplicitReturns": true,
+		"noImplicitOverride": true,
+		"noUnusedLocals": true,
+		"noUnusedParameters": true,
+		"forceConsistentCasingInFileNames": true,
+		"experimentalDecorators": true,
+		"noEmit": true,
+		"module": "preserve",
+		"moduleResolution": "bundler",
+		"types": ["node"]
+	},
+	"include": ["../editor/extensions/flow-view/src/**/*", "../editor/extensions/flow-harness/src/**/*"]
+}

@@ -4,7 +4,7 @@
  *  has to colour by `change`. Used for a board with a `base` and for "what changed since the last draw". Pure: no `vscode`.
  *--------------------------------------------------------------------------------------------*/
 
-import type { BoardEdge, BoardGroup, BoardNode, BoardSpec } from './spec';
+import type { BoardEdge, BoardGroup, BoardNode, BoardSpec } from '../../../../../board-canvas/spec';
 
 export interface ChangeCounts {
 	added: number;

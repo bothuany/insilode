@@ -7,7 +7,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { normalizePath } from '../mcp/registry';
-import type { BoardEdge, BoardGroup, BoardNode, BoardSpec, NodeKind, NodeStatus } from './spec';
+import type { BoardEdge, BoardGroup, BoardNode, BoardSpec, NodeKind, NodeStatus } from '../../../../../board-canvas/spec';
 
 export interface PlanLink { file: string; line?: number }
 

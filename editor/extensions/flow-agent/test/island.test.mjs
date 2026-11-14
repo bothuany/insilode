@@ -11,19 +11,25 @@ import { fileURLToPath } from 'node:url'
 const PATCH = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'patches', 'flow-desktop.patch')
 const FILE = 'src/vs/platform/insilodeDesktop/common/insilodeIsland.ts'
 
-let i
-before(async () => {
+/** The added lines of one file of the patch, which for a new file is the file. */
+function added(file) {
 	const lines = []
 	let inside = false
 	for (const line of readFileSync(PATCH, 'utf8').split(/\r?\n/)) {
 		if (line.startsWith('diff --git ')) {
-			inside = line.endsWith(` b/${FILE}`)
+			inside = line.endsWith(` b/${file}`)
 		} else if (inside && line.startsWith('+') && !line.startsWith('+++')) {
 			lines.push(line.slice(1))
 		}
 	}
-	assert.ok(lines.length > 50, 'the patch holds insilodeIsland.ts')
-	const { code } = await transform(lines.join('\n'), { loader: 'ts', format: 'esm' })
+	return lines.join('\n')
+}
+
+let i
+before(async () => {
+	const source = added(FILE)
+	assert.ok(source.split('\n').length > 50, 'the patch holds insilodeIsland.ts')
+	const { code } = await transform(source, { loader: 'ts', format: 'esm' })
 	i = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`)
 })
 
@@ -122,24 +128,172 @@ test('agents: with no Insilode window focused all show; with one focused only th
 	assert.equal(i.islandAgents(windows, 9).length, 3)
 })
 
-test('attached: the camera gap is centred on the display whatever the wings hold', () => {
-	const display = { x: 0, y: 0, width: 1512, height: 982 }
-	const work = { x: 0, y: 38, width: 1512, height: 944 }
-	for (const [left, right] of [[60, 60], [60, 340], [250, 31]]) {
-		// Equal-width wings: the page is two columns of the wider wing around the gap.
-		const width = 2 * Math.max(left, right) + i.NOTCH_GAP
-		const rect = i.islandRect({ spot: undefined, attached: true, position: 'top-center', size: { width, height: 38 }, bounds: display, workArea: work })
-		assert.equal(rect.y, 0, 'in the menu bar band, not below it')
-		assert.equal(rect.x + rect.width / 2, display.width / 2, `gap centre for wings ${left}/${right}`)
-		// The gap is the middle column: from the wing's width to the wing's width plus the gap.
-		const wing = (rect.width - i.NOTCH_GAP) / 2
-		assert.equal(rect.x + wing + i.NOTCH_GAP / 2, display.width / 2)
+test('unset: pushed options keep it as two strict booleans, and core reads it from there', () => {
+	assert.deepEqual(i.readUnset({ enabled: true, focused: true }), { enabled: true, focused: true })
+	assert.deepEqual(i.readUnset({ enabled: true }), { enabled: true, focused: false })
+	assert.deepEqual(i.readUnset({ enabled: 'yes', focused: 1 }), { enabled: false, focused: false })
+	for (const none of [undefined, null, 'x', 3]) {
+		assert.equal(i.readUnset(none), undefined)
 	}
-	// An odd reported width is made even, so the centre stays a whole pixel on the display's centre.
-	const odd = i.islandRect({ spot: undefined, attached: true, position: 'top-center', size: { width: 601, height: 38 }, bounds: display, workArea: work })
-	assert.equal(odd.x + odd.width / 2, 756)
-	// Corners float inside the work area.
-	assert.deepEqual(i.islandRect({ spot: undefined, attached: false, position: 'bottom-right', size, bounds: display, workArea: work }), { x: 1202, y: 932, ...size })
+	// sanitizeState is in a file that needs Electron, so it cannot run here: it must at least build `unset` with readUnset,
+	// or the main process never sees it (the island would then show on every Mac).
+	const service = added('src/vs/platform/insilodeDesktop/electron-main/insilodeOverlayMainService.ts')
+	// Anchored to the start of a code line, so the same words in a comment do not pass.
+	assert.match(service, /^\s*unset: readUnset\(o\?\.unset\),\s*$/m)
+	assert.match(service, /^\s*return \[\.\.\.this\.windows\]\.filter\(.*islandWanted\(w\.state\.options\.unset, this\.notches\.has\(this\.display\(w\.state\.options\.display, id\)\.id\)\)/m)
+})
+
+test('unset: a window whose enabled setting is unset gets the island only where a display has a camera housing', () => {
+	const unset = { enabled: true, focused: true }
+	const chosen = { enabled: false, focused: true }
+	assert.equal(i.islandWanted(unset, false), false, 'unset, no notch')
+	assert.equal(i.islandWanted(unset, true), true, 'unset, notch')
+	assert.equal(i.islandWanted(chosen, false), true, 'explicitly on, no notch')
+	assert.equal(i.islandWanted(chosen, true), true, 'explicitly on, notch')
+	assert.equal(i.islandWanted(undefined, false), true, 'options without unset are all chosen')
+})
+
+const probe = name => i.parseNotchProbe(readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), 'fixtures', name), 'utf8'))
+const attach = (o) => i.islandRect({ spot: undefined, attached: true, position: 'top-center', ...o })
+
+test('probe: what osascript printed on a real 16" MacBook Pro gives its notch, 185 points wide and 32 tall', () => {
+	// fixtures/notch-probe-real.json is the real output of the script in insilodeOverlayMainService.ts.
+	assert.deepEqual([...probe('notch-probe-real.json')], [[1, { left: 771, right: 956, height: 32 }]])
+})
+
+test('probe: a 14" with an external screen beside it (SYNTHETIC fixture, hand written to the real output\'s shape) has one notch, on display 1', () => {
+	assert.deepEqual([...probe('notch-probe-14in-synthetic.json')], [[1, { left: 663, right: 848, height: 32 }]])
+})
+
+test('probe: a screen is placed relative to its own frame, wherever the frame is', () => {
+	const out = JSON.stringify([{ id: 7, frame: { x: -1512, y: 0, width: 1512, height: 982 }, top: 38, auxiliaryTopLeftArea: { x: -1512, y: 944, width: 600, height: 38 }, auxiliaryTopRightArea: { x: -700, y: 944, width: 700, height: 38 } }])
+	assert.deepEqual([...i.parseNotchProbe(out)], [[7, { left: 600, right: 812, height: 38 }]])
+})
+
+test('probe: strips given in another coordinate space than the frame (a display left of the main one) give the same notch', () => {
+	const screen = (frameX, leftX, rightX) => JSON.stringify([{ id: 7, frame: { x: frameX, y: 0, width: 1512, height: 982 }, top: 38, auxiliaryTopLeftArea: { x: leftX, y: 944, width: 600, height: 38 }, auxiliaryTopRightArea: { x: rightX, y: 944, width: 700, height: 38 } }])
+	const notch = [[7, { left: 600, right: 812, height: 38 }]]
+	assert.deepEqual([...i.parseNotchProbe(screen(-1512, -1512, -700))], notch, 'global, negative origin')
+	assert.deepEqual([...i.parseNotchProbe(screen(-1512, 0, 812))], notch, 'relative to the frame')
+	assert.deepEqual([...i.parseNotchProbe(screen(-1512, 40, 852))], notch, 'some other origin')
+})
+
+test('probe: malformed output is no notch', () => {
+	const aux = (x, width) => ({ x, y: 0, width, height: 32 })
+	const screen = (extra = {}) => ({ id: 1, frame: { x: 0, y: 0, width: 1512, height: 982 }, top: 32, auxiliaryTopLeftArea: aux(0, 663), auxiliaryTopRightArea: aux(848, 664), ...extra })
+	assert.equal(i.parseNotchProbe(JSON.stringify([screen()])).size, 1, 'the control: this shape is a notch')
+	for (const bad of ['', 'not json', '{}', 'null', '[null, 3, "x"]', '[{}]']) {
+		assert.equal(i.parseNotchProbe(bad).size, 0, bad)
+	}
+	for (const extra of [
+		{ top: 0 }, { top: -4 }, { top: 'x' }, { id: 'a' }, { id: NaN },
+		{ auxiliaryTopLeftArea: undefined }, { auxiliaryTopRightArea: undefined },
+		{ auxiliaryTopLeftArea: aux(0, 0), auxiliaryTopRightArea: aux(0, 0) },
+		{ auxiliaryTopLeftArea: aux(0, 900), auxiliaryTopRightArea: aux(848, 664) },
+		{ auxiliaryTopRightArea: aux(1512, 0) },
+		{ frame: undefined }, { frame: { x: 0, width: 'wide' } },
+		{ auxiliaryTopLeftArea: aux(0, Infinity) },
+	]) {
+		assert.equal(i.parseNotchProbe(JSON.stringify([screen(extra)])).size, 0, JSON.stringify(extra))
+	}
+	// One bad screen does not hide a good one.
+	assert.deepEqual([...i.parseNotchProbe(JSON.stringify([{ id: 5 }, screen()]))].map(([id]) => id), [1])
+})
+
+// Wings around the housing: the page reports how wide each wing wants to be.
+const wings = (left, right) => ({ width: left + 185 + right, height: 38, left, right })
+
+test('notch: the left wing ends where the housing starts, the right one starts where it ends, as tall as the housing, on the top edge', () => {
+	for (const [name, display, notch] of [
+		['14"', { x: 0, y: 0, width: 1512, height: 982 }, { left: 663, right: 848, height: 32 }],
+		['16"', { x: 0, y: 0, width: 1728, height: 1117 }, { left: 771, right: 956, height: 32 }],
+	]) {
+		const work = { ...display, y: 32, height: display.height - 32 }
+		const rect = attach({ size: wings(120, 340), bounds: display, workArea: work, notch })
+		assert.deepEqual(rect, { x: notch.left - 120, y: 0, width: 120 + 185 + 340, height: 32 }, name)
+		assert.equal(rect.x + 120, notch.left, `${name}: the left wing ends at the housing`)
+		assert.equal(rect.x + rect.width - 340, notch.right, `${name}: the right wing starts where it ends`)
+	}
+})
+
+test('notch: the minimized dot is the right wing alone: the window starts at the housing and the dot ends up just right of it', () => {
+	const display = { x: 0, y: 0, width: 1728, height: 1117 }
+	const notch = { left: 771, right: 956, height: 32 }
+	const dot = 30
+	const rect = attach({ size: { width: dot, height: 32, left: 0, right: dot }, bounds: display, workArea: display, notch })
+	assert.deepEqual(rect, { x: 771, y: 0, width: 185 + dot, height: 32 })
+	// The page keeps the housing's width empty before the dot, or the dot would sit at x 771, under the camera.
+	const page = added('src/vs/platform/insilodeDesktop/electron-main/insilodeOverlayMainService.ts')
+	const mini = page.slice(page.indexOf('if (data.minimized) {'), page.indexOf('if (list) {'))
+	assert.match(mini, /gap\.style\.width = data\.gap/)
+	assert.match(mini, /shell\.append\(gap, box\)/)
+	assert.match(mini, /root\.replaceChildren\(shell\)/)
+})
+
+test('notch: an asymmetric housing, on a display that does not start at 0,0', () => {
+	const display = { x: -1512, y: -982, width: 1512, height: 982 }
+	const notch = { left: 600, right: 812, height: 38 }
+	const rect = attach({ size: wings(80, 200), bounds: display, workArea: { ...display, y: -944, height: 944 }, notch })
+	assert.deepEqual(rect, { x: -1512 + 600 - 80, y: -982, width: 80 + 212 + 200, height: 38 })
+	assert.equal(rect.x + 80, display.x + notch.left)
+	assert.equal(rect.x + rect.width - 200, display.x + notch.right)
+})
+
+test('notch: an auto-hidden menu bar (the work area starts at the top) still attaches to the housing', () => {
+	const display = { x: 0, y: 0, width: 1512, height: 982 }
+	const rect = attach({ size: wings(100, 100), bounds: display, workArea: display, notch: { left: 663, right: 848, height: 32 } })
+	assert.deepEqual(rect, { x: 563, y: 0, width: 385, height: 32 })
+})
+
+test('notch: wings are kept on the display and never reach under the housing', () => {
+	const display = { x: 100, y: 0, width: 1000, height: 700 }
+	const notch = { left: 400, right: 585, height: 32 }
+	const rect = attach({ size: wings(900, 900), bounds: display, workArea: display, notch })
+	assert.deepEqual(rect, { x: 100, y: 0, width: 1000, height: 32 }, 'the whole display width at most')
+	assert.deepEqual(attach({ size: wings(900, 50), bounds: display, workArea: display, notch }), { x: 100, y: 0, width: 400 + 185 + 50, height: 32 })
+	// A wing is never narrower than nothing: a bad report leaves the housing alone.
+	assert.deepEqual(attach({ size: wings(-20, 0), bounds: display, workArea: display, notch }), { x: 500, y: 0, width: 185, height: 32 })
+})
+
+test('notch: the hover list is one block centred on the housing, kept on the display', () => {
+	const display = { x: 0, y: 0, width: 1512, height: 982 }
+	const notch = { left: 663, right: 848, height: 32 }
+	const list = { width: 340, height: 220 }
+	assert.deepEqual(attach({ size: list, bounds: display, workArea: display, notch }), { x: 586, y: 0, width: 340, height: 220 })
+	const edge = { left: 20, right: 205, height: 32 }
+	assert.equal(attach({ size: list, bounds: display, workArea: display, notch: edge }).x, 0, 'not off the left edge')
+})
+
+test('notch: with none (external screen, probe failed, a Mac without one) the island is one centred pill under the menu bar', () => {
+	const display = { x: 1728, y: -300, width: 2560, height: 1440 }
+	const work = { x: 1728, y: -275, width: 2560, height: 1415 }
+	assert.deepEqual(attach({ size, bounds: display, workArea: work }), { x: 2858, y: -275, ...size }, 'centred, at the work area: never over the menu bar')
+	// And the other corners still float inside the work area.
+	assert.deepEqual(i.islandRect({ spot: undefined, attached: false, position: 'bottom-right', size, bounds: display, workArea: work }), { x: 1728 + 2560 - 300 - 10, y: -275 + 1415 - 40 - 10, ...size })
+})
+
+test('notch: a remembered spot wins over the housing, and the corners ignore it', () => {
+	const display = { x: 0, y: 0, width: 1512, height: 982 }
+	const work = { ...display, y: 32, height: 950 }
+	const notch = { left: 663, right: 848, height: 32 }
+	const dropped = i.islandRect({ spot: { cx: 0.2, y: 100 }, attached: false, position: 'top-center', size, bounds: display, workArea: work, notch })
+	assert.equal(dropped.y, 132)
+	assert.deepEqual(i.islandRect({ spot: undefined, attached: false, position: 'top-left', size, bounds: display, workArea: work, notch }), { x: 10, y: 42, ...size })
+})
+
+test('drop: within about 40 points of the housing snaps back to it, farther does not', () => {
+	const display = { x: 0, y: 0, width: 1512, height: 982 }
+	const notch = { left: 663, right: 848, height: 32 }
+	const pill = { width: 300, height: 38 }
+	// Dropped under the menu bar (clamped to the work area, y 32), centred on the housing.
+	assert.equal(i.nearNotch({ x: 606, y: 32, ...pill }, notch, display), true)
+	// Its centre 30 points left of the housing's edge.
+	assert.equal(i.nearNotch({ x: 663 - 30 - 150, y: 32, ...pill }, notch, display), true)
+	// Its centre 100 points left of it, or half way down the screen.
+	assert.equal(i.nearNotch({ x: 663 - 100 - 150, y: 32, ...pill }, notch, display), false)
+	assert.equal(i.nearNotch({ x: 606, y: 400, ...pill }, notch, display), false)
+	// A display that does not start at 0,0.
+	assert.equal(i.nearNotch({ x: 1728 + 606, y: -300 + 32, ...pill }, notch, { x: 1728, y: -300, width: 1512, height: 982 }), true)
 })
 
 test('spot: a drop lower on the screen stays there on every later push, even from a window with other settings', () => {

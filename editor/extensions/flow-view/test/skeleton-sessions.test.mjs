@@ -7,7 +7,7 @@ import { cleanup, load } from './bundle.mjs'
 after(cleanup)
 
 const sessions = await load('src/skeleton/sessions.ts')
-const spec = await load('src/board/spec.ts')
+const spec = await load('../../../board-canvas/spec.ts')
 
 const plan = spec.parseBoard({ kind: 'class', title: 'Checkout', nodes: [{ id: 'a', label: 'Order', members: [{ text: 'id: int' }] }] })
 const diff = { ready: true, counts: { matches: 0, missing: 1, differs: 0 }, nodes: [{ id: 'a', label: 'Order', check: 'missing', note: 'no type called Order in the code yet', members: [{ text: 'id: int', check: 'missing' }], relations: [], extra: [] }] }

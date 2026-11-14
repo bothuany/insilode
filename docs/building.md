@@ -95,6 +95,8 @@ It does what the installer does up to VS Code's production build, then signs the
 | .NET 10 SDK, for C# flows | optional | optional | optional |
 | Build tools for VS Code's native modules | Xcode Command Line Tools | Python 3 + Visual Studio Build Tools ("Desktop development with C++" plus its "MSVC Spectre-mitigated libs"; with Visual Studio 2026 also set `vs2022_install` to its folder and use npm 11.6+ / node-gyp 12+) | `build-essential`, `libx11-dev`, `libxkbfile-dev`, `libsecret-1-dev` |
 
+The repository has an `.nvmrc` (`nvm use`, fnm and similar pick Node 24.18.0 from it) and a root `.npmrc` with `engine-strict=true`, so `npm ci` at the root refuses a Node outside `package.json`'s `engines` (24.18 up to, not including, 25) instead of failing later. npm also reads that `.npmrc` for the packages under `ui/`, `editor/extensions/` and `site/` (it looks upward from where it runs, and root scripts pass it down), so installs there are guarded too; the `engines` of every current lockfile accept the pinned Node.
+
 `npm start` opens Insilode in its own window (Electron, like any VS Code fork). `npm run web` serves the same editor to a browser instead. On Windows, `npm run shortcut` adds a Desktop and Start menu shortcut; it points at the Node that ran it, so run it again after you switch Node versions (nvm, fnm).
 
 ## Getting started

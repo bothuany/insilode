@@ -1,9 +1,9 @@
 // The host's side of the canvas board kind: what an agent sends is parsed with its steps' scenes, patched by update_board,
 // grounded (code widgets read their lines), rendered with the shared engine, and the user's moves and notes are kept per
-// board. Also: the schema the agent sees lists every element type and the two copies of spec.ts agree.
+// board. Also: the schema the agent sees lists every element type.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { cleanup, load } from './bundle.mjs'
 import { ROOT } from './helpers.mjs'
@@ -210,11 +210,11 @@ test('canvas board: the example in the diagram_guide draws, without errors or wa
 	assert.equal(canvas.lintOf(rendered.findings).items.every(i => i.level === 'warn' || i.level === 'info'), true)
 })
 
-test('canvas board: ui/src/board/spec.ts is flow-view\'s spec.ts but for the path of the board-canvas import', () => {
-	const read = file => readFileSync(join(ROOT, file), 'utf8').replace(/\r\n/g, '\n').replace(/from '(\.\.\/)+board-canvas\/canvas'/, "from 'board-canvas/canvas'")
-	assert.equal(read('../../../ui/src/board/spec.ts'), read('src/board/spec.ts'))
-	assert.match(readFileSync(join(ROOT, 'src/board/spec.ts'), 'utf8'), /from '\.\.\/\.\.\/\.\.\/\.\.\/\.\.\/board-canvas\/canvas'/)
-	assert.match(readFileSync(join(ROOT, '../../../ui/src/board/spec.ts'), 'utf8'), /from '\.\.\/\.\.\/\.\.\/board-canvas\/canvas'/)
+test('canvas board: the board spec is one file, board-canvas/spec.ts, with no copy on either side', () => {
+	assert.ok(existsSync(join(ROOT, '../../../board-canvas/spec.ts')))
+	for (const old of ['src/board/spec.ts', '../../../ui/src/board/spec.ts']) {
+		assert.equal(existsSync(join(ROOT, old)), false, `${old} was a copy of the shared spec`)
+	}
 })
 
 test('canvas board: the store compare keeps a canvas board whole (no blank tab, no "Changes" diff)', async () => {

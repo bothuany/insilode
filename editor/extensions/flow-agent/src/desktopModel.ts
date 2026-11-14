@@ -49,14 +49,23 @@ export interface DesktopSettings {
 	theme: OverlayTheme;
 	show: OverlayShow;
 	autoHide: { noAgents: boolean; insilodeFocused: boolean };
+	/**
+	 * What the user never set, which core settles by the screen (a Mac with a camera housing: the island on, and not hidden
+	 * while Insilode is focused). Both are false when `set` is not given to readSettings.
+	 */
+	unset: { enabled: boolean; focused: boolean };
 	/** Commands, file names and questions in the activity line, for screens nobody else sees. */
 	details: boolean;
 }
 
 export const DEFAULT_SHOW: OverlayShow = { working: true, needsYou: true, done: true, idle: false, counts: true, activity: true, context: true, cost: false, elapsed: true };
 
-/** Reads `flow.agents.desktop.*` through `get` (relative keys, e.g. `overlay.position`), with anything malformed falling back to its default. */
-export function readSettings(get: (key: string) => unknown): DesktopSettings {
+/**
+ * Reads `flow.agents.desktop.*` through `get` (relative keys, e.g. `overlay.position`), with anything malformed falling back to
+ * its default. `set` gives what the user wrote down for a key (no default), when it is given: a key it returns nothing for is
+ * `unset`.
+ */
+export function readSettings(get: (key: string) => unknown, set?: (key: string) => unknown): DesktopSettings {
 	const bool = (key: string, fallback: boolean) => {
 		const v = get(key);
 		return typeof v === 'boolean' ? v : fallback;
@@ -93,7 +102,28 @@ export function readSettings(get: (key: string) => unknown): DesktopSettings {
 		show: flags('overlay.show', DEFAULT_SHOW),
 		autoHide: flags('overlay.autoHide', { noAgents: true, insilodeFocused: true }),
 		details: bool('overlay.details', false),
+		unset: set
+			? { enabled: typeof set('overlay.enabled') !== 'boolean', focused: typeof (set('overlay.autoHide') as { insilodeFocused?: unknown } | undefined)?.insilodeFocused !== 'boolean' }
+			: { enabled: false, focused: false },
 	};
+}
+
+/**
+ * The value the user wrote for a setting (`inspect()` of it), not the default. An object-valued setting is judged key by key
+ * across the scopes: a workspace that writes one key must not hide a key only the user's settings write.
+ */
+export function writtenValue(i: { globalValue?: unknown; workspaceValue?: unknown; workspaceFolderValue?: unknown } | undefined): unknown {
+	const scopes = [i?.globalValue, i?.workspaceValue, i?.workspaceFolderValue];
+	const objects = scopes.filter(v => v && typeof v === 'object');
+	return objects.length ? Object.assign({}, ...objects) : scopes.reverse().find(v => v !== undefined);
+}
+
+/**
+ * Whether this window sends agents for the island: when the user turned it on, or left it unset on a Mac (where core then decides
+ * by the screen's camera housing: only it can tell, so it answers `flow.desktop.setOverlay` with the real verdict).
+ */
+export function overlayWanted(settings: Pick<DesktopSettings, 'overlay' | 'unset'>, platform: string): boolean {
+	return settings.overlay || (settings.unset.enabled && platform === 'darwin');
 }
 
 /** The app badge: how many agents need you. The Agents dock badge is this number too (Agents.needsYou). */
@@ -204,5 +234,5 @@ export function overlayModel(sessions: Iterable<OverlaySource>, o: DesktopSettin
 
 /** What core needs besides the agents: where and how to draw them. */
 export function overlayOptions(o: DesktopSettings, avatar: AvatarKind = 'gyro') {
-	return { position: o.position, display: o.display, style: o.style, size: o.size, opacity: o.opacity, theme: o.theme, autoHide: o.autoHide, avatar };
+	return { position: o.position, display: o.display, style: o.style, size: o.size, opacity: o.opacity, theme: o.theme, autoHide: o.autoHide, avatar, unset: o.unset };
 }

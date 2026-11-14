@@ -8,7 +8,7 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { BoardPanel, type BoardSource } from './boardPanel';
 import { archOptions, ARCHITECTURE_DEFAULTS, dropKinds, dtoOptions, fileTypeName, sanitizeRequest, type BoardRequest } from './boardRequest';
-import type { BoardSpec } from './board/spec';
+import type { BoardSpec } from '../../../../board-canvas/spec';
 import { withCutNote } from './types/boards';
 import { TypeService } from './types/typeService';
 

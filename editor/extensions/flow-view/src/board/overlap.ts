@@ -5,7 +5,7 @@
  *  the two. Deterministic: the same spec always gives the same lines. Pure: no `vscode`.
  *--------------------------------------------------------------------------------------------*/
 
-import type { BoardNode, BoardSpec } from './spec';
+import type { BoardNode, BoardSpec } from '../../../../../board-canvas/spec';
 
 export interface Box {
 	id: string;

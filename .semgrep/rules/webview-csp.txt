@@ -8,3 +8,13 @@ function pages(csp: string) {
 	return [bad, good, upper];
 }
 
+
+function policies(nonce: string) {
+	// ruleid: insilode-webview-script-src-unsafe
+	const inline = `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';`;
+	// ruleid: insilode-webview-script-src-unsafe
+	const evaluated = `default-src 'none'; script-src 'nonce-${nonce}' 'unsafe-eval';`;
+	// ok: insilode-webview-script-src-unsafe
+	const good = `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
+	return [inline, evaluated, good];
+}

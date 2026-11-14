@@ -24,8 +24,9 @@ export const DOCK_COLORS = {
 export const colorVars = (c: typeof DOCK_COLORS[keyof typeof DOCK_COLORS]) => `--working: ${c.working}; --blocked: ${c.blocked}; --done: ${c.done}; --idle: ${c.idle}; --ended: ${c.idle};
 	--claude: ${c.claude}; --codex: ${c.codex}; --custom: ${c.custom}; --danger: ${c.danger}; --danger-text: ${c.dangerText}; --on-working: ${c.on};`;
 
-export function dockHtml(): string {
-	const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';`;
+/** `nonce` is made per load by dock.ts (the website passes its own): the one script runs by it, so markup injected through data cannot run code. */
+export function dockHtml(nonce: string): string {
+	const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
 	return /* html */ `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>
 :root {
@@ -40,14 +41,14 @@ body.vscode-light, body.vscode-high-contrast-light {
 }
 * { box-sizing: border-box; }
 body { margin: 0; padding: 8px 10px 16px 8px; color: var(--text); font: 13px/1.4 var(--vscode-font-family, -apple-system, system-ui); background: transparent; }
-.new { display: flex; gap: 6px; margin-bottom: 10px; }
+.new { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .new button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 28px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; cursor: pointer; }
 .new button:hover { background: var(--hover); }
 .new button:focus-visible, .agent button:focus-visible { outline: 1.5px solid var(--vscode-focusBorder, var(--working)); outline-offset: -1.5px; }
 .new button.more { flex: 0 0 auto; padding: 0 10px; color: var(--muted); }
 /* A start button and its chevron are two buttons side by side: the chevron opens the menu of the other ways to start. */
-.new .split { flex: 1; display: flex; min-width: 0; }
-.new .split button.go { border-radius: 8px 0 0 8px; border-right: 0; min-width: 0; }
+.new .split { flex: 1; display: flex; min-width: max-content; }
+.new .split button.go { border-radius: 8px 0 0 8px; border-right: 0; }
 .new .split button.chev { flex: 0 0 auto; width: 26px; padding: 0; border-radius: 0 8px 8px 0; color: var(--muted); }
 .menu { position: absolute; z-index: 10; min-width: 190px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--vscode-menu-background, var(--vscode-sideBar-background)); color: var(--vscode-menu-foreground, var(--text)); box-shadow: 0 6px 18px rgb(0 0 0 / .35); }
 .menu[hidden] { display: none; }
@@ -162,13 +163,13 @@ ${AVATAR_CSS}
 .peer button:hover { background: var(--hover); }
 </style></head><body>
 <div class="new">
-	<div class="split"><button type="button" class="go" data-cli="claude" title="Start Claude Code in a new terminal, or resume an earlier session">${ICON.claude}Claude</button><button type="button" class="chev" data-menu="claude" aria-haspopup="menu" aria-expanded="false" aria-controls="menu" aria-label="More ways to start Claude Code" title="In a worktree, or resume a session">&#9662;</button></div>
+	<div class="split"><button type="button" class="go" data-cli="claude" title="Start Claude Code in a new terminal, or resume an earlier session">${ICON.claude}Claude</button><button type="button" class="chev" data-menu="claude" aria-haspopup="menu" aria-expanded="false" aria-controls="menu" aria-label="More ways to start Claude Code" title="In a worktree, resume a session, or allow bypass permissions mode">&#9662;</button></div>
 	<div class="split"><button type="button" class="go" data-cli="codex" title="Start Codex in a new terminal, or resume an earlier session">${ICON.codex}Codex</button><button type="button" class="chev" data-menu="codex" aria-haspopup="menu" aria-expanded="false" aria-controls="menu" aria-label="More ways to start Codex" title="In a worktree, or resume a session">&#9662;</button></div>
 	<button type="button" class="more" data-cli="pick" title="Start another agent: Gemini, Aider, your own command…" aria-label="Start another agent">More agents…</button>
 </div>
 <div id="menu" class="menu" role="menu" hidden></div>
 <div id="list"></div>
-<script>
+<script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let data = { list: [], now: Date.now(), peers: [] };
@@ -331,7 +332,8 @@ document.getElementById('list').addEventListener('click', e => {
 });
 // The start buttons: one click starts; the chevron beside each opens a small menu (worktree, resume), with the keys a menu has.
 const menuEl = document.getElementById('menu');
-const MENU = [['worktree', 'In a worktree'], ['resume', 'Resume a session…']];
+// Claude's menu ends with the switch for offering bypass permissions mode; the host says whether it is on, and turning it on asks first.
+const menuFor = cli => [['worktree', 'In a worktree'], ['resume', 'Resume a session…']].concat(cli === 'claude' ? [['bypass', data.bypass ? '✓ Bypass permissions mode offered (turn off)' : 'Allow bypass permissions mode…']] : []);
 let menuOwner;
 function closeMenu(refocus) {
 	if (!menuOwner) { return; }
@@ -343,7 +345,7 @@ function closeMenu(refocus) {
 }
 function openMenu(btn, focusFirst) {
 	closeMenu(false);
-	menuEl.innerHTML = MENU.map(m => '<button type="button" role="menuitem" tabindex="-1" data-how="' + m[0] + '" data-cli="' + esc(btn.dataset.menu) + '">' + esc(m[1]) + '</button>').join('');
+	menuEl.innerHTML = menuFor(btn.dataset.menu).map(m => '<button type="button" role="' + (m[0] === 'bypass' ? 'menuitemcheckbox" aria-checked="' + (data.bypass ? 'true' : 'false') : 'menuitem') + '" tabindex="-1" data-how="' + m[0] + '" data-cli="' + esc(btn.dataset.menu) + '">' + esc(m[1]) + '</button>').join('');
 	menuEl.setAttribute('aria-label', 'Start ' + (btn.dataset.menu === 'claude' ? 'Claude Code' : 'Codex'));
 	menuEl.hidden = false;
 	const r = btn.getBoundingClientRect();

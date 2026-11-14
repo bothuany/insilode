@@ -13,7 +13,7 @@ export interface ClaudeLaunch {
 	settings?: string;
 	/** The `insilode` MCP config; it goes last because --mcp-config takes any number of files. */
 	mcp?: string;
-	/** flowAgent.claude.allowBypassPermissions: "bypass permissions" joins Claude's own mode cycle, still not the mode it starts in. */
+	/** flow.agents.claude.allowBypassPermissions: "bypass permissions" joins Claude's own mode cycle, still not the mode it starts in. */
 	allowBypass: boolean;
 }
 

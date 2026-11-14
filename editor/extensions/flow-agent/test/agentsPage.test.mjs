@@ -18,11 +18,11 @@ before(async () => {
 	// Bundled without a vscode stub: the page must stay free of `vscode` (the website renders it too).
 	const outfile = join(tmp, 'agentsPage.mjs')
 	await build({ entryPoints: [join(ROOT, 'src', 'agentsPage.ts')], bundle: true, platform: 'node', format: 'esm', outfile, logLevel: 'silent' })
-	html = (await import(pathToFileURL(outfile).href)).agentsHtml()
+	html = (await import(pathToFileURL(outfile).href)).agentsHtml('n0nce')
 })
 after(() => rmSync(tmp, { recursive: true, force: true }))
 
-const scriptOf = () => /<script>([\s\S]*)<\/script>/.exec(html)[1]
+const scriptOf = () => /<script nonce="n0nce">([\s\S]*)<\/script>/.exec(html)[1]
 
 // ---- a DOM with just what the page uses ------------------------------------------------------------------------------------
 class Node {
@@ -92,7 +92,7 @@ const rows = () => [
 ]
 
 test('the page has a locked-down CSP and loads nothing from outside', () => {
-	assert.match(html, /<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">/)
+	assert.match(html, /<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-n0nce';">/)
 	assert.doesNotMatch(html, /\b(?:src|href)\s*=\s*["']?https?:/i)
 	assert.doesNotMatch(html, /@import|url\(\s*["']?https?:/i)
 	assert.doesNotMatch(html, /require\(|\bimport\s+[\w{]/)
@@ -416,4 +416,336 @@ test('the page renders a sample board', () => {
 	writeFileSync(join(tmp, 'agents.html'), html)
 	writeFileSync(join(tmp, 'agents.txt'), p.text())
 	assert.ok(p.text().length > 200)
+})
+
+// ---- the page's own chat ---------------------------------------------------------------------------------------------------
+const flush = p => { for (const t of p.timers.splice(0)) { t.f() } }
+const PROJECT = 'a1b2c3d4e5f6'
+const SESSION = '0a99a3dd-7db0-4ba0-882d-a4dd922189be'
+const index = () => ({ type: 'chatIndex', projects: [
+	{ key: PROJECT, name: 'app', where: '~/app', own: true, sessions: [{ id: SESSION, kind: 'claude', title: 'Login work', modified: Date.now() - 60_000 }] },
+	{ key: 'ffffffffffff', name: 'other', where: '~/other', own: false, sessions: [] },
+] })
+const config = () => [{ id: 'mode', name: 'Mode', value: 'default', items: [{ value: 'default', name: 'Manual' }, { value: 'plan', name: 'Plan' }] }]
+function openChat(p, events, over = {}) {
+	p.send({ type: 'chatOpened', chat: 'claude:' + SESSION, project: PROJECT, kind: 'claude', title: 'Login work', busy: false, config: config(), ...over })
+	p.send({ type: 'chatEvents', chat: 'claude:' + SESSION, reset: true, events })
+	flush(p)
+}
+const log = p => p.body.byClass('chatlog')[0]
+
+test('with no chat message ever (the website), the Chat view says so and the page still works', () => {
+	const p = boot()
+	p.data([row()])
+	p.posted.length = 0
+	p.body.button('Chat').fire('click')
+	assert.deepEqual(p.posted, [{ type: 'chatList' }])
+	assert.match(log(p).textContent, /not available here/)
+	assert.equal(p.body.byClass('chat')[0].className.includes('hidden'), false)
+	p.body.button('Board').fire('click')
+	assert.equal(p.body.byClass('chat')[0].className.includes('hidden'), true)
+	assert.match(p.text(), /Claude 2/)
+})
+
+test('the sidebar lists chat sessions under their project, with a start button per agent; they post chatOpen with host ids only', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	assert.match(p.body.byClass('side')[0].textContent, /Login work/)
+	assert.match(p.body.byClass('side')[0].textContent, /On this machine/)
+	p.posted.length = 0
+	p.body.button('+ Codex').fire('click')
+	assert.deepEqual(p.posted.pop(), { type: 'chatOpen', project: PROJECT, kind: 'codex' })
+	p.body.byClass('crow')[0].fire('click')
+	assert.deepEqual(p.posted.pop(), { type: 'chatOpen', project: PROJECT, kind: 'claude', session: SESSION })
+	assert.match(log(p).textContent, /Opening/)
+	p.send({ type: 'chatFailed', project: PROJECT, text: 'Not started: the folder was refused.' })
+	assert.match(p.body.byClass('err').map(e => e.textContent).join(' '), /folder was refused/)
+})
+
+test('chatEvents draw: text as Markdown, a tool card with its diff, a plan; streamed chunks join one block', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	openChat(p, [
+		{ t: 'user', text: 'fix it' },
+		{ t: 'text', text: '## Plan\nUse **bold** and `code`.\n\n- first\n- second\n\n```ts\nconst a = 1\n```\n' },
+		{ t: 'tool', id: 't1', kind: 'edit', title: 'Edit src/a.ts', status: 'completed', files: ['src/a.ts'], diffs: [{ path: 'src/a.ts', old: 'one', new: 'two' }] },
+		{ t: 'plan', entries: [{ text: 'step a', status: 'completed' }, { text: 'step b', status: 'pending' }] },
+		{ t: 'thought', text: 'hmm' },
+	])
+	const l = log(p)
+	assert.match(l.byClass('user')[0].textContent, /fix it/)
+	assert.equal(l.find(n => n.tagName === 'H2' && n.textContent === 'Plan').length, 1)
+	assert.equal(l.find(n => n.tagName === 'B')[0].textContent, 'bold')
+	assert.deepEqual(l.find(n => n.tagName === 'CODE').map(n => n.textContent), ['code', 'const a = 1'])
+	assert.deepEqual(l.byClass('cmsg').filter(n => !n.className.includes('user'))[0].find(n => n.tagName === 'LI').map(n => n.textContent), ['first', 'second'])
+	const tool = l.byClass('ctool')[0]
+	assert.match(tool.textContent, /Edit src\/a\.ts/)
+	assert.deepEqual(tool.byClass('del').map(n => n.textContent.trim()), ['- one'])
+	assert.deepEqual(tool.byClass('add').map(n => n.textContent.trim()), ['+ two'])
+	assert.match(l.byClass('cplan')[0].textContent, /step a.*step b/)
+	assert.match(p.text(), /Login work/)
+	// Deltas: two chunks are one block, and a tool update fills in its card.
+	p.send({ type: 'chatEvents', chat: 'claude:' + SESSION, events: [{ t: 'text', text: 'Hel' }, { t: 'text', text: 'lo there' }, { t: 'tool', id: 't1', status: 'failed' }] })
+	flush(p)
+	assert.equal(l.byClass('cmsg').filter(n => /^Hello there/.test(n.textContent)).length, 1)
+	assert.equal(l.byClass('ctool')[0].className.includes('failed'), true)
+	assert.match(l.byClass('ctool')[0].textContent, /Edit src\/a\.ts/)
+})
+
+test('agent text is never markup: an img tag in a message, a tool title or an error stays text', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	const evil = '<img src=x onerror=alert(1)>'
+	openChat(p, [{ t: 'text', text: evil + '\n\n' + '```\n' + evil + '\n```\n- ' + evil }, { t: 'tool', id: 'x', title: evil, out: evil }, { t: 'error', text: evil }, { t: 'user', text: evil }])
+	const l = log(p)
+	assert.equal(l.find(n => n.tagName === 'IMG' || n.tagName === 'SCRIPT').length, 0)
+	assert.ok(l.textContent.split(evil).length - 1 >= 6)
+	assert.equal(l.innerHTML, '')
+})
+
+test('a question shows its options as buttons: a click posts chatAnswer with the option index, once', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	openChat(p, [{ t: 'ask', req: 3, title: 'Run npm test', files: [], options: [{ name: 'Allow once', kind: 'allow_once' }, { name: 'Reject', kind: 'reject_once' }] }])
+	p.posted.length = 0
+	log(p).button('Reject').fire('click')
+	assert.deepEqual(p.posted, [{ type: 'chatAnswer', chat: 'claude:' + SESSION, req: 3, option: 1 }])
+	flush(p)
+	assert.equal(log(p).button('Allow once').attrs.disabled, '')
+	p.send({ type: 'chatEvents', chat: 'claude:' + SESSION, events: [{ t: 'asked', req: 3 }] })
+	flush(p)
+	assert.equal(log(p).byClass('cask')[0].className.includes('done'), true)
+})
+
+test('Enter sends, Shift+Enter does not; Send turns into Stop while the agent works, and Stop posts chatCancel', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	openChat(p, [])
+	const input = p.body.find(n => n.tagName === 'TEXTAREA' && n.attrs['aria-label'] === 'Message the agent')[0]
+	p.posted.length = 0
+	input.value = 'hello'
+	input.fire('keydown', { key: 'Enter', shiftKey: true })
+	assert.deepEqual(p.posted, [])
+	input.fire('keydown', { key: 'Enter' })
+	assert.deepEqual(p.posted, [{ type: 'chatPrompt', chat: 'claude:' + SESSION, text: 'hello' }])
+	assert.equal(input.value, '')
+	assert.ok(p.body.button('Stop'))
+	// Enter while busy does not send a second prompt.
+	input.value = 'again'
+	input.fire('keydown', { key: 'Enter' })
+	assert.equal(p.posted.length, 1)
+	p.body.button('Stop').fire('click')
+	assert.deepEqual(p.posted.pop(), { type: 'chatCancel', chat: 'claude:' + SESSION })
+	p.send({ type: 'chatEvents', chat: 'claude:' + SESSION, events: [{ t: 'stop', reason: 'cancelled' }] })
+	assert.ok(p.body.button('Send'))
+	input.value = '   '
+	p.posted.length = 0
+	p.body.button('Send').fire('click')
+	assert.deepEqual(p.posted, [])
+})
+
+test('the mode and model selects are built from the host config, and a change posts chatSet', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	openChat(p, [])
+	const sel = p.body.find(n => n.tagName === 'SELECT' && n.attrs['aria-label'] === 'Mode')[0]
+	assert.deepEqual(sel.children.map(o => o.textContent), ['Manual', 'Plan'])
+	assert.equal(sel.value, 'default')
+	p.posted.length = 0
+	sel.value = 'plan'
+	sel.fire('change')
+	assert.deepEqual(p.posted, [{ type: 'chatSet', chat: 'claude:' + SESSION, config: 'mode', value: 'plan' }])
+	p.send({ type: 'chatEvents', chat: 'claude:' + SESSION, events: [{ t: 'config', config: [{ id: 'mode', name: 'Mode', value: 'plan', items: [{ value: 'plan', name: 'Plan' }] }] }] })
+	assert.equal(p.body.find(n => n.tagName === 'SELECT' && n.attrs['aria-label'] === 'Mode')[0].value, 'plan')
+})
+
+test('events of a chat that is not the open one are ignored, and a replay does not end a turn that is still running', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	openChat(p, [{ t: 'text', text: 'old turn' }, { t: 'stop', reason: 'end_turn' }, { t: 'user', text: 'now' }], { busy: true })
+	assert.ok(p.body.button('Stop'), 'still working after the replayed stop')
+	p.send({ type: 'chatEvents', chat: 'claude:other', events: [{ t: 'text', text: 'LEAK' }] })
+	flush(p)
+	assert.doesNotMatch(log(p).textContent, /LEAK/)
+})
+
+test('Enter that confirms an IME composition does not send', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	openChat(p, [])
+	const input = p.body.find(n => n.tagName === 'TEXTAREA' && n.attrs['aria-label'] === 'Message the agent')[0]
+	p.posted.length = 0
+	input.value = 'こんにちは'
+	input.fire('keydown', { key: 'Enter', isComposing: true })
+	// Safari reports the confirming Enter as keyCode 229 with isComposing already false.
+	input.fire('keydown', { key: 'Enter', isComposing: false, keyCode: 229 })
+	assert.deepEqual(p.posted, [])
+	input.fire('keydown', { key: 'Enter' })
+	assert.equal(p.posted.length, 1)
+})
+
+test('a plain error line mid-turn keeps Stop and the open question; only a fatal error (or stop) ends the turn', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	openChat(p, [{ t: 'user', text: 'go' }, { t: 'ask', req: 0, title: 'Run npm test', files: [], options: [{ name: 'Allow once', kind: 'allow_once' }] }], { busy: true })
+	assert.ok(p.body.button('Stop'))
+	p.send({ type: 'chatEvents', chat: 'claude:' + SESSION, events: [{ t: 'error', text: 'model change failed' }] })
+	flush(p)
+	assert.ok(p.body.button('Stop'), 'still working')
+	assert.match(log(p).textContent, /model change failed/)
+	assert.notEqual(log(p).button('Allow once').attrs.disabled, '')
+	p.send({ type: 'chatEvents', chat: 'claude:' + SESSION, events: [{ t: 'error', fatal: true, text: 'The Claude agent process ended.' }] })
+	flush(p)
+	assert.ok(p.body.button('Send'), 'a fatal error ends the turn')
+	assert.equal(log(p).button('Allow once').attrs.disabled, '')
+})
+
+test('user messages stay separate blocks unless they are chunks of one message id; text chunks join per message', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	openChat(p, [{ t: 'user', text: 'a' }, { t: 'user', text: 'b' }, { t: 'text', text: 'x', mid: 'm1' }, { t: 'text', text: 'y', mid: 'm1' }, { t: 'text', text: 'z', mid: 'm2' }])
+	assert.deepEqual(log(p).byClass('user').map(n => n.textContent), ['a', 'b'])
+	p.send({ type: 'chatEvents', chat: 'claude:' + SESSION, events: [{ t: 'user', text: 'c', mid: 'u1' }, { t: 'user', text: 'd', mid: 'u1' }] })
+	flush(p)
+	assert.deepEqual(log(p).byClass('user').map(n => n.textContent), ['a', 'b', 'cd'])
+	assert.deepEqual(log(p).byClass('cmsg').filter(n => !n.className.includes('user')).map(n => n.textContent), ['xy', 'z'])
+})
+
+// ---- the session search ----------------------------------------------------------------------------------------------------
+const searchBox = p => p.body.byClass('sesearch')[0]
+const typeInto = (p, text) => { const box = searchBox(p); box.value = text; box.fire('input') }
+const searches = p => p.posted.filter(m => m.type === 'chatSearch')
+const hitFor = (over = {}) => ({ project: PROJECT, kind: 'claude', session: SESSION, title: 'Login work', modified: Date.now() - 120_000, snippet: '…the cookie domain broke the LOGIN redirect after…', ...over })
+
+test('the search box appears once the host has listed sessions; typing posts one chatSearch after a pause, with "searching…" meanwhile', () => {
+	const p = boot()
+	p.data([])
+	assert.equal(searchBox(p).parent.className.includes('hidden'), true, 'no host answer yet: not offered')
+	p.send(index())
+	assert.equal(searchBox(p).parent.className.includes('hidden'), false)
+	p.posted.length = 0
+	for (const text of ['lo', 'log', 'login']) { typeInto(p, text) }
+	assert.deepEqual(searches(p), [], 'nothing before the pause')
+	assert.match(p.body.byClass('side')[0].textContent, /Searching/)
+	flush(p)
+	assert.deepEqual(searches(p), [{ type: 'chatSearch', query: 'login' }], 'only the last keystroke is searched')
+})
+
+test('one character posts nothing and shows the normal list; clearing the box restores it', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	p.posted.length = 0
+	typeInto(p, 'l')
+	flush(p)
+	assert.deepEqual(searches(p), [])
+	assert.match(p.body.byClass('side')[0].textContent, /Login work/)
+	typeInto(p, 'login')
+	assert.doesNotMatch(p.body.byClass('side')[0].textContent, /On this machine/)
+	typeInto(p, '')
+	assert.match(p.body.byClass('side')[0].textContent, /On this machine/)
+})
+
+test('hits are grouped by project and drawn as text with the match marked; a snippet with markup stays text', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	typeInto(p, 'login')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'login', more: true, hits: [hitFor(), hitFor({ session: '1a99a3dd-7db0-4ba0-882d-a4dd922189be', title: 'Evil', snippet: '<img src=x onerror=alert(1)> a login <b>x</b>' })] })
+	const side = p.body.byClass('side')[0]
+	assert.match(side.textContent, /Login work/)
+	assert.match(side.textContent, /the cookie domain broke the LOGIN redirect/)
+	assert.match(side.textContent, /<img src=x onerror=alert\(1\)> a login <b>x<\/b>/, 'shown as typed')
+	assert.equal(side.find(n => n.tagName === 'IMG' || n.tagName === 'B').length, 0, 'no element came from the snippet')
+	const marks = side.find(n => n.tagName === 'MARK')
+	assert.deepEqual(marks.map(m => m.textContent), ['LOGIN', 'login'])
+	assert.equal(side.byClass('shead').length, 1, 'one project group')
+	assert.match(side.textContent, /Showing the newest matches/)
+	assert.equal(side.find(n => n.innerHTML).length, 0, 'innerHTML is never used for a hit')
+})
+
+test('the mark sits on the match after İ, ß and emoji, which a lower-cased copy shifts', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	typeInto(p, 'login')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'login', more: false, cut: false, hits: [hitFor({ snippet: 'İİİİİ ß 😀 the LOGIN redirect' })] })
+	assert.deepEqual(p.body.byClass('side')[0].find(n => n.tagName === 'MARK').map(m => m.textContent), ['LOGIN'])
+})
+
+test('the mark finds a Turkish word whichever of ı, I, i and İ either side spells it with', () => {
+	for (const [snippet, query, marked] of [['the Iğdır road', 'ığdır', 'Iğdır'], ['the IŞIK road', 'ışık', 'IŞIK'], ['the ışık road', 'IŞIK', 'ışık'], ['the İstanbul road', 'istanbul', 'İstanbul']]) {
+		const p = boot()
+		p.data([])
+		p.send(index())
+		typeInto(p, query)
+		flush(p)
+		p.send({ type: 'chatFound', query, more: false, cut: false, hits: [hitFor({ snippet })] })
+		assert.deepEqual(p.body.byClass('side')[0].find(n => n.tagName === 'MARK').map(m => m.textContent), [marked], query)
+	}
+})
+
+test('an empty answer from a cut-short search does not claim there is no match; hits from one carry a hint', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	typeInto(p, 'nothing')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'nothing', more: true, cut: true, hits: [] })
+	const side = () => p.body.byClass('side')[0].textContent
+	assert.match(side(), /No match in the sessions searched; the search stopped early/)
+	assert.doesNotMatch(side(), /No past session mentions/)
+	typeInto(p, 'login')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'login', more: true, cut: true, hits: [hitFor()] })
+	assert.match(side(), /The search stopped early/)
+	typeInto(p, 'nope')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'nope', more: false, cut: false, hits: [] })
+	assert.match(side(), /No past session mentions "nope"/)
+})
+
+test('clicking a hit posts chatOpen for its project and session; an empty answer says so', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	typeInto(p, 'login')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'login', more: false, hits: [hitFor({ kind: 'codex' })] })
+	p.posted.length = 0
+	p.body.byClass('sresult')[0].byClass('crow')[0].fire('click')
+	assert.deepEqual(p.posted.pop(), { type: 'chatOpen', project: PROJECT, kind: 'codex', session: SESSION })
+	typeInto(p, 'nothing')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'nothing', more: false, hits: [] })
+	assert.match(p.body.byClass('side')[0].textContent, /No past session mentions "nothing"/)
+})
+
+test('an answer to an earlier query, or to a cleared one, is ignored', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	typeInto(p, 'login')
+	flush(p)
+	typeInto(p, 'logout')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'login', more: false, hits: [hitFor({ title: 'Stale' })] })
+	assert.doesNotMatch(p.body.byClass('side')[0].textContent, /Stale/)
+	assert.match(p.body.byClass('side')[0].textContent, /Searching/)
+	typeInto(p, '')
+	p.send({ type: 'chatFound', query: 'logout', more: false, hits: [hitFor({ title: 'Stale' })] })
+	assert.doesNotMatch(p.body.byClass('side')[0].textContent, /Stale/)
+	assert.match(p.body.byClass('side')[0].textContent, /On this machine/)
 })

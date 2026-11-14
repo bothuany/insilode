@@ -22,7 +22,7 @@ function post(msg: HarnessCanvasToHost): void {
   }
   if (msg.type === 'ready' || msg.type === 'request') {
     const request: HarnessFlowRequest = msg.type === 'ready' ? { mode: 'static' } : msg.request
-    setTimeout(() => window.postMessage({ type: 'model', request, model: sampleModel(request) } satisfies HostToHarnessCanvas, '*'), 80)
+    setTimeout(() => window.postMessage({ type: 'model', request, model: sampleModel(request) } satisfies HostToHarnessCanvas, location.origin), 80)
   }
 }
 

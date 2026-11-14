@@ -39,7 +39,7 @@ diff --git a/src/vs/workbench/api/common/extHostTypeConverters.ts b/src/vs/workb
  		}
  
 +		// Insilode: -4 is MODAL_GROUP, so a webview panel can ask for the modal overlay (an older host reads it as the active group).
-+		if (column === MODAL_GROUP) {
++		if ((column as number | undefined) === MODAL_GROUP) {
 +			return MODAL_GROUP;
 +		}
 +

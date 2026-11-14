@@ -1,6 +1,6 @@
 // PostToolUse (Edit|Write|MultiEdit): the repo has no formatter, and CLAUDE.md asks every file to keep its own
 // indentation: extension TypeScript uses tabs, the canvas in ui/ mostly 2 spaces (a few shared files such as
-// ui/src/board/spec.ts use tabs). Only the text Claude just wrote is checked, so older lines never block an edit.
+// board-canvas/spec.ts use tabs). Only the text Claude just wrote is checked, so older lines never block an edit.
 // Tests and scripts are left out: they embed code in other languages (fixtures, PowerShell) with its own indentation.
 // Exit 2 sends the offending lines back to Claude to fix.
 import { existsSync, readFileSync } from 'fs'

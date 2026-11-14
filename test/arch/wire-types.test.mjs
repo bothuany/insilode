@@ -26,7 +26,7 @@ const roots = [
 const files = roots.flatMap(sources).map(path => ({ path: relative(repo, path).split(sep).join('/'), text: readFileSync(path, 'utf8') }));
 
 const declared = [...protocol.matchAll(/^export (?:interface|type) (\w+)/gm)].map(m => m[1]);
-// `Kind` and `EdgeKind` are common names (poly/assist.ts and board/spec.ts have their own, unrelated ones); these are the wire's alone.
+// `Kind` and `EdgeKind` are common names (poly/assist.ts and board-canvas/spec.ts have their own, unrelated ones); these are the wire's alone.
 const WIRE = ['FlowNode', 'FlowEdge', 'EntryPoint', 'DbSchema', 'DbColumn', 'Tour', 'TourStep', 'TourNote', 'GazeEvent', 'HostToCanvasTour', 'CanvasToHostTour'];
 const declaration = name => new RegExp(`^\\s*(?:export\\s+)?(?:declare\\s+)?(?:interface|type|class)\\s+${name}\\b`, 'm');
 

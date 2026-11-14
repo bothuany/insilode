@@ -1,7 +1,7 @@
 // The sequence board: lifelines side by side, messages top to bottom in `order`, activation bars, alt/loop/opt boxes. Pure: no DOM,
 // no React. buildSequence places everything; sequenceShapes turns the placement into plain shapes that the canvas (React) and the
 // SVG export both draw, so they cannot disagree.
-import type { BoardEdge, BoardNode, BoardSpec, GroupKind } from './spec'
+import type { BoardEdge, BoardNode, BoardSpec, GroupKind } from '../../../board-canvas/spec'
 
 export const SEQ_HEAD_W = 120
 export const SEQ_HEAD_H = 40

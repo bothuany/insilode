@@ -4,11 +4,13 @@
  *  Whatever needs you rises to the top, so you never hunt for the stuck one.
  *--------------------------------------------------------------------------------------------*/
 
+import { randomBytes } from 'crypto';
 import * as vscode from 'vscode';
 import type { Agents } from './agents';
 import { buildRows, skeletonStages } from './agentRows';
 import { readAvatar } from './desktopModel';
-import { dockAction } from './dockMessage';
+import { bypassAllowed, BYPASS_SETTING } from './bypass';
+import { dockAction, type StartHow } from './dockMessage';
 import { dockHtml } from './dockPage';
 import { renameFromPalette } from './paletteActions';
 import type { Peers } from './peers';
@@ -28,7 +30,7 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 			agents.onDidChange(() => this.post()),
 			...(peers ? [peers.onDidChange(() => this.post())] : []),
 			...(worktrees ? [worktrees.onDidChange(() => this.post())] : []),
-			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst')) && this.post()),
+			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst') || e.affectsConfiguration(BYPASS_SETTING)) && this.post()),
 		];
 	}
 
@@ -40,7 +42,7 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 	resolveWebviewView(view: vscode.WebviewView) {
 		this.view = view;
 		view.webview.options = { enableScripts: true };
-		view.webview.html = dockHtml();
+		view.webview.html = dockHtml(randomBytes(16).toString('base64'));
 		// The page is not trusted: dockAction checks each message's shape and turns it into one known action, or nothing.
 		view.webview.onDidReceiveMessage(raw => {
 			const m = dockAction(raw);
@@ -78,8 +80,11 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 		});
 	}
 
-	/** "In a worktree" and "Resume a session…" of a start button's menu. */
-	private start(cli: 'claude' | 'codex', how: 'worktree' | 'resume') {
+	/** "In a worktree", "Resume a session…" and Claude's bypass switch of a start button's menu. */
+	private start(cli: 'claude' | 'codex', how: StartHow) {
+		if (how === 'bypass') {
+			return vscode.commands.executeCommand('flow.agents.claudeBypass');
+		}
 		if (how === 'worktree') {
 			return cli === 'claude' ? vscode.commands.executeCommand('flow.agents.newClaudeWorktree') : vscode.commands.executeCommand('flow.agents.newCodexWorktree');
 		}
@@ -102,7 +107,7 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 			}
 			const list = buildRows(this.agents, this.worktrees, stages, savedAgents());
 			const avatar = readAvatar(vscode.workspace.getConfiguration('flow.agents').get('avatar'));
-			void this.view?.webview.postMessage({ type: 'data', list, now: Date.now(), avatar, peers: this.peers?.view().peers ?? [] });
+			void this.view?.webview.postMessage({ type: 'data', list, now: Date.now(), avatar, peers: this.peers?.view().peers ?? [], bypass: bypassAllowed() });
 		}, 60);
 	}
 }

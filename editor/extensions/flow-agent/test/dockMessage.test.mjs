@@ -48,13 +48,14 @@ test('a flow is an index into the host list, a worktree action one of four', () 
 	assert.equal(d.dockAction({ type: 'wt', id: 'a', action: 'push' }), undefined)
 })
 
-test('the start menu names one of the two agents and one of two ways, never a command', () => {
+test('the start menu names one of the two agents and one of its ways, never a command; bypass is Claude\'s only', () => {
 	for (const cli of ['claude', 'codex']) {
-		for (const how of d.START_HOWS) {
+		for (const how of d.START_HOWS.filter(h => cli === 'claude' || h !== 'bypass')) {
 			assert.deepEqual(d.dockAction({ type: 'start', cli, how, extra: 1 }), { type: 'start', cli, how })
 		}
 	}
-	assert.deepEqual([...d.START_HOWS], ['worktree', 'resume'])
+	assert.deepEqual([...d.START_HOWS], ['worktree', 'resume', 'bypass'])
+	assert.equal(d.dockAction({ type: 'start', cli: 'codex', how: 'bypass' }), undefined, 'Codex has no bypass switch')
 	for (const m of [
 		{ type: 'start', cli: 'claude' }, { type: 'start', how: 'worktree' }, { type: 'start', cli: 'custom', how: 'worktree' },
 		{ type: 'start', cli: 'claude', how: 'flow.agents.newClaudeWorktree' }, { type: 'start', cli: 'claude', how: 'rm -rf ~' },

@@ -6,7 +6,7 @@
  *  reported as one. Pure: no vscode, no fs.
  *--------------------------------------------------------------------------------------------*/
 
-import type { BoardMember, BoardNode, BoardSpec, CheckState } from '../board/spec';
+import type { BoardMember, BoardNode, BoardSpec, CheckState } from '../../../../../board-canvas/spec';
 import type { TypeEdge, TypeGraph, TypeInfo } from '../types/model';
 import { moduleOfPlan, targetFor, type Target } from './paths';
 

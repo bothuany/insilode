@@ -8,7 +8,7 @@
 
 import * as vscode from 'vscode';
 import { Analyzer } from '../analyzer';
-import type { BoardSpec } from '../board/spec';
+import type { BoardSpec } from '../../../../../board-canvas/spec';
 import { PolyIndex } from '../poly/client';
 import { architectureBoard, dtoBoard, typeDetail, type ArchitectureBoardOptions, type DtoBoardOptions, type TypeDetail } from './boards';
 import { chipsOf, signatureOf, typeTree, type CardChips, type Signature, type TypeTree } from './chips';

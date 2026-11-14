@@ -9,6 +9,7 @@ import { agentLook } from './agentLook';
 import { installAgentExtensions } from './agentExtensions';
 import { Agents } from './agents';
 import { AgentsPanel, OPEN_AGENTS_PAGE } from './agentsPanel';
+import { ChatSessions, forgetTrustedFolders } from './chatSessions';
 import { AskRouter } from './ask';
 import { DesktopStatus } from './desktop';
 import { AgentsDock } from './dock';
@@ -20,14 +21,32 @@ import { Peers } from './peers';
 import { pickAgent } from './pick';
 import { PrEvents } from './prEvents';
 import { startOrResume } from './resume';
+import { toggleBypass } from './bypass';
 import { sweepLeftoverCopies } from './swap';
+import { settingMoves } from './legacySettings';
 import { AgentSessionType } from './sessionType';
 import { WorktreeRows } from './worktreeActions';
 import { cleanupWorktrees, runWorktreeSetup } from './worktreeCleanup';
 
-export function activate(context: vscode.ExtensionContext) {
+/** Moves the two settings that were named `flowAgent.*` to their `flow.agents.*` names, in the user's settings (see legacySettings.ts). */
+async function migrateSettings(log: vscode.LogOutputChannel) {
+	const config = vscode.workspace.getConfiguration();
+	for (const m of settingMoves(key => config.inspect(key))) {
+		try {
+			await config.update(m.to, m.value, vscode.ConfigurationTarget.Global);
+			await config.update(m.from, undefined, vscode.ConfigurationTarget.Global);
+			log.info(`Moved the setting ${m.from} to ${m.to}.`);
+		} catch (e) {
+			log.warn(`Could not move the setting ${m.from} to ${m.to}: ${(e as Error).message}`);
+		}
+	}
+}
+
+export async function activate(context: vscode.ExtensionContext) {
 	const log = vscode.window.createOutputChannel('Insilode Agents', { log: true });
 	context.subscriptions.push(log, registerPlaceholderModels());
+	// Before anything reads a setting (the Agents page's location, the bypass toggle). Never throws: a failed move is only logged.
+	await migrateSettings(log).catch(e => log.warn(`Could not move the renamed settings: ${(e as Error).message}`));
 	// Claude Code's and Codex's own extensions, from Open VSX on the first start (agentExtensions.ts); after the window is
 	// up, so the start is not slower for it.
 	const installLater = setTimeout(() => void installAgentExtensions(context, log).catch(e => log.warn(`Agents: agent extensions: ${(e as Error).message}`)), 5000);
@@ -59,7 +78,9 @@ export function activate(context: vscode.ExtensionContext) {
 	const worktrees = new WorktreeRows(agents);
 	const peers = new Peers(agents, worktrees);
 	const dock = new AgentsDock(agents, worktrees, peers);
-	const page = new AgentsPanel(agents, worktrees, peers);
+	// The Agents page's own chat (not VS Code's chat: it works with or without flow.agents.showChat), with agent processes of its own.
+	const chats = new ChatSessions(context, agents, log);
+	const page = new AgentsPanel(agents, worktrees, peers, chats);
 	const router = new AskRouter(context, agents);
 	context.subscriptions.push(
 		agents,
@@ -67,8 +88,10 @@ export function activate(context: vscode.ExtensionContext) {
 		worktrees,
 		peers,
 		dock,
+		chats,
 		page,
 		vscode.commands.registerCommand(OPEN_AGENTS_PAGE, () => page.open()),
+		vscode.commands.registerCommand('flow.agents.forgetTrustedFolders', () => forgetTrustedFolders(context)),
 		new AttentionNotifier(agents),
 		new PrEvents(agents, context.globalState),
 		new DesktopStatus(agents, log),
@@ -79,6 +102,7 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('flow.agents.newClaudeWorktree', () => agents.spawn('claude', undefined, undefined, 'worktree')),
 		vscode.commands.registerCommand('flow.agents.newCodexWorktree', () => agents.spawn('codex', undefined, undefined, 'worktree')),
 		vscode.commands.registerCommand('flow.agents.resume', () => startOrResume(agents, 'claude', false)),
+		vscode.commands.registerCommand('flow.agents.claudeBypass', () => toggleBypass()),
 		// The dock's ⇄ on an agent row: the same conversation, continued in the other CLI (swap.ts).
 		vscode.commands.registerCommand('flow.agents.swap', (id?: unknown) => swapFromPalette(agents, id)),
 		vscode.commands.registerCommand('flow.agents.rename', (id?: unknown) => renameFromPalette(agents, id)),
@@ -97,6 +121,14 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('flow.agent.describe', (id: unknown) => {
 			const s = typeof id === 'string' ? agents.sessions.get(id) : undefined;
 			return s && s.state !== 'ended' ? agentLook(s) : undefined;
+		}),
+		// Called by flow-view for the diff "since this session started": with a session id, the folder it works in and that folder's HEAD
+		// when it began; with none, every session whose start is known (id and name), for the picker. Nothing for a session this window does not know.
+		vscode.commands.registerCommand('flow.agent.sessionChanges', (id: unknown) => {
+			if (id === undefined) {
+				return [...agents.sessions.values()].filter(s => s.start).map(s => ({ id: s.id, name: s.name }));
+			}
+			return typeof id === 'string' ? agents.sessions.get(id)?.start : undefined;
 		}),
 		// Called by core when the user clicks an agent in the desktop status overlay (desktop.ts): only a live agent this
 		// window knows is shown, so a stale or made-up id does nothing (and never resumes an ended session).

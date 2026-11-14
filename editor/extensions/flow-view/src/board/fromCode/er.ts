@@ -10,7 +10,7 @@ import type { DbColumn, DbSchema } from '../../../../../../protocol/flow';
 import type { Migration } from '../../poly/model';
 import { byCode, moduleGroupId, type TypeGraph, type TypeInfo } from '../../types/model';
 import { MAX_LIST, skip, type GenBoard, type GenEdge, type GenGroup, type GenNode, type Generated } from './board';
-import type { BoardMember } from '../spec';
+import type { BoardMember } from '../../../../../../board-canvas/spec';
 
 /** An entity's schema as the index's schema readers give it. */
 export type ErSchema = Pick<DbSchema, 'entity' | 'table' | 'dbSchemaName' | 'columns' | 'relations' | 'file' | 'line'> & {
