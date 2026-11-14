@@ -49,9 +49,37 @@ function braces(glob: string): string[] {
 	return m[1].split(',').flatMap(alt => braces(glob.slice(0, m.index) + alt + glob.slice(m.index + m[0].length)));
 }
 
+/**
+ * Whether a glob is small enough to be matched safely: a rule's globs are the text of a file, and a few dozen `{a,b}` groups expand to
+ * billions of globs while `*a*a*a*a*b` makes the regular expression it becomes take minutes on one path. Longer or more starred globs are not matched at all.
+ */
+export function globIsBounded(pattern: string): boolean {
+	if (pattern.length > 200 || (pattern.match(/\*\*/g)?.length ?? 0) > 2 || (pattern.match(/\*+/g)?.length ?? 0) > 6 || pattern.split('/').some(seg => (seg.match(/\*+/g)?.length ?? 0) > 2)) {
+		return false;
+	}
+	let factor = 1;
+	let s = pattern;
+	for (let m = /\{([^{}]*)\}/.exec(s); m; m = /\{([^{}]*)\}/.exec(s)) {
+		factor *= m[1].split(',').length;
+		if (factor > 32) {
+			return false;
+		}
+		s = s.slice(0, m.index) + 'x' + s.slice(m.index + m[0].length);
+	}
+	return true;
+}
+
 /** A rule's `paths` glob against a path relative to the project root: `**` across folders, `*` within one; a pattern without a slash matches the name at any depth. */
 export function globMatch(pattern: string, relPath: string): boolean {
-	return braces(pattern.trim().replace(/^\.\//, '').replace(/^\//, '')).some(g => {
+	return globMatcher(pattern)(relPath);
+}
+
+/** The glob compiled once, for matching it against many paths. A glob that is not bounded (globIsBounded) matches nothing. */
+export function globMatcher(pattern: string): (relPath: string) => boolean {
+	if (!globIsBounded(pattern)) {
+		return () => false;
+	}
+	const regexes = braces(pattern.trim().replace(/^\.\//, '').replace(/^\//, '')).map(g => {
 		let re = '';
 		for (let i = 0; i < g.length; i++) {
 			const c = g[i];
@@ -67,8 +95,9 @@ export function globMatch(pattern: string, relPath: string): boolean {
 			}
 		}
 		const anyDepth = !g.includes('/');
-		return new RegExp(`^${anyDepth ? '(?:.*/)?' : ''}${re}(?:/.*)?$`, 'i').test(relPath);
+		return new RegExp(`^${anyDepth ? '(?:.*/)?' : ''}${re}(?:/.*)?$`, 'i');
 	});
+	return relPath => regexes.some(r => r.test(relPath));
 }
 
 /** `paths: src/**, "*.{ts,tsx}"` or a YAML list (joined with commas by frontMatter): the globs, split at commas outside braces. */

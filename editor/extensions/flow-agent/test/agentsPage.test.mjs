@@ -794,6 +794,56 @@ test('the header\'s menu lists the shortcuts with the platform\'s modifier, and 
 	}
 })
 
+test('a held chord does not repeat what creates or destroys: split, close, maximize, swap and the toggles act once; the arrows may repeat', T, () => {
+	const p = rowOfThree()
+	for (let i = 0; i < 5; i++) { p.chord('KeyW', { repeat: true }) }
+	assert.equal(p.panes().length, 3, 'a held close chord closes nothing')
+	const q = boot()
+	q.data(rows())
+	openRow(q, 'Worker')
+	for (let i = 0; i < 5; i++) { q.chord('KeyR', { repeat: true }); q.chord('KeyD', { repeat: true }) }
+	assert.equal(q.panes().length, 1, 'a held split chord opens nothing')
+	assert.equal(p.chord('KeyW', { repeat: true }).prevented, true, 'and the key is still the page\'s')
+	p.chord('KeyM', { repeat: true })
+	assert.equal(p.panes().length, 3, 'maximize is not toggled by a repeat')
+	p.chord('KeyB', { repeat: true })
+	assert.equal(p.body.byClass('bcbar')[0].className.includes('hidden'), true)
+	// A first press still works, and a held arrow keeps moving.
+	p.chord('ArrowLeft', { repeat: true })
+	p.chord('ArrowLeft', { repeat: true })
+	assert.equal(activeOf(p), 'Worker')
+	p.chord('KeyW')
+	assert.equal(p.panes().length, 2)
+})
+
+test('with the shortcuts dialog or a menu open the chords do nothing, and Escape closes what is open; a key during composition is not a chord', T, () => {
+	const p = rowOfThree()
+	p.body.labelled('Help and more').fire('click', { stopPropagation() {} })
+	menuItem(p.body.byClass('menu')[0], 'Keyboard shortcuts').fire('click')
+	const dialog = p.body.find(n => n.attrs.role === 'dialog')[0]
+	assert.equal(dialog.className.includes('hidden'), false)
+	for (const code of ['KeyW', 'KeyR', 'KeyD', 'KeyM', 'KeyB', 'KeyH', 'ArrowLeft', 'PageDown']) { p.chord(code) }
+	assert.equal(p.panes().length, 3, 'nothing closed or split behind the dialog')
+	assert.equal(activeOf(p), 'Finisher', 'nor moved')
+	assert.equal(p.body.byClass('bcbar')[0].className.includes('hidden'), true)
+	p.key('Escape')
+	assert.equal(dialog.className.includes('hidden'), true)
+	p.chord('ArrowLeft')
+	assert.equal(activeOf(p), 'Needy', 'after Escape the chords work again')
+	// The Layouts menu is a popup too.
+	const menu = layoutsMenu(p)
+	assert.equal(menu.className.includes('hidden'), false)
+	p.chord('KeyW')
+	assert.equal(p.panes().length, 3, 'nothing closed behind the layouts menu')
+	p.key('Escape')
+	p.chord('KeyW')
+	assert.equal(p.panes().length, 2)
+	// An input method's composition is not a shortcut.
+	p.chord('KeyW', { isComposing: true })
+	p.chord('KeyW', { keyCode: 229 })
+	assert.equal(p.panes().length, 2)
+})
+
 test('a terminal leaves workspace shortcuts to the page and everything else to the agent; Escape in a terminal does not blur it', T, () => {
 	const p = boot()
 	p.data(rows())

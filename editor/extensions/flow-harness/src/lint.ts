@@ -7,7 +7,7 @@
  *  file, the line and a fix. Pure (no vscode), so every check is tested on its own.
  *--------------------------------------------------------------------------------------------*/
 
-import { globMatch } from './effective';
+import { globIsBounded, globMatcher } from './effective';
 import { KNOWN_TOOLS, parseRule, ruleProblem, simulate, type Rule, type RuleScope } from './permmatch';
 
 export type LintSeverity = 'error' | 'warning' | 'info';
@@ -65,8 +65,19 @@ interface Front {
 	closed: boolean;
 }
 
+/** What is read of a file for its frontmatter, of one line of it, and of a key's value: a block that goes on for ever is not a frontmatter. */
+const FRONT_BYTES = 256 * 1024;
+const FRONT_LINE = 4096;
+const FRONT_VALUE = 4096;
+/** The longest line of prose compared with the others, and the most globs one rule is checked for. */
+const MAX_STATEMENT = 1000;
+const MAX_GLOBS = 100;
+/** The most findings of one check in one file. */
+const MAX_PER_CHECK = 50;
+
 function frontBlock(text: string): Front | undefined {
-	const lines = text.split(/\r?\n/);
+	// Only the start of the file: a frontmatter that has not closed within it is read as one that never closes.
+	const lines = text.slice(0, FRONT_BYTES).split(/\r?\n/).map(l => l.length > FRONT_LINE ? l.slice(0, FRONT_LINE) : l);
 	if (lines[0]?.trim() !== '---') {
 		return undefined;
 	}
@@ -79,20 +90,35 @@ function frontKeys(f: Front): Map<string, { value: string; line: number; list: s
 	const keys = new Map<string, { value: string; line: number; list: string[] }>();
 	let last: { value: string; line: number; list: string[] } | undefined;
 	// `description: >` and `|`: the value is the indented lines that follow, read as one, quoted so no check mistakes it for plain YAML.
-	let block = false;
+	// The lines are collected and joined once, when the value ends: a line at a time would copy the whole value for each of them.
+	let block: string[] | undefined;
+	let size = 0;
+	const seal = () => {
+		if (last && block?.length) {
+			last.value = `"${block.join(' ').slice(0, FRONT_VALUE)}"`;
+		}
+		block = undefined;
+	};
 	f.lines.forEach((l, i) => {
 		const kv = /^([A-Za-z_][\w-]*)\s*:(.*)$/.exec(l);
 		if (kv) {
+			seal();
 			const value = kv[2].trim();
-			block = /^[>|][+-]?\d*$/.test(value);
-			last = { value: block ? '' : value, line: f.start + i, list: [] };
+			const isBlock = /^[>|][+-]?\d*$/.test(value);
+			block = isBlock ? [] : undefined;
+			size = 0;
+			last = { value: isBlock ? '' : value, line: f.start + i, list: [] };
 			keys.set(kv[1], last);
 		} else if (last && block && /^\s+\S/.test(l)) {
-			last.value = `"${[last.value.replace(/^"|"$/g, ''), l.trim()].filter(Boolean).join(' ')}"`;
-		} else if (last && /^\s+-\s+/.test(l)) {
+			if (size < FRONT_VALUE) {
+				block.push(l.trim());
+				size += l.length;
+			}
+		} else if (last && /^\s+-\s+/.test(l) && last.list.length < MAX_GLOBS * 5) {
 			last.list.push(l.replace(/^\s+-\s+/, '').trim());
 		}
 	});
+	seal();
 	return keys;
 }
 
@@ -209,15 +235,37 @@ export function ruleGlobs(f: LintFile): { glob: string; line: number }[] {
 		}
 	}
 	parts.push(cur);
-	return [...parts, ...entry.list].map(g => g.trim().replace(/^(["'])(.*)\1$/, '$2')).filter(Boolean).map(glob => ({ glob, line: entry.line }));
+	return [...parts, ...entry.list].map(g => g.trim().replace(/^(["'])(.*)\1$/, '$2')).filter(Boolean).slice(0, MAX_GLOBS).map(glob => ({ glob, line: entry.line }));
 }
 
-function lintGlobs(f: LintFile, input: LintInput, out: Finding[]) {
+/** How long all the glob checks of one lint run may take together, and the longest path they look at: rules are the text of files, and 500 rules of 100 globs against 20 000 files is a billion matches. */
+const GLOB_MS = 500;
+const MAX_PATH = 400;
+
+function lintGlobs(f: LintFile, input: LintInput, out: Finding[], until: number, longPaths: boolean) {
 	if (!input.projectFiles || (f.kind !== 'claude-rule' && f.kind !== 'cursor-rule')) {
 		return;
 	}
 	for (const { glob, line } of ruleGlobs(f)) {
-		if (!input.projectFiles.some(p => globMatch(glob, p))) {
+		// No verdict, so no finding, for a glob that is too elaborate to match safely, a listing with paths too long to look at, or a check that ran out of time.
+		if (!globIsBounded(glob) || longPaths) {
+			continue;
+		}
+		const match = globMatcher(glob);
+		let found = false;
+		let n = 0;
+		for (const p of input.projectFiles) {
+			if (found = match(p)) {
+				break;
+			}
+			if (++n % 256 === 0 && Date.now() > until) {
+				break;
+			}
+		}
+		if (n < input.projectFiles.length && !found) {
+			continue;
+		}
+		if (!found) {
 			out.push({
 				file: f.file, line, severity: input.projectFilesTruncated ? 'info' : 'warning', code: 'dead-glob',
 				message: `${glob} matches no file in the project${input.projectFilesTruncated ? ' among the files Insilode listed' : ''}: the rule never loads`,
@@ -265,7 +313,8 @@ function statements(f: LintFile): Statement[] {
 		if (fence || i < skipTo || /^\s*#/.test(raw) || /^\s*\|/.test(raw) || /^\s*</.test(raw)) {
 			return;
 		}
-		const text = raw.trim().replace(/^[-*+]\s+|^\d+\.\s+/, '');
+		// A line longer than a sentence is not prose to compare (and the patterns below are not meant for a line of a million characters).
+		const text = raw.slice(0, MAX_STATEMENT).trim().replace(/^[-*+]\s+|^\d+\.\s+/, '');
 		const w = words(text);
 		if (text.length < 25 || w.length < 4) {
 			return;
@@ -279,11 +328,21 @@ function statements(f: LintFile): Statement[] {
 
 const instructionKinds = new Set<InstructionKind>(['claude-md', 'agents-md', 'copilot', 'claude-rule', 'cursor-rule']);
 
+/** Adds to a group of a map in place: copying the group for every addition costs the square of its size. */
+function push<K, V>(map: Map<K, V[]>, key: K, value: V) {
+	const list = map.get(key);
+	if (list) {
+		list.push(value);
+	} else {
+		map.set(key, [value]);
+	}
+}
+
 function lintOverlap(input: LintInput, out: Finding[]) {
 	const all = input.files.filter(f => instructionKinds.has(f.kind)).flatMap(statements);
 	const byNorm = new Map<string, Statement[]>();
 	for (const s of all) {
-		byNorm.set(s.norm, [...(byNorm.get(s.norm) ?? []), s]);
+		push(byNorm, s.norm, s);
 	}
 	const pairs = new Map<string, { here: Statement; there: Statement }[]>();
 	for (const group of byNorm.values()) {
@@ -296,7 +355,7 @@ function lintOverlap(input: LintInput, out: Finding[]) {
 				out.push({ file: s.file.file, line: s.line, severity: 'warning', code: 'duplicate', message: `Said twice in ${s.file.label} (also line ${first.line + 1})`, fix: 'Delete one of them' });
 			} else {
 				const key = `${s.file.file}\n${first.file.file}`;
-				pairs.set(key, [...(pairs.get(key) ?? []), { here: s, there: first }]);
+				push(pairs, key, { here: s, there: first });
 			}
 		}
 	}
@@ -314,7 +373,7 @@ function lintOverlap(input: LintInput, out: Finding[]) {
 	}
 	const byKey = new Map<string, Statement[]>();
 	for (const s of all.filter(x => x.key.split(' ').length >= 2)) {
-		byKey.set(s.key, [...(byKey.get(s.key) ?? []), s]);
+		push(byKey, s.key, s);
 	}
 	for (const group of byKey.values()) {
 		const pos = group.find(s => !s.negative);
@@ -457,14 +516,23 @@ function sampleCall(tool: string, spec: string | undefined) {
 }
 
 export function lint(input: LintInput): Finding[] {
-	const out: Finding[] = [];
+	const all: Finding[] = [];
+	const until = Date.now() + GLOB_MS;
+	const longPaths = !!input.projectFiles?.some(p => p.length > MAX_PATH);
 	for (const f of input.files) {
-		lintFrontmatter(f, out);
-		lintGlobs(f, input, out);
+		lintFrontmatter(f, all);
+		lintGlobs(f, input, all, until, longPaths);
 	}
-	lintOverlap(input, out);
-	lintHooks(input, out);
-	lintRules(input, out);
+	lintOverlap(input, all);
+	lintHooks(input, all);
+	lintRules(input, all);
+	// A file full of the same mistake is one list of it, not a hundred thousand lines.
+	const seen = new Map<string, number>();
+	const out = all.filter(x => {
+		const key = `${x.file}\n${x.code}`;
+		seen.set(key, (seen.get(key) ?? 0) + 1);
+		return seen.get(key)! <= MAX_PER_CHECK;
+	});
 	const rank = { error: 0, warning: 1, info: 2 };
 	return out.sort((a, b) => rank[a.severity] - rank[b.severity] || a.file.localeCompare(b.file) || a.line - b.line);
 }

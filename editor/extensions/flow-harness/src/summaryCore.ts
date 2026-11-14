@@ -3,9 +3,11 @@
  *  Harness panel. Built from the scan's own result (scanCore.ts), so it says what the map says. Pure: no `vscode`, no fs, tested on its own.
  *
  *  The summary is data for another extension, which copies these types (extensions never import each other's source): keep it small, capped
- *  in every list and every string, and free of what must not leave: no file contents, and every command, rule and server line is redacted
- *  (redact.ts). The absolute `file` paths are there so the panel can ask the host to open a file the summary named; they are locations,
- *  not contents.
+ *  in every list and every string, and free of what must not leave. It carries file names, paths and line numbers, the names of skills, subagents,
+ *  commands and servers, the `description` and `paths:` lines of the instruction files as the lists show them (cut), and the commands, permission rules and
+ *  server lines of the settings, each redacted (redact.ts). It carries no other text of a file: a finding is a fixed sentence for its check (`SAYS`), never a
+ *  quotation, so a line of a CLAUDE.md or a frontmatter value is not in it. The absolute `file` paths are there so the panel can ask the host to open a file
+ *  the summary named; they are locations, not contents, and never one whose real path lies outside the folder (`unsafe`).
  *--------------------------------------------------------------------------------------------*/
 
 import * as path from 'path';
@@ -85,7 +87,7 @@ export interface SummaryNames {
 
 export interface SummaryFinding extends SummaryFile {
 	severity: Severity;
-	/** The finding's message, redacted and cut. */
+	/** The sentence for its check (`SAYS`), never a quotation of the file. */
 	message: string;
 	/** 1-based, as the CLI prints it. */
 	line: number;
@@ -115,6 +117,39 @@ export interface HarnessSummary {
 	notes: string[];
 }
 
+/** What each check of the lint says in a summary. The lint's own messages quote the file they are about (a line, a glob, a name): the CLI prints them, a summary of a folder nobody trusted does not. */
+const SAYS: Record<string, string> = {
+	'bad-frontmatter': 'The frontmatter does not parse as YAML',
+	'bad-name': 'The skill name is not lowercase letters, digits and hyphens',
+	'broken-import': 'An import points at a file that does not exist',
+	'broken-path': 'A path named here does not exist',
+	'contradiction': 'This line contradicts another instruction',
+	'dead-glob': 'A glob of this rule matches no file in the project',
+	'dead-matcher': 'A hook matcher matches no tool Claude Code is known to have',
+	'duplicate': 'This repeats another instruction, so the agent reads it twice',
+	'duplicate-rule': 'This permission rule is already set elsewhere',
+	'ignored-matcher': 'This hook event takes no matcher, so the matcher is ignored',
+	'invalid-json': 'Not valid JSON: the agent ignores this file',
+	'long-file': 'A long file: it costs many tokens in every session',
+	'mcp-config': 'An MCP server is misconfigured',
+	'mcp-unreadable': 'An MCP config file cannot be read: the agent ignores its servers',
+	'missing-script': 'A hook runs a script that does not exist',
+	'no-description': 'No description: the agent cannot tell when to use it',
+	'no-frontmatter': 'No frontmatter, so no name or description',
+	'outside-repo': 'A link to something outside the folder: not read',
+	'overbroad': 'A permission rule allows much more than it looks',
+	'path-not-checked': 'A path named here is outside the project or on the network, so it was not checked',
+	'rule-conflict': 'This permission rule is also set to another effect in other settings, which wins',
+	'rule-never-applies': 'A permission rule that is never consulted',
+	'shadowed': 'A deny or ask rule overrides this allow rule',
+	'skill-shadow': 'Another skill has the same name; one shadows the other',
+	'unknown-event': 'Not a hook event: this hook never runs',
+	'vague-description': 'The description is too short to tell the agent when to use this',
+	'wildcard-before-subcommand': 'A permission rule puts * before the subcommand',
+	'wrong-key': 'This key belongs to another tool',
+};
+const says = (code: string): string => Object.prototype.hasOwnProperty.call(SAYS, code) ? SAYS[code] : 'A problem the harness lint found here';
+
 export type SummaryResult = { ok: true; summary: HarnessSummary } | { ok: false; message: string };
 
 /** What the scan does not know and the summary asks the disk for. */
@@ -126,6 +161,8 @@ export interface SummaryExtras {
 	/** The scan stopped early (see summary.ts): said in `notes`. */
 	timedOut?: boolean;
 	home: string;
+	/** Files that lie in the folder as written but are, once their links are followed, somewhere else: left out of every list, said once in `notes`. */
+	unsafe?: ReadonlySet<string>;
 }
 
 const clip = (text: string, max: number): string => text.length > max ? text.slice(0, max - 1) + '…' : text;
@@ -148,9 +185,11 @@ export function buildSummary(harness: Harness, extras: SummaryExtras, root: stri
 		}
 		return list.slice(0, max);
 	};
-	const of = (kind: HarnessItem['kind']) => harness.items.filter(i => i.kind === kind);
+	const unsafe = extras.unsafe ?? new Set<string>();
+	const items = harness.items.filter(i => !unsafe.has(i.file));
+	const of = (kind: HarnessItem['kind']) => items.filter(i => i.kind === kind);
 
-	const instructions = capped(harness.items.filter(i => i.kind === 'instructions' || i.kind === 'rules').map((i): SummaryInstruction => ({
+	const instructions = capped(items.filter(i => i.kind === 'instructions' || i.kind === 'rules').map((i): SummaryInstruction => ({
 		...base(i), name: clip(i.label, CAPS.name), kind: i.kind as 'instructions' | 'rules', scope: i.scope, detail: clip(i.detail, CAPS.where),
 		...(i.tokens !== undefined || i.onDemand !== undefined ? { tokens: i.tokens ?? i.onDemand } : {}),
 	})), CAPS.instructions, 'instruction files');
@@ -179,19 +218,23 @@ export function buildSummary(harness: Harness, extras: SummaryExtras, root: stri
 		items: capped(items.map(n => ({ name: clip(n.name, CAPS.name), scope: n.scope, ...(n.file ? { file: file(n.file), where: where(n.file) } : {}) })), CAPS.names, what),
 	});
 
-	const found = extras.lint.map((l): SummaryFinding => ({
-		where: clip(l.file, CAPS.where), file: file(l.abs), severity: l.severity, message: redact(l.message, CAPS.message), line: l.line, code: l.rule,
+	const found = extras.lint.filter(l => !unsafe.has(l.abs)).map((l): SummaryFinding => ({
+		where: clip(l.file, CAPS.where), file: file(l.abs), severity: l.severity, message: says(l.rule), line: l.line, code: l.rule,
 	}));
 	const counts: Record<Severity, number> = { error: 0, warning: 0, info: 0 };
 	found.forEach(f => counts[f.severity]++);
 	found.sort((a, b) => RANK[a.severity] - RANK[b.severity]);
 
+	const hidden = new Set([...harness.items.map(i => i.file), ...extras.lint.map(l => l.abs), ...extras.commands.map(c => c.file)].filter(f => unsafe.has(f))).size;
+	if (hidden) {
+		notes.push(`${hidden} file${hidden === 1 ? ' is a link' : 's are links'} to something outside the folder, so ${hidden === 1 ? 'it was' : 'they were'} not read or shown.`);
+	}
 	if (extras.timedOut) {
 		notes.push('The folder is large: the search stopped after a moment, so some lists may be incomplete.');
 	}
 	return {
 		root: clip(root, CAPS.path), score: harness.score, startupTokens: harness.startupTokens, instructions, hooks, permissions, mcp,
-		skills: names(of('skills').map(i => ({ name: i.label, scope: i.scope, file: i.file })), 'skills'), agents: names(of('agents').map(i => ({ name: i.label, scope: i.scope, file: i.file })), 'subagents'), commands: names(extras.commands, 'slash commands'),
+		skills: names(of('skills').map(i => ({ name: i.label, scope: i.scope, file: i.file })), 'skills'), agents: names(of('agents').map(i => ({ name: i.label, scope: i.scope, file: i.file })), 'subagents'), commands: names(extras.commands.filter(c => !unsafe.has(c.file)), 'slash commands'),
 		findings: capped(found, CAPS.findings, 'findings'), counts, notes: notes.concat((harness.notes ?? []).map(n => clip(n, CAPS.message))).slice(0, 10),
 	};
 }

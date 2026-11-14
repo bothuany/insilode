@@ -902,9 +902,15 @@ function dragRow(el, contentFn) {
 }
 const DIRECTIONS = ['left', 'right', 'up', 'down'];
 function wsKey(e) {
+	// A key an input method is composing is its own, never a chord.
+	if (e.isComposing || e.keyCode === 229) { return false; }
 	const c = chordOf(e);
 	if (!c) { return false; }
 	e.preventDefault();
+	// The shortcuts dialog and the menus are modal: a chord must not act on the panes behind them (Escape puts them away).
+	if (shortcutsEl.className.indexOf('hidden') < 0 || menuState) { return true; }
+	// A held key repeats: only the focus keys may, or holding close closes every pane and holding split fills the page.
+	if (e.repeat && DIRECTIONS.indexOf(c) < 0 && c !== 'sidebar') { return true; }
 	const f = ws.layout.focus;
 	if (c === 'broadcast') { toggleBroadcast(); return true; }
 	if (c === 'needs') { jumpToNext(); return true; }

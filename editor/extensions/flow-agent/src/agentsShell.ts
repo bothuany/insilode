@@ -826,6 +826,7 @@ const typing = t => t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t
 // xterm's own input element is a textarea: keys typed there belong to the agent (Escape included), never to the page.
 const inTerm = t => !!(t && t.className && String(t.className).indexOf('xterm') >= 0);
 document.addEventListener('keydown', e => {
+	if (e.isComposing || e.keyCode === 229) { return; }
 	if (wsKey(e)) { return; }
 	if (e.key === 'Escape') {
 		if (shortcutsEl.className.indexOf('hidden') < 0) { closeShortcuts(); return; }

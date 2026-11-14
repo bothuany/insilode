@@ -3,7 +3,7 @@
  *  (cli/harness-lint.ts), where there is no editor to ask. Reads only; a symbolic link to a folder is not followed.
  *--------------------------------------------------------------------------------------------*/
 
-import { promises as fs } from 'fs';
+import { promises as fs, type Dirent } from 'fs';
 import * as path from 'path';
 import type { ScanFolder, ScanHost } from './scanCore';
 
@@ -16,29 +16,50 @@ const BUILD = new Set(['bin', 'obj']);
 /** The files listed for a rule's globs, as the editor's search lists at most. */
 const LISTING_LIMIT = 20_000;
 
-/** Files of `root` (relative, with `/`) that `accept` takes, in name order, at most `limit`; none read after `deadline` (epoch ms) passed. */
+/** The most entries read from one folder, the most entries a walk looks at, and how deep it goes: a folder may hold anything, and `readdir` reads a whole folder in one call nobody can interrupt. */
+const DIR_ENTRIES = 5000;
+const WALK_ENTRIES = 200_000;
+const MAX_DEPTH = 64;
+
+/** The entries of one folder, at most DIR_ENTRIES, in name order. */
+async function entriesOf(dir: string): Promise<Dirent[]> {
+	const handle = await fs.opendir(dir).catch(() => undefined);
+	const out: Dirent[] = [];
+	try {
+		for (let e = await handle?.read(); e; e = out.length < DIR_ENTRIES ? await handle?.read() : null) {
+			out.push(e);
+		}
+	} catch {
+		// A folder that goes away while it is listed: what was read is the list.
+	} finally {
+		await handle?.close().catch(() => undefined);
+	}
+	return out.sort((a, b) => a.name < b.name ? -1 : 1);
+}
+
+/** Files of `root` (relative, with `/`) that `accept` takes, in name order, at most `limit`; none read after `deadline` (epoch ms) passed. A link to a folder is not entered (a listing entry that is a link is a file, as `Dirent` says). */
 async function walk(root: string, limit: number, skipBuild: boolean, accept: (rel: string) => boolean, deadline = Infinity): Promise<string[]> {
 	const out: string[] = [];
-	const visit = async (rel: string): Promise<void> => {
+	let seen = 0;
+	const visit = async (rel: string, depth: number): Promise<void> => {
 		if (Date.now() > deadline) {
 			return;
 		}
-		const entries = (await fs.readdir(path.join(root, rel), { withFileTypes: true }).catch(() => [])).sort((a, b) => a.name < b.name ? -1 : 1);
-		for (const e of entries) {
-			if (out.length >= limit || Date.now() > deadline) {
+		for (const e of await entriesOf(path.join(root, rel))) {
+			if (out.length >= limit || Date.now() > deadline || ++seen > WALK_ENTRIES) {
 				return;
 			}
 			const child = rel ? `${rel}/${e.name}` : e.name;
 			if (e.isDirectory()) {
-				if (!SKIP.has(e.name) && !WORKTREES.some(w => child === w || child.endsWith(`/${w}`)) && !(skipBuild && BUILD.has(e.name))) {
-					await visit(child);
+				if (depth < MAX_DEPTH && !SKIP.has(e.name) && !WORKTREES.some(w => child === w || child.endsWith(`/${w}`)) && !(skipBuild && BUILD.has(e.name))) {
+					await visit(child, depth + 1);
 				}
 			} else if (accept(child)) {
 				out.push(child);
 			}
 		}
 	};
-	await visit('');
+	await visit('', 0);
 	return out;
 }
 

@@ -287,7 +287,9 @@ test('the summary reads and writes nothing it was not asked: the folder is as it
 	if (linked) {
 		const json = JSON.stringify(r.summary)
 		assert.ok(!json.includes('LEAKED-RULE') && !json.includes('bypassPermissions'))
-		assert.ok(r.summary.instructions.some(i => /link to something outside|link to a file outside/i.test(i.detail) || /outside/i.test(i.detail)), 'reported once, as a finding of the folder')
+		// The link itself is a file whose real path is outside the folder, so it is not named: the notes say it was left out.
+		assert.ok(r.summary.notes.some(x => /link to something outside the folder/i.test(x)), 'reported once, in the notes: ' + JSON.stringify(r.summary.notes))
+		assert.ok(!r.summary.instructions.some(i => /settings\.json/.test(i.name)) && !JSON.stringify(r.summary).includes(join(dir, '.claude', 'settings.json')), 'and not named')
 	}
 })
 
@@ -309,13 +311,15 @@ test('the findings are the ones npm run harness:lint prints for the folder, what
 	let out = ''
 	const code = await CLI.main(['--json', '--cwd', dir], { stdout: t => { out += t }, stderr: () => undefined })
 	assert.equal(code, 1)
-	const cli = JSON.parse(out).map(l => [l.file, l.line, l.severity, l.rule, l.message])
+	// The CLI's messages quote the files; a summary's are a fixed sentence per check (so only the message differs).
+	const cli = JSON.parse(out).map(l => [l.file, l.line, l.severity, l.rule])
 	assert.ok(cli.length >= 3, JSON.stringify(cli))
 	const summary = (await S.harnessSummary(dir)).summary
-	const mine = summary.findings.map(f => [f.where, f.line, f.severity, f.code, f.message])
+	const mine = summary.findings.map(f => [f.where, f.line, f.severity, f.code])
 	const order = (a, b) => JSON.stringify(a) < JSON.stringify(b) ? -1 : 1
 	assert.deepEqual([...mine].sort(order), [...cli].sort(order))
-	assert.ok(!mine.some(f => f[3] === 'rule-conflict' || f[3] === 'shadowed' && /user/.test(f[4])), 'nothing came from the user\'s own deny rule')
+	assert.ok(!mine.some(f => f[3] === 'rule-conflict'), 'nothing came from the user\'s own deny rule (the findings are the CLI\'s, which reads none of the user\'s files)')
+	assert.ok(summary.findings.every(f => f.message.length > 0 && !/not-there|nothing\.md|missing\.sh/.test(f.message)), 'a sentence for the check, not a quotation')
 	assert.deepEqual(summary.counts, { error: cli.filter(l => l[2] === 'error').length, warning: cli.filter(l => l[2] === 'warning').length, info: cli.filter(l => l[2] === 'info').length })
 	// The lists still include what the user's own files add: the panel shows the harness an agent here runs with.
 	assert.ok(summary.hooks.some(h => h.scope === 'user'))

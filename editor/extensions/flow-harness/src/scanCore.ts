@@ -7,7 +7,7 @@
  *  editor, scanFsHost.ts for the headless harness lint), so the same checks run in both.
  *--------------------------------------------------------------------------------------------*/
 
-import { promises as fs, statSync } from 'fs';
+import { constants, promises as fs, statSync } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { globList } from './effective';
@@ -17,6 +17,7 @@ import { projectGaps, type Gap } from './gaps';
 import { gitIgnoredOf } from './ignored';
 import { claudeDir, codexDir } from './dirs';
 import { maskArgs, maskUrl, readMcp, type McpServer } from './mcpconfig';
+import { isNetworkPath, pathVerdict, within, type PathVerdict } from './pathGuard';
 
 export type Scope = 'user' | 'project' | 'local' | 'directory';
 export type Kind = 'instructions' | 'rules' | 'skills' | 'agents' | 'hooks' | 'mcp' | 'permissions' | 'memory';
@@ -98,6 +99,12 @@ export interface ScanOptions {
 	confine?: boolean;
 	/** Read the user's own files (~/.claude, ~/.codex, the user MCP servers and memory): false for a repository's CI run, which has none. Default true. */
 	user?: boolean;
+	/** A time (epoch ms) after which the scan reads nothing more and answers with what it has: every walk, read and child process checks it, so a scan past it stops instead of running on. Default: none. */
+	deadline?: number;
+	/** The most bytes of files read in all (every file's size counts): past it a file is skipped as if it were not there, and the result says so. Default: no limit. */
+	maxTotalBytes?: number;
+	/** The folder is one nobody opened or trusted (the Agents page's summary): a path its files name is looked at only inside the folder, and a message never quotes a file. Default false. */
+	untrusted?: boolean;
 }
 
 /** The host of the scan in progress: one scan at a time per process, set by `scanFolders`. */
@@ -114,41 +121,136 @@ let checkedOnly: string[] | undefined;
 const outside = new Set<string>();
 /** Files bigger than this are not read (see `ScanOptions.maxFileBytes`), set by `scanFolders`. */
 let maxRead = Infinity;
+/** When the scan in progress must stop (see `ScanOptions.deadline`), and whether its folder is trusted, set by `scanFolders`. */
+let stopAt = Infinity;
+let untrustedScan = false;
+/** The most bytes the scan may read in all, and how many it has (see `ScanOptions.maxTotalBytes`). */
+let maxTotal = Infinity;
+let readBytes = 0;
+/** Limits this scan hit (a settings file with more rules than are read), reported once with the result. */
+const limits = new Set<string>();
+const late = () => Date.now() > stopAt;
+
+/** What one list or walk takes at most: a folder can hold anything, and the scan is for a map, not an index. */
+const MAX_ENTRIES = 1000;
+const MAX_WALK_ENTRIES = 3000;
+const MAX_WALK_FILES = 500;
+const MAX_DEPTH = 8;
+/** The most hooks and rules read from one settings file, and paths one instruction file has checked on disk. */
+const MAX_SETTING_ITEMS = 500;
+const MAX_REFS = 100;
+/** The part of a file looked at for its frontmatter, and the longest value kept from it. */
+const FRONT_BYTES = 256 * 1024;
+const FRONT_VALUE = 4096;
+const FRONT_ITEMS = 500;
 
 const home = os.homedir();
 const tokensOf = (text: string) => Math.round(text.length / 4);
-async function read(p: string): Promise<string | undefined> {
-	if (confined && (!checkedOnly || checkedOnly.some(r => p === r || p.startsWith(r + path.sep)))) {
-		const real = await fs.realpath(p).catch(() => undefined);
-		if (real !== undefined && !confined.some(r => real === r || real.startsWith(r + path.sep))) {
-			outside.add(p);
-			return undefined;
+/** The folders of the scan in progress, as given. */
+let roots: string[] = [];
+
+/** Whether `p`, or a folder between the scanned folder and it, is a link that names a network path: `realpath` would open the connection to find out where it leads (on Windows a link in a repository can say `\\host\share`). */
+async function linksToNetwork(p: string): Promise<boolean> {
+	const root = roots.find(r => p === r || p.startsWith(r + path.sep));
+	let at = root ?? '';
+	for (const part of root ? path.relative(root, p).split(path.sep).filter(Boolean) : [p]) {
+		at = root ? path.join(at, part) : part;
+		const target = await fs.readlink(at).catch(() => undefined);
+		if (target !== undefined && isNetworkPath(target)) {
+			return true;
 		}
 	}
-	// Only a regular file: reading a named pipe or a device would never end.
-	const st = await fs.stat(p).catch(() => undefined);
-	if (!st?.isFile() || st.size > maxRead) {
+	return false;
+}
+
+/** Whether `p` may be read: not when a check applies to it (see `confined`) and its real path leads out of the folders. Records what was refused. */
+async function inFolders(p: string): Promise<{ ok: boolean; real?: string }> {
+	if (!confined || (checkedOnly && !checkedOnly.some(r => p === r || p.startsWith(r + path.sep)))) {
+		return { ok: true };
+	}
+	if (await linksToNetwork(p)) {
+		outside.add(p);
+		return { ok: false };
+	}
+	const real = await fs.realpath(p).catch(() => undefined);
+	if (real !== undefined && !confined.some(r => real === r || real.startsWith(r + path.sep))) {
+		outside.add(p);
+		return { ok: false };
+	}
+	return { ok: real !== undefined, real };
+}
+
+/** O_NONBLOCK: opening a named pipe or a device answers at once instead of waiting for a writer; O_NOFOLLOW: no link in the last place of a path already resolved. Windows has neither. */
+const OPEN_FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
+
+/** Opens `file`, checks the handle itself (a regular file, not too big) and reads it from there: nothing can change between the check and the read. */
+async function readRegular(file: string, noFollow: boolean): Promise<string | undefined> {
+	const handle = await fs.open(file, OPEN_FLAGS | (noFollow ? (constants.O_NOFOLLOW ?? 0) : 0)).catch(() => undefined);
+	if (!handle) {
 		return undefined;
 	}
-	return fs.readFile(p, 'utf8').catch(() => undefined);
+	try {
+		const st = await handle.stat();
+		if (!st.isFile() || st.size > maxRead) {
+			return undefined;
+		}
+		if (readBytes + st.size > maxTotal) {
+			limits.add('The files of this folder add up to more than is read for a summary, so some were skipped.');
+			return undefined;
+		}
+		readBytes += st.size;
+		const buffer = Buffer.alloc(st.size);
+		let got = 0;
+		while (got < buffer.length) {
+			const { bytesRead } = await handle.read(buffer, got, buffer.length - got, got);
+			if (!bytesRead) {
+				break;
+			}
+			got += bytesRead;
+		}
+		return buffer.toString('utf8', 0, got);
+	} catch {
+		return undefined;
+	} finally {
+		await handle.close().catch(() => undefined);
+	}
 }
-const exists = (p: string) => fs.stat(p).then(() => true, () => false);
+
+async function read(p: string): Promise<string | undefined> {
+	if (late()) {
+		return undefined;
+	}
+	const { ok, real } = await inFolders(p);
+	// A file that was checked is read by the path the check resolved, so a link swapped in afterwards is refused by the open; an unchecked one is read as written (a link to a file in the folder is a normal setup).
+	return ok ? readRegular(real ?? p, real !== undefined) : undefined;
+}
+const exists = (p: string) => late() ? Promise.resolve(true) : fs.stat(p).then(() => true, () => false);
 const show = (root: string, p: string) => p.startsWith(root + path.sep) ? path.relative(root, p) : p.replace(home, '~');
 
 function frontMatter(text: string): Record<string, string> {
-	const m = /^---\r?\n(?<body>[\s\S]*?)\r?\n---/.exec(text);
+	const m = /^---\r?\n(?<body>[\s\S]*?)\r?\n---/.exec(text.slice(0, FRONT_BYTES));
 	const out: Record<string, string> = {};
 	const lines = m?.groups?.body.split(/\r?\n/) ?? [];
+	// A value is collected as parts and joined once, when it ends: joining at every line would copy the whole value for each of them.
+	const clip = (parts: string[]) => parts.join(' ').slice(0, FRONT_VALUE);
 	let key = '';
+	let items: string[] = [];
+	const flush = () => {
+		if (key && items.length) {
+			out[key] = [out[key], ...items].filter(Boolean).join(',').slice(0, FRONT_VALUE);
+		}
+		items = [];
+	};
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
 		const kv = /^(?<k>[\w-]+):\s*(?<v>.*)$/.exec(line);
 		if (!kv?.groups) {
-			if (key && /^\s*-\s+/.test(line)) {
-				out[key] = [out[key], line.replace(/^\s*-\s+/, '')].filter(Boolean).join(',');
+			if (key && /^\s*-\s+/.test(line) && items.length < FRONT_ITEMS) {
+				items.push(line.replace(/^\s*-\s+/, ''));
 			}
 			continue;
 		}
+		flush();
 		key = kv.groups.k;
 		const inline = kv.groups.v.trim();
 		const next = () => lines[i + 1] ?? '';
@@ -158,7 +260,7 @@ function frontMatter(text: string): Record<string, string> {
 			while (i + 1 < lines.length && (!next().trim() || /^\s/.test(next()))) {
 				parts.push(lines[++i].trim());
 			}
-			out[key] = parts.join(' ').replace(/\s+/g, ' ').trim();
+			out[key] = clip(parts).replace(/\s+/g, ' ').trim();
 			continue;
 		}
 		// A value that goes on over indented lines (or starts on the next one); list items and nested keys are not part of it.
@@ -166,13 +268,66 @@ function frontMatter(text: string): Record<string, string> {
 		while (/^\s+\S/.test(next()) && !/^\s*-\s+/.test(next()) && (parts.length || !/^\s+[\w-]+:(\s|$)/.test(next()))) {
 			parts.push(lines[++i].trim());
 		}
-		out[key] = parts.join(' ').replace(/^(["'])(.*)\1$/, '$2');
+		out[key] = clip(parts).replace(/^(["'])(.*)\1$/, '$2');
 	}
+	flush();
 	return out;
 }
 
+/** The entries of one folder, as Dirents, at most `limit` (a folder may hold millions: `readdir` would read them all in one call nobody can interrupt). Empty when the folder's real path leads out of the scanned folders. */
+async function entriesOf(dir: string, limit: number): Promise<import('fs').Dirent[]> {
+	if (late() || !(await inFolders(dir)).ok) {
+		return [];
+	}
+	const handle = await fs.opendir(dir).catch(() => undefined);
+	const out: import('fs').Dirent[] = [];
+	try {
+		for (let e = await handle?.read(); e; e = out.length < limit && !late() ? await handle?.read() : null) {
+			out.push(e);
+		}
+	} catch {
+		// A folder that goes away while it is listed: what was read is the list.
+	} finally {
+		await handle?.close().catch(() => undefined);
+	}
+	return out.sort((a, b) => a.name < b.name ? -1 : 1);
+}
+
 async function listDir(dir: string): Promise<string[]> {
-	return (await fs.readdir(dir).catch(() => [] as string[])).map(n => path.join(dir, n));
+	return (await entriesOf(dir, MAX_ENTRIES)).map(e => path.join(dir, e.name));
+}
+
+/**
+ * The files below `dir` that `accept` takes: real folders are entered, links to folders never are (a link back to its own folder, or
+ * to /usr, would otherwise be walked for ever), and the walk stops at a depth, a number of entries and the scan's deadline.
+ * A link to a file is a candidate like any file: `read` decides whether it may be read.
+ */
+async function filesBelow(dir: string, accept: (name: string) => boolean): Promise<string[]> {
+	const out: string[] = [];
+	let seen = 0;
+	const visit = async (d: string, depth: number): Promise<void> => {
+		for (const e of await entriesOf(d, MAX_ENTRIES)) {
+			if (late()) {
+				return;
+			}
+			if (out.length >= MAX_WALK_FILES || ++seen > MAX_WALK_ENTRIES) {
+				limits.add(`Only the first ${MAX_WALK_FILES} rule files of a folder are read.`);
+				return;
+			}
+			const p = path.join(d, e.name);
+			// Some file systems give no type with a listing: lstat answers for them, still without following a link.
+			const st = e.isDirectory() || e.isFile() || e.isSymbolicLink() ? e : await fs.lstat(p).catch(() => undefined);
+			if (st?.isDirectory()) {
+				if (depth < MAX_DEPTH) {
+					await visit(p, depth + 1);
+				}
+			} else if (st && accept(e.name) && (st.isFile() || (st.isSymbolicLink() && (await fs.stat(p).catch(() => undefined))?.isFile()))) {
+				out.push(p);
+			}
+		}
+	};
+	await visit(dir, 0);
+	return out;
 }
 
 /**
@@ -197,11 +352,22 @@ function existsSomewhere(ref: string): Promise<boolean> {
  * Paths a memory file points at: `@imports` and backticked relative paths that look like files.
  * Only what is clearly meant as a path is checked, so prose never turns into false alarms.
  */
+/** What a path named in a file's text is reported as when it is not looked at (see pathGuard.ts). The message names no path: it is the file's own text. */
+function notChecked(verdict: PathVerdict, line: number): Issue {
+	return { severity: 'info', message: verdict === 'network' ? 'Names a network path, so it was not checked' : 'Names a path outside the project, so it was not checked', line, code: 'path-not-checked' };
+}
+
+/** Whether the scan may stat `target`, which `raw` (a path as a file of `owner` wrote it) resolved to. Only a folder nobody trusted is confined to itself, and only for its own files: the user's are theirs. */
+function verdictOf(raw: string, target: string, root: string, owner: string): PathVerdict {
+	return pathVerdict(raw, target, root, untrustedScan && within(root, owner), path);
+}
+
 async function brokenPaths(file: string, text: string, root: string): Promise<Issue[]> {
 	const issues: Issue[] = [];
 	const lines = text.split(/\r?\n/);
 	let inFence = false;
-	for (let i = 0; i < lines.length; i++) {
+	let checked = 0;
+	for (let i = 0; i < lines.length && !late(); i++) {
 		const line = lines[i];
 		if (/^\s*```/.test(line)) {
 			inFence = !inFence;
@@ -224,8 +390,24 @@ async function brokenPaths(file: string, text: string, root: string): Promise<Is
 			if (!userScan && c.ref.startsWith('~')) {
 				continue;
 			}
-			const target = c.ref.startsWith('~') ? path.join(home, c.ref.slice(1)) : path.resolve(c.ref.startsWith('.') ? path.dirname(file) : root, c.ref);
-			if (!await exists(target) && !await exists(path.resolve(path.dirname(file), c.ref)) && !(!c.isImport && await existsSomewhere(c.ref))) {
+			if (++checked > MAX_REFS) {
+				limits.add(`Only the first ${MAX_REFS} paths named in an instruction file are checked.`);
+				break;
+			}
+			// A file may name anything: only what the guard allows is looked at (a network path would open a connection to whoever wrote it).
+			const first = c.ref.startsWith('~') ? path.join(home, c.ref.slice(1)) : path.resolve(c.ref.startsWith('.') ? path.dirname(file) : root, c.ref);
+			const targets = [first, path.resolve(path.dirname(file), c.ref)].filter((t, n, all) => all.indexOf(t) === n);
+			const verdicts = targets.map(t => verdictOf(c.ref, t, root, file));
+			const open = targets.filter((_, n) => verdicts[n] === 'ok');
+			if (!open.length) {
+				issues.push(notChecked(verdicts.includes('network') ? 'network' : 'outside', i));
+				continue;
+			}
+			let found = false;
+			for (const t of open) {
+				found = found || await exists(t);
+			}
+			if (!found && !(!c.isImport && await existsSomewhere(c.ref))) {
 				issues.push({ severity: c.isImport ? 'error' : 'warning', message: c.isImport ? `Import @${c.ref} does not exist` : `Mentions ${c.ref}, which does not exist`, line: i, code: c.isImport ? 'broken-import' : 'broken-path' });
 			}
 		}
@@ -290,22 +472,37 @@ async function settingsFile(items: HarnessItem[], root: string, file: string, sc
 		return;
 	}
 	const lines = text.split(/\r?\n/);
-	const lineOf = (needle: string) => Math.max(0, lines.findIndex(l => l.includes(needle)));
+	// Each lookup reads lines until it finds its own; a file with thousands of rules would read them all for every one, so the lookups together read a bounded number (the rest are put on line 1).
+	let budget = 2_000_000;
+	const find = (from: number, needle: string) => {
+		for (let n = from; n < lines.length && budget > 0; n++, budget--) {
+			if (lines[n].includes(needle)) {
+				return n;
+			}
+		}
+		return -1;
+	};
+	const lineOf = (needle: string) => Math.max(0, find(0, needle));
 	// Two hooks may run the same command: each takes the next line that holds it, in file order (the order JSON.parse
 	// gives too), so a finding about the second one lands on the second one.
 	const taken = new Map<string, number>();
 	const nextLineOf = (needle: string) => {
-		const i = lines.findIndex((l, n) => n > (taken.get(needle) ?? -1) && l.includes(needle));
+		const i = find((taken.get(needle) ?? -1) + 1, needle);
 		if (i >= 0) {
 			taken.set(needle, i);
 		}
 		return i >= 0 ? i : lineOf(needle);
 	};
+	let hookCount = 0;
 	for (const [event, entries] of Object.entries(s.hooks ?? {})) {
 		for (const entry of entries) {
 			for (const h of entry.hooks ?? []) {
 				if (!h.command) {
 					continue;
+				}
+				if (++hookCount > MAX_SETTING_ITEMS) {
+					limits.add(`Only the first ${MAX_SETTING_ITEMS} hooks, and the first ${MAX_SETTING_ITEMS} allow, ask and deny rules each, of a settings file are read.`);
+					break;
 				}
 				const issues: Issue[] = [];
 				// A script the hook runs must exist, or every matching tool call fails the hook.
@@ -319,8 +516,15 @@ async function settingsFile(items: HarnessItem[], root: string, file: string, sc
 					// Whatever is still a variable (${CLAUDE_PLUGIN_ROOT}, say) is only known to Claude Code: no verdict, no penalty.
 					// A script under the home folder is the user's own, not the repository's: no verdict without the user's files.
 					const inHome = !userScan && /^~(?=[\\/]|$)|\$\{HOME\}|\$HOME\b|%USERPROFILE%/i.test(script);
-					if (!inHome && !/[$%]/.test(resolved) && !await exists(path.resolve(root, resolved))) {
-						issues.push({ severity: 'error', message: `Script ${script} does not exist`, line: lineOf(script), code: 'missing-script' });
+					if (!inHome && !/[$%]/.test(resolved)) {
+						// The script's path is the file's text: a network path is never stat'ed, and in a folder nobody trusted neither is one that leaves it.
+						const target = path.resolve(root, resolved);
+						const verdict = verdictOf(script, target, root, file);
+						if (verdict !== 'ok') {
+							issues.push(notChecked(verdict, lineOf(script)));
+						} else if (!await exists(target)) {
+							issues.push({ severity: 'error', message: `Script ${script} does not exist`, line: lineOf(script), code: 'missing-script' });
+						}
 					}
 				}
 				// Inline shell gets a readable name from the variable it checks or the first program it runs.
@@ -339,7 +543,10 @@ async function settingsFile(items: HarnessItem[], root: string, file: string, sc
 		}
 	}
 	for (const effect of ['allow', 'ask', 'deny'] as const) {
-		for (const pattern of s.permissions?.[effect] ?? []) {
+		if ((s.permissions?.[effect]?.length ?? 0) > MAX_SETTING_ITEMS) {
+			limits.add(`Only the first ${MAX_SETTING_ITEMS} hooks, and the first ${MAX_SETTING_ITEMS} allow, ask and deny rules each, of a settings file are read.`);
+		}
+		for (const pattern of (s.permissions?.[effect] ?? []).slice(0, MAX_SETTING_ITEMS)) {
 			items.push({ kind: 'permissions', scope, label: pattern, detail: effect, file, issues: [], agents: ['Claude'], rule: { effect, pattern }, line: lineOf(JSON.stringify(pattern)) });
 		}
 	}
@@ -378,8 +585,7 @@ async function agentsIn(items: HarnessItem[], dir: string, scope: Scope) {
 }
 
 async function rulesIn(items: HarnessItem[], root: string, dir: string, scope: Scope, agents: string[], globKey: string) {
-	const walk = async (d: string): Promise<string[]> => (await Promise.all((await listDir(d)).map(async p => (await fs.stat(p).catch(() => undefined))?.isDirectory() ? walk(p) : [p]))).flat();
-	for (const file of (await walk(dir)).filter(f => /\.mdc?$/.test(f))) {
+	for (const file of await filesBelow(dir, name => /\.mdc?$/.test(name))) {
 		const text = await read(file);
 		if (text === undefined) {
 			continue;
@@ -420,8 +626,18 @@ async function mcpServers(items: HarnessItem[], root: string, user: boolean) {
 /** Same rule allowed in one place and denied in another: the stricter one wins, which surprises people. */
 function conflicts(items: HarnessItem[]) {
 	const rules = items.filter(i => i.rule);
+	// By pattern, so a rule is compared with the rules that have its pattern, not with every rule.
+	const byPattern = new Map<string, HarnessItem[]>();
 	for (const r of rules) {
-		const clash = rules.find(o => o !== r && o.rule!.pattern === r.rule!.pattern && o.rule!.effect !== r.rule!.effect);
+		const same = byPattern.get(r.rule!.pattern);
+		if (same) {
+			same.push(r);
+		} else {
+			byPattern.set(r.rule!.pattern, [r]);
+		}
+	}
+	for (const r of rules) {
+		const clash = byPattern.get(r.rule!.pattern)!.find(o => o !== r && o.rule!.effect !== r.rule!.effect);
 		if (clash && r.rule!.effect === 'allow') {
 			r.issues.push({ severity: 'warning', message: `Also "${clash.rule!.effect}" in ${clash.scope} settings, which wins`, code: 'rule-conflict' });
 		}
@@ -467,7 +683,7 @@ async function lintItems(items: HarnessItem[], root: string, folder: ScanFolder)
 	const limit = 20_000;
 	// This folder's files only: a rule's globs are relative to the folder that holds it.
 	const listed = scoped ? await host.listing(folder, limit) : [];
-	const findings = lint({
+	const findings = late() ? [] : lint({
 		files,
 		hooks: items.filter(i => i.hook).map(i => ({ ...i.hook!, line: i.line ?? 0 })),
 		rules: items.filter(i => i.rule).map(i => ({ ...i.rule!, scope: i.scope === 'directory' ? 'project' : i.scope, file: i.file, line: i.line ?? 0 })),
@@ -475,8 +691,17 @@ async function lintItems(items: HarnessItem[], root: string, folder: ScanFolder)
 		projectFilesTruncated: listed.length >= limit,
 		cwd: root, home,
 	});
+	const byFile = new Map<string, HarnessItem[]>();
+	for (const i of items) {
+		const here = byFile.get(i.file);
+		if (here) {
+			here.push(i);
+		} else {
+			byFile.set(i.file, [i]);
+		}
+	}
 	for (const f of findings) {
-		const here = items.filter(i => i.file === f.file);
+		const here = byFile.get(f.file) ?? [];
 		const item = here.find(i => i.line === f.line) ?? here[0];
 		item?.issues.push({ severity: f.severity, message: f.message, line: f.line, fix: f.fix, code: f.code });
 	}
@@ -553,7 +778,7 @@ async function scanFolder(items: HarnessItem[], folder: ScanFolder, first: boole
 	await memoryFile(items, root, path.join(root, '.github', 'copilot-instructions.md'), 'project', ['Copilot'], 'Copilot reads it in every chat');
 	const found = await host.nested(folder, MAX_NESTED);
 	// Git answers with the paths as it was given them.
-	const ignored = await gitIgnoredOf(root, found);
+	const ignored = late() ? new Set<string>() : await gitIgnoredOf(root, found, Math.min(10_000, Math.max(0, stopAt - Date.now())));
 	const nested = found.filter(f => !ignored.has(f));
 	for (const file of nested) {
 		if (path.dirname(file) !== root) {
@@ -617,8 +842,14 @@ let scanning: Promise<void> = Promise.resolve();
 async function scanNow(folders: ScanFolder[], scanHost: ScanHost, options: ScanOptions): Promise<Harness | undefined> {
 	host = scanHost;
 	maxRead = options.maxFileBytes ?? Infinity;
+	stopAt = options.deadline ?? Infinity;
+	maxTotal = options.maxTotalBytes ?? Infinity;
+	roots = folders.map(f => f.fsPath);
+	readBytes = 0;
+	untrustedScan = options.untrusted === true;
 	somewhere.clear();
 	outside.clear();
+	limits.clear();
 	if (!folders.length) {
 		return undefined;
 	}
@@ -644,6 +875,7 @@ async function scanNow(folders: ScanFolder[], scanHost: ScanHost, options: ScanO
 	}
 
 	conflicts(items);
+	notes.push(...limits);
 	for (const file of outside) {
 		items.push({ kind: 'instructions', scope: 'project', label: show(root, file), detail: 'A link to a file outside the repository: not read', file, issues: [{ severity: 'warning', message: `${show(root, file)} is a link to something outside the repository, so it was not read`, fix: 'Keep the file in the repository, or leave it out of the lint', code: 'outside-repo' }], agents: [] });
 	}
