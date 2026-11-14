@@ -4,6 +4,7 @@
  *  Whatever needs you rises to the top, so you never hunt for the stuck one.
  *--------------------------------------------------------------------------------------------*/
 
+import { randomBytes } from 'crypto';
 import * as vscode from 'vscode';
 import type { Agents } from './agents';
 import { buildRows, skeletonStages } from './agentRows';
@@ -41,7 +42,7 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 	resolveWebviewView(view: vscode.WebviewView) {
 		this.view = view;
 		view.webview.options = { enableScripts: true };
-		view.webview.html = dockHtml();
+		view.webview.html = dockHtml(randomBytes(16).toString('base64'));
 		// The page is not trusted: dockAction checks each message's shape and turns it into one known action, or nothing.
 		view.webview.onDidReceiveMessage(raw => {
 			const m = dockAction(raw);

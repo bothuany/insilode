@@ -20,12 +20,12 @@ before(async () => {
 	const outfile = join(tmp, 'dockPage.mjs')
 	await build({ entryPoints: [join(ROOT, 'src', 'dockPage.ts')], bundle: true, platform: 'node', format: 'esm', outfile, logLevel: 'silent' })
 	const mod = await import(pathToFileURL(outfile).href)
-	html = mod.dockHtml()
+	html = mod.dockHtml('n0nce')
 	colors = mod.DOCK_COLORS
 })
 after(() => rmSync(tmp, { recursive: true, force: true }))
 
-const scriptOf = () => /<script>([\s\S]*)<\/script>/.exec(html)[1]
+const scriptOf = () => /<script nonce="n0nce">([\s\S]*)<\/script>/.exec(html)[1]
 
 // A page with just enough of a DOM: the list, the menu and the start buttons, with the handlers the script installs kept for the test to call.
 function boot() {

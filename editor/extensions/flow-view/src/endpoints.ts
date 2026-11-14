@@ -4,6 +4,7 @@
  *  the top narrows by name, verb or controller. Opening one draws its flow.
  *--------------------------------------------------------------------------------------------*/
 
+import { randomBytes } from 'crypto';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Command } from './commands';
@@ -99,7 +100,8 @@ export class EndpointsView implements vscode.WebviewViewProvider, vscode.Disposa
 	}
 
 	private html() {
-		const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';`;
+		const nonce = randomBytes(16).toString('base64');
+		const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
 		return /* html */ `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>
 :root {
@@ -157,7 +159,7 @@ mark { background: color-mix(in srgb, #ffb454 30%, transparent); color: inherit;
 <div class="filter"><div class="bar"><input id="q" placeholder="Filter by name, verb or controller" aria-label="Filter endpoints"><div class="chips" id="chips"></div></div><p class="count" id="count"></p></div>
 <div class="notes" id="notes"></div>
 <div id="list"></div>
-<script>
+<script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 const state = vscode.getState() || { open: {} };
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

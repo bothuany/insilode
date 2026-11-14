@@ -13,3 +13,17 @@ rules:
     metadata:
       category: security
       cwe: 'CWE-79: Improper Neutralization of Input During Web Page Generation'
+
+  - id: insilode-webview-script-src-unsafe
+    message: >-
+      This Content-Security-Policy lets inline script run for any markup injected into the page. Give the page a nonce made
+      for each load (script-src 'nonce-...') and put it on the page's script tag, as home.ts and settingsPage.ts do.
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include: ['/editor/extensions/*/src/**/*.ts', '/scripts/site-data.mjs', '/site/**/*.html', '/site/scripts/*.mjs', '/.semgrep/rules/webview-csp.txt']
+    # Only the script-src directive: style-src may keep 'unsafe-inline'.
+    pattern-regex: 'script-src[^;`"]*''unsafe-(?:inline|eval)'''
+    metadata:
+      category: security
+      cwe: 'CWE-79: Improper Neutralization of Input During Web Page Generation'

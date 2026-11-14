@@ -24,8 +24,9 @@ export const DOCK_COLORS = {
 export const colorVars = (c: typeof DOCK_COLORS[keyof typeof DOCK_COLORS]) => `--working: ${c.working}; --blocked: ${c.blocked}; --done: ${c.done}; --idle: ${c.idle}; --ended: ${c.idle};
 	--claude: ${c.claude}; --codex: ${c.codex}; --custom: ${c.custom}; --danger: ${c.danger}; --danger-text: ${c.dangerText}; --on-working: ${c.on};`;
 
-export function dockHtml(): string {
-	const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';`;
+/** `nonce` is made per load by dock.ts (the website passes its own): the one script runs by it, so markup injected through data cannot run code. */
+export function dockHtml(nonce: string): string {
+	const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
 	return /* html */ `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}">
 <style>
 :root {
@@ -168,7 +169,7 @@ ${AVATAR_CSS}
 </div>
 <div id="menu" class="menu" role="menu" hidden></div>
 <div id="list"></div>
-<script>
+<script nonce="${nonce}">
 const vscode = acquireVsCodeApi();
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let data = { list: [], now: Date.now(), peers: [] };

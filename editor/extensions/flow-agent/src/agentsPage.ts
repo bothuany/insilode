@@ -1083,7 +1083,8 @@ paint();
 post({ type: 'ready' });
 `;
 
-export function agentsHtml(): string {
-	const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';`;
-	return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agents</title><style>${CSS}</style></head><body><script>${SCRIPT}</script></body></html>`;
+/** `nonce` is made per load by agentsPanel.ts (the website passes its own): the one script runs by it. */
+export function agentsHtml(nonce: string): string {
+	const csp = `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';`;
+	return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Agents</title><style>${CSS}</style></head><body><script nonce="${nonce}">${SCRIPT}</script></body></html>`;
 }

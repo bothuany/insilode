@@ -18,11 +18,11 @@ before(async () => {
 	// Bundled without a vscode stub: the page must stay free of `vscode` (the website renders it too).
 	const outfile = join(tmp, 'agentsPage.mjs')
 	await build({ entryPoints: [join(ROOT, 'src', 'agentsPage.ts')], bundle: true, platform: 'node', format: 'esm', outfile, logLevel: 'silent' })
-	html = (await import(pathToFileURL(outfile).href)).agentsHtml()
+	html = (await import(pathToFileURL(outfile).href)).agentsHtml('n0nce')
 })
 after(() => rmSync(tmp, { recursive: true, force: true }))
 
-const scriptOf = () => /<script>([\s\S]*)<\/script>/.exec(html)[1]
+const scriptOf = () => /<script nonce="n0nce">([\s\S]*)<\/script>/.exec(html)[1]
 
 // ---- a DOM with just what the page uses ------------------------------------------------------------------------------------
 class Node {
@@ -92,7 +92,7 @@ const rows = () => [
 ]
 
 test('the page has a locked-down CSP and loads nothing from outside', () => {
-	assert.match(html, /<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';">/)
+	assert.match(html, /<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-n0nce';">/)
 	assert.doesNotMatch(html, /\b(?:src|href)\s*=\s*["']?https?:/i)
 	assert.doesNotMatch(html, /@import|url\(\s*["']?https?:/i)
 	assert.doesNotMatch(html, /require\(|\bimport\s+[\w{]/)

@@ -4,6 +4,7 @@
  *  carries out what it asks for. The page is not trusted: every message goes through agentsAction.
  *--------------------------------------------------------------------------------------------*/
 
+import { randomBytes } from 'crypto';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { buildRows, skeletonStages } from './agentRows';
@@ -74,7 +75,7 @@ export class AgentsPanel implements vscode.Disposable {
 		const panel = vscode.window.createWebviewPanel('flow.agentsPage', 'Agents', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
 		this.panel = panel;
 		panel.iconPath = new vscode.ThemeIcon('sparkle') as unknown as vscode.WebviewPanel['iconPath'];
-		panel.webview.html = agentsHtml();
+		panel.webview.html = agentsHtml(randomBytes(16).toString('base64'));
 		const repaint = () => this.post();
 		this.listeners = [
 			panel.webview.onDidReceiveMessage(raw => this.onMessage(raw)),
