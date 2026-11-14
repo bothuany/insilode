@@ -564,14 +564,16 @@ function sendInput(pv, data) {
 	// The host takes at most 64 KB at once: a large paste goes in pieces, in order.
 	for (let i = 0; i < data.length; i += 32768) { post({ type: 'termInput', id: pv.attached, data: data.slice(i, i + 32768) }); }
 }
-function startPane(pv) {
+function startPane(pv, force) {
 	const c = pv.content;
 	if (c.agent !== 'claude' && c.agent !== 'codex') { pv.status = 'ended'; pv.error = 'This agent cannot be started from here.'; return; }
 	if (pv.attached) { post({ type: 'termDetach', id: pv.attached }); pv.attached = undefined; }
 	pv.req = 'w' + (++ws.reqs) + '-' + Date.now().toString(36);
 	pv.status = 'starting';
 	pv.error = '';
-	post({ type: 'termOpen', requestId: pv.req, kind: c.agent, ...(c.resume ? { sessionId: c.resume } : {}), ...(c.cwd ? { cwd: c.cwd } : {}) });
+	pv.elsewhere = false;
+	// The force flag (Resume anyway) is only a request: the host asks the user in a modal of its own before it goes on.
+	post({ type: 'termOpen', requestId: pv.req, kind: c.agent, ...(c.resume ? { sessionId: c.resume } : {}), ...(c.cwd ? { cwd: c.cwd } : {}), ...(force && c.resume ? { force: true } : {}) });
 }
 // A read-only pane becomes the terminal of the session: the host asks the machine again and refuses a session that something still runs.
 function resumeHere(pv) {
@@ -627,6 +629,7 @@ function wsMessage(m) {
 		pv.req = undefined;
 		pv.status = 'failed';
 		pv.error = String(m.message || 'The session could not be started.');
+		pv.elsewhere = m.elsewhere === true;
 		paintPane(pv);
 	} else if (m.type === 'tail') {
 		tails.set(m.id, { entries: Array.isArray(m.entries) ? m.entries : [], note: m.note });
@@ -746,15 +749,16 @@ function paintOver(pv) {
 	} else if (pv.status === 'ended') {
 		spec = { title: 'Session ended', text: pv.error || (resumes ? 'It is not running in this window.' : 'It has not been started yet.'), bad: !!pv.error, button: canStart ? [resumes ? 'Resume' : 'Start session', go, 'primary'] : undefined };
 	} else if (pv.status === 'failed') {
-		spec = { title: 'Could not start', text: pv.error, bad: true, button: ['Retry', go, 'primary'] };
+		// Another process runs the session: Retry asks again as before; Resume anyway asks the host to confirm with the user and resume it regardless.
+		spec = { title: 'Could not start', text: pv.error, bad: true, button: ['Retry', go, 'primary'], ...(pv.elsewhere && c.resume ? { button2: ['Resume anyway', () => { startPane(pv, true); paintPane(pv); }] } : {}) };
 	}
 	// Built again only when what it says changed, so a button the keyboard is on keeps its focus.
-	const sig = spec ? JSON.stringify([spec.title, spec.text, spec.bad, spec.button && spec.button[0]]) : '';
+	const sig = spec ? JSON.stringify([spec.title, spec.text, spec.bad, spec.button && spec.button[0], spec.button2 && spec.button2[0]]) : '';
 	if (sig !== pv.osig) {
 		pv.osig = sig;
 		if (spec) {
 			fill(pv.over, [h('div', { class: 'pm', role: spec.bad ? 'alert' : 'status' }, h('b', null, spec.title), spec.text ? h('small', { class: spec.bad ? 'errtxt' : null }, spec.text) : null),
-				spec.button ? h('div', { class: 'row2' }, h('button', { type: 'button', class: 'btn ' + spec.button[2], onclick: spec.button[1] }, spec.button[0])) : null]);
+				spec.button ? h('div', { class: 'row2' }, h('button', { type: 'button', class: 'btn ' + spec.button[2], onclick: spec.button[1] }, spec.button[0]), spec.button2 ? h('button', { type: 'button', class: 'btn', onclick: spec.button2[1] }, spec.button2[0]) : null) : null]);
 		} else {
 			wipe(pv.over);
 		}

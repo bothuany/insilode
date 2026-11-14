@@ -7,10 +7,11 @@
 import { constants, promises as fs } from 'fs';
 
 /**
- * O_NONBLOCK makes opening a FIFO or a device return at once instead of waiting; O_NOFOLLOW refuses a link in the last place of the
- * path (a swap after a directory listing). Windows has neither flag, nor FIFOs: its callers also check with lstat first.
+ * O_NONBLOCK makes opening a FIFO or a device return at once instead of waiting. A link is followed, not refused: dotfiles setups link single
+ * files, and what the link points to is checked on the handle below (a FIFO or a device behind a link is still not a regular file).
+ * Windows has no such flag, and no FIFOs.
  */
-const FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0) | (constants.O_NOFOLLOW ?? 0);
+const FLAGS = constants.O_RDONLY | (constants.O_NONBLOCK ?? 0);
 
 /**
  * Opens `file` for reading and checks the handle itself (not the path, which may have changed since it was listed): it must be a

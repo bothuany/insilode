@@ -1782,6 +1782,32 @@ test('the host refusing a resume (it started again meanwhile) shows its sentence
 	assert.match(p.text(), /running in Claude desktop\. Close it there first\./)
 })
 
+test('a refusal because another process runs the session offers "Resume anyway" next to Retry; it asks again with force, Retry does not, and no other failure offers it', T, () => {
+	const p = boot()
+	p.data([])
+	const gone = outside()
+	delete gone.projects[1].sessions[0].live
+	p.send(gone)
+	p.side().byClass('srow').find(r => r.textContent.includes('Elsewhere work')).fire('click')
+	const first = p.last('termOpen')
+	assert.equal(first.force, undefined, 'an ordinary resume never forces')
+	p.send({ type: 'termFailed', requestId: first.requestId, message: 'Not started: that session is running in Claude desktop. Close it there first.', elsewhere: true })
+	const pane = () => p.panes()[0]
+	assert.ok(pane().button('Resume anyway'), 'offered')
+	assert.ok(pane().button('Retry'), 'Retry stays')
+	pane().button('Resume anyway').fire('click')
+	const forced = p.last('termOpen')
+	assert.deepEqual({ ...forced, requestId: undefined }, { ...first, requestId: undefined, force: true })
+	assert.notEqual(forced.requestId, first.requestId)
+	// The host asked the user and was refused: the same sentence, the same offer.
+	p.send({ type: 'termFailed', requestId: forced.requestId, message: 'Not started: that session is running in Claude desktop. Close it there first.', elsewhere: true })
+	pane().button('Retry').fire('click')
+	assert.equal(p.last('termOpen').force, undefined, 'Retry asks the plain question again')
+	p.send({ type: 'termFailed', requestId: p.last('termOpen').requestId, message: 'The agent did not start (a notice says why).' })
+	assert.equal(pane().button('Resume anyway'), undefined, 'a failure for another reason does not offer it')
+	assert.ok(pane().button('Retry'))
+})
+
 test('a restored pane does not offer a resume until the host has listed the sessions, and a Codex estimate offers it as "anyway"', T, () => {
 	const p = boot()
 	p.data([])

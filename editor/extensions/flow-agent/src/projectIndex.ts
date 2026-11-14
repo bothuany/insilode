@@ -8,6 +8,7 @@ import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { ChatProject } from './agentsData';
+import { Budgeted } from './budgeted';
 import { samePath } from './chatCore';
 import { real } from './folderTrust';
 import { listLive, mergeLive, type LiveSession } from './liveSessions';
@@ -28,12 +29,14 @@ export class ProjectIndex {
 	/** The transcript of each Claude session some other program runs, from the last `projects()`: the host reads a tail from it, the page never names a path. */
 	private liveFiles = new Map<string, string>();
 	private fresh: { at: number; list: LiveSession[] } | undefined;
+	/** The Codex rollout times of the last look: while its stat calls have not all come back (a hung mount), the poll does not start more (budgeted.ts). */
+	private readonly rollouts = new Budgeted<Map<string, number>, Map<string, number>>(new Map());
 
 	/**
 	 * `folder`: this window's own folder. `live`: the ids of the sessions running in a terminal of this window (they are listed as agents, not as past sessions).
 	 * `peers`: the ids of the other Insilode windows' sessions, which are agents too. `running`: the Claude sessions that run on this machine now.
 	 */
-	constructor(private readonly folder: () => string | undefined, private readonly live: () => string[], private readonly peers: () => string[] = () => [], private readonly running: () => Promise<LiveSession[]> = () => listLive()) {}
+	constructor(private readonly folder: () => string | undefined, private readonly live: () => string[], private readonly peers: () => string[] = () => [], private readonly running: () => Promise<LiveSession[]> = () => listLive(), private readonly stat: (file: string) => Promise<{ isFile(): boolean; mtimeMs: number } | undefined> = file => fs.stat(file).catch(() => undefined)) {}
 
 	/**
 	 * Projects on this machine with their sessions, this window's own first (always listed, so a session can start in it). Sessions that run outside this
@@ -78,19 +81,15 @@ export class ProjectIndex {
 	 */
 	private async freshCodex(indexed: IndexedProject[]): Promise<IndexedProject[]> {
 		const newest = indexed.flatMap(p => p.sessions).filter(s => s.kind === 'codex').sort((a, b) => b.modified - a.modified).slice(0, CODEX_STATS);
-		const fresh = new Map<string, number>();
-		let timer: NodeJS.Timeout | undefined;
-		await Promise.race([
-			Promise.all(newest.map(async s => {
+		const fresh = await this.rollouts.run(CODEX_STAT_MS, async into => {
+			await Promise.all(newest.map(async s => {
 				const file = transcriptFile('codex', s.id);
-				const st = file ? await fs.stat(file).catch(() => undefined) : undefined;
+				const st = file ? await this.stat(file) : undefined;
 				if (st?.isFile()) {
-					fresh.set(s.id, st.mtimeMs);
+					into.set(s.id, st.mtimeMs);
 				}
-			})),
-			new Promise<void>(resolve => timer = setTimeout(resolve, CODEX_STAT_MS)),
-		]);
-		clearTimeout(timer);
+			}));
+		}, () => new Map(), into => new Map(into));
 		return fresh.size ? indexed.map(p => ({ ...p, sessions: p.sessions.map(s => s.kind === 'codex' && (fresh.get(s.id) ?? 0) > s.modified ? { ...s, modified: fresh.get(s.id)! } : s).sort((a, b) => b.modified - a.modified) })) : indexed;
 	}
 

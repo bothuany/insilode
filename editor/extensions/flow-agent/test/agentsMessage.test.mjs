@@ -151,6 +151,15 @@ test('termOpen names a CLI, optionally a session by uuid and an absolute folder,
 	}
 })
 
+test('termOpen carries `force` only when it is exactly true: the page asking to resume a session another process runs, which the host still confirms itself', TT, () => {
+	assert.deepEqual(a.agentsAction({ type: 'termOpen', requestId: 'r1', kind: 'claude', sessionId: SESSION, force: true }), { type: 'termOpen', requestId: 'r1', kind: 'claude', sessionId: SESSION, force: true })
+	for (const force of [false, 1, 'true', 'yes', null, {}, [true]]) {
+		assert.deepEqual(a.agentsAction({ type: 'termOpen', requestId: 'r1', kind: 'claude', sessionId: SESSION, force }), { type: 'termOpen', requestId: 'r1', kind: 'claude', sessionId: SESSION }, JSON.stringify(force))
+	}
+	assert.equal(a.agentsAction({ type: 'termOpen', requestId: 'r1', kind: 'claude', force: true }).force, undefined, 'a new session has nothing to force')
+	assert.equal(a.agentsAction({ type: 'termOpen', requestId: 'r1', kind: 'codex', sessionId: SESSION, force: true }).force, undefined, 'Codex keeps no registry to override')
+})
+
 // The pane layout: validated here, so what reaches storage is always a sound tree (paneLayout.ts has the rules).
 const pane = (id, over = {}) => ({ type: 'pane', id, content: { kind: 'terminal', agent: 'claude', session: 's' + id, ...over } })
 const layout = () => ({ seq: 3, focus: 'p1', root: { type: 'split', id: 's3', dir: 'row', sizes: [0.5, 0.5], children: [pane('p1'), pane('p2')] } })

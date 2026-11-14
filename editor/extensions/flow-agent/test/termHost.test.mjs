@@ -302,3 +302,42 @@ test('a spawn that fails (a notice says why) is a sentence for the page', T, asy
 	t.agents.spawn = async () => undefined
 	await assert.rejects(t.host.open('claude'), /did not start/)
 })
+
+// A session another process runs (the registry): the plain request is refused with a sentence the page can offer "Resume anyway" for; a
+// forced one is honoured only after this host has shown its own modal warning and the user chose it.
+test('a session another program runs is refused with a flagged error; force asks the user in a modal first, and only a yes spawns, without a second registry check', T, async () => {
+	const where = { source: 'Claude desktop', pid: 4242 }
+	const lookups = []
+	const t = setup(async id => { lookups.push(id); return where.source })
+	const refused = await t.host.open('claude', SID).then(() => undefined, e => e)
+	assert.match(refused.message, /running in Claude desktop.*Close it there first\./)
+	assert.equal(refused.elsewhere, true)
+	assert.equal(t.spawns.length, 0)
+	assert.equal(t.vs.warnings.length, 0, 'the plain request shows no modal: the page shows its own button')
+	// Declined: nothing starts, and the page keeps the offer.
+	t.vs.answer = undefined
+	const declined = await t.host.open('claude', SID, undefined, true).then(() => undefined, e => e)
+	assert.equal(declined.elsewhere, true)
+	assert.equal(t.vs.warnings.length, 1)
+	assert.deepEqual(t.vs.warnings[0].options.modal, true)
+	assert.match(t.vs.warnings[0].options.detail, /corrupt/i)
+	assert.equal(t.spawns.length, 0)
+	// Confirmed: starts, passing on that the user has been asked.
+	t.vs.answer = 'Resume anyway'
+	assert.equal(await t.host.open('claude', SID, undefined, true), SID)
+	assert.equal(t.vs.warnings.length, 2)
+	assert.equal(t.spawns.length, 1)
+	assert.equal(t.spawns[0][4].confirmed, true)
+})
+
+test('force on a session nothing else runs shows no modal and is just an open; a forced and a plain request for one session are not merged', T, async () => {
+	const t = setup(async () => undefined)
+	assert.equal(await t.host.open('claude', SID, undefined, true), SID)
+	assert.equal(t.vs.warnings.length, 0)
+	assert.equal(t.spawns[0][4].confirmed, undefined)
+	const gate = setup(async () => { await wait(30); return 'Claude desktop' })
+	const plain = gate.host.open('claude', SID).then(() => 'opened', e => e.elsewhere ? 'refused' : 'other')
+	gate.vs.answer = 'Resume anyway'
+	const forced = gate.host.open('claude', SID, undefined, true).then(() => 'opened', () => 'failed')
+	assert.deepEqual(await Promise.all([plain, forced]), ['refused', 'opened'])
+})

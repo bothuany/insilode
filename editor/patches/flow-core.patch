@@ -1291,10 +1291,10 @@ index 248fa9a5..8704b039 100644
  
  function registerOpenTerminalAtIndexCommands(): void {
 diff --git a/src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts b/src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts
-index 9e5aa386..0b1e9f7b 100644
+index 9e5aa386..a80bfddf 100644
 --- a/src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts
 +++ b/src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts
-@@ -7,11 +7,12 @@ import { onDidChangeFullscreen } from '../../../../base/browser/browser.js';
+@@ -7,13 +7,14 @@ import { onDidChangeFullscreen } from '../../../../base/browser/browser.js';
  import { $, getActiveWindow, hide, show } from '../../../../base/browser/dom.js';
  import { mainWindow } from '../../../../base/browser/window.js';
  import { Emitter, Event } from '../../../../base/common/event.js';
@@ -1308,8 +1308,11 @@ index 9e5aa386..0b1e9f7b 100644
 +import { ContextKeyExpr, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
 +import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
  import { ServiceCollection } from '../../../../platform/instantiation/common/serviceCollection.js';
- import { IStorageService } from '../../../../platform/storage/common/storage.js';
+-import { IStorageService } from '../../../../platform/storage/common/storage.js';
++import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
  import { IThemeService } from '../../../../platform/theme/common/themeService.js';
+ import { hasCustomTitlebar } from '../../../../platform/window/common/window.js';
+ import { IEditorGroupView, IEditorPartsView } from './editor.js';
 @@ -21,7 +22,8 @@ import { EditorPart, IEditorPartUIState } from './editorPart.js';
  import { IAuxiliaryTitlebarPart } from '../titlebar/titlebarPart.js';
  import { WindowTitle } from '../titlebar/windowTitle.js';
@@ -1320,7 +1323,7 @@ index 9e5aa386..0b1e9f7b 100644
  import { IEditorService } from '../../../services/editor/common/editorService.js';
  import { IHostService } from '../../../services/host/browser/host.js';
  import { IWorkbenchLayoutService, Parts, shouldShowCustomTitleBar } from '../../../services/layout/browser/layoutService.js';
-@@ -33,12 +35,23 @@ import { localize, localize2 } from '../../../../nls.js';
+@@ -33,10 +35,49 @@ import { localize, localize2 } from '../../../../nls.js';
  import { Codicon } from '../../../../base/common/codicons.js';
  import { IsAuxiliaryWindowContext, IsAuxiliaryWindowFocusedContext, IsCompactTitleBarContext } from '../../../common/contextkeys.js';
  import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
@@ -1333,19 +1336,45 @@ index 9e5aa386..0b1e9f7b 100644
 +
 +	/**
 +	 * Insilode: a window that shows its one editor and nothing else, like the Agents page. It is compact for good (nothing turns compact
-+	 * mode off), accepts no dropped tab, and once its editor is there it is locked, so editors opened without naming a group go to the
-+	 * main window; one that still arrives (an explicit group) is moved to the main window.
++	 * mode off), accepts no dropped tab, and is locked from the start, so editors opened without naming a group go to the main window.
++	 * Its one editor is the Agents page, told apart by its webview view type, not by being first; any other editor that still arrives
++	 * (an explicit group) is moved to the main window. It is not saved with the editor parts, so a restart does not bring it back empty,
++	 * and it closes itself when no page arrives.
 +	 */
 +	readonly exclusive?: boolean;
- }
- 
++}
++
 +/** Insilode: the window is exclusive (see {@link IAuxiliaryEditorPartOpenOptions.exclusive}): its compact toggle is not offered. */
 +export const IsExclusiveAuxiliaryWindowContext = new RawContextKey<boolean>('insilodeExclusiveWindow', false);
 +
++/** Insilode: the Agents page, as the editor reports it: a webview panel of the extension, whose view type core prefixes with `mainThreadWebview-` (mainThreadWebviewPanels.ts). Compared by name because browser/ must not import contrib/. */
++const AGENTS_PAGE_EDITOR_TYPE = 'workbench.editors.webviewInput';
++const AGENTS_PAGE_VIEW_TYPE = 'mainThreadWebview-flow.agentsPage';
++/** How long an exclusive window waits for the page before it closes itself: the extension creates the page right after the command returns. */
++const AGENTS_WINDOW_WAIT_MS = 15_000;
++/** Where the Agents window's last bounds are kept, so the next one opens where the user left it. */
++const AGENTS_WINDOW_BOUNDS_KEY = 'insilode.agentsWindow.bounds';
++
++interface AgentsWindowBounds { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
++
++/** The bounds saved by the last Agents window, if they are sane (a closing window reports zeros). Like a restored auxiliary window, they are trusted as to the screen they name. */
++function parseAgentsWindowBounds(raw: string | undefined): AgentsWindowBounds | undefined {
++	try {
++		const b = JSON.parse(raw ?? '') as Partial<Record<keyof AgentsWindowBounds, unknown>>;
++		const ok = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
++		return ok(b.x, -20000, 20000) && ok(b.y, -20000, 20000) && ok(b.width, 480, 10000) && ok(b.height, 320, 10000) ? { x: b.x, y: b.y, width: b.width, height: b.height } : undefined;
++	} catch {
++		return undefined;
++	}
++}
++
++/** Insilode: whether this editor part is an exclusive window (the Agents page's), which the editor parts leave out of what they save. */
++export function isExclusiveEditorPart(part: unknown): boolean {
++	return part instanceof AuxiliaryEditorPartImpl && part.exclusive;
+ }
+ 
  export interface ICreateAuxiliaryEditorPartResult {
- 	readonly part: AuxiliaryEditorPartImpl;
- 	readonly instantiationService: IInstantiationService;
-@@ -73,7 +86,7 @@ registerAction2(class extends Action2 {
+@@ -73,7 +114,7 @@ registerAction2(class extends Action2 {
  			icon: Codicon.screenFull,
  			menu: {
  				id: MenuId.LayoutControlMenu,
@@ -1354,7 +1383,7 @@ index 9e5aa386..0b1e9f7b 100644
  				order: 0,
  				group: 'navigation'
  			}
-@@ -94,7 +107,7 @@ registerAction2(class extends Action2 {
+@@ -94,7 +135,7 @@ registerAction2(class extends Action2 {
  			icon: Codicon.screenNormal,
  			menu: {
  				id: MenuId.LayoutControlMenu,
@@ -1363,19 +1392,21 @@ index 9e5aa386..0b1e9f7b 100644
  				order: 0,
  				group: 'navigation'
  			}
-@@ -106,6 +119,20 @@ registerAction2(class extends Action2 {
+@@ -106,6 +147,22 @@ registerAction2(class extends Action2 {
  	}
  });
  
 +/**
 + * Insilode: opens the Agents page's window and returns the view column (as `vscode.ViewColumn` numbers them) of its group, which the
 + * extension passes to createWebviewPanel; nothing when the window could not be made. The extension host cannot ask for a window (the API
-+ * has no such column), and a tab moved into one afterwards would show for a moment in the main window first.
++ * has no such column), and a tab moved into one afterwards would show for a moment in the main window first. The column is an index over
++ * all windows' groups and can shift before the page is created: the window then fetches the page from wherever it opened (see `exclusive`).
 + */
 +CommandsRegistry.registerCommand('_insilode.agents.openWindow', async (accessor: ServicesAccessor): Promise<number | undefined> => {
 +	const editorGroupsService = accessor.get(IEditorGroupsService);
++	const bounds = parseAgentsWindowBounds(accessor.get(IStorageService).get(AGENTS_WINDOW_BOUNDS_KEY, StorageScope.APPLICATION)) ?? { width: 1280, height: 840 };
 +	// A variable, not a literal: `exclusive` is read by the implementation, which takes the wider options type.
-+	const options: IAuxiliaryEditorPartOpenOptions = { compact: true, exclusive: true, bounds: { width: 1280, height: 840 } };
++	const options: IAuxiliaryEditorPartOpenOptions = { compact: true, exclusive: true, bounds };
 +	const part = await editorGroupsService.createAuxiliaryEditorPart(options);
 +	const column = editorGroupToColumn(editorGroupsService, part.activeGroup);
 +	return column >= 0 ? column + 1 : undefined;
@@ -1384,7 +1415,17 @@ index 9e5aa386..0b1e9f7b 100644
  export class AuxiliaryEditorPart {
  
  	private static STATUS_BAR_VISIBILITY = 'workbench.statusBar.visible';
-@@ -127,7 +154,8 @@ export class AuxiliaryEditorPart {
+@@ -119,7 +176,8 @@ export class AuxiliaryEditorPart {
+ 		@IStatusbarService private readonly statusbarService: IStatusbarService,
+ 		@ITitleService private readonly titleService: ITitleService,
+ 		@IEditorService private readonly editorService: IEditorService,
+-		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService
++		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
++		@IStorageService private readonly storageService: IStorageService
+ 	) {
+ 	}
+ 
+@@ -127,7 +185,8 @@ export class AuxiliaryEditorPart {
  		const that = this;
  		const disposables = new DisposableStore();
  
@@ -1394,7 +1435,7 @@ index 9e5aa386..0b1e9f7b 100644
  
  		function computeEditorPartHeightOffset(): number {
  			let editorPartHeightOffset = 0;
-@@ -172,7 +200,7 @@ export class AuxiliaryEditorPart {
+@@ -172,7 +231,7 @@ export class AuxiliaryEditorPart {
  		}
  
  		function updateCompact(newCompact: boolean): void {
@@ -1403,7 +1444,7 @@ index 9e5aa386..0b1e9f7b 100644
  				return;
  			}
  
-@@ -196,7 +224,7 @@ export class AuxiliaryEditorPart {
+@@ -196,7 +255,7 @@ export class AuxiliaryEditorPart {
  		editorPartContainer.style.position = 'relative';
  		auxiliaryWindow.container.appendChild(editorPartContainer);
  
@@ -1412,50 +1453,76 @@ index 9e5aa386..0b1e9f7b 100644
  		editorPart.updateOptions({ compact });
  		disposables.add(this.editorPartsView.registerPart(editorPart));
  		editorPart.create(editorPartContainer);
-@@ -205,6 +233,34 @@ export class AuxiliaryEditorPart {
+@@ -205,6 +264,60 @@ export class AuxiliaryEditorPart {
  			[IEditorService, this.editorService.createScoped(editorPart, disposables)]
  		)));
  
-+		// Exclusive: the first editor is the window's own; later ones are not welcome here
++		// Exclusive: the Agents page is the window's own editor; nothing else is welcome here
 +		if (exclusive) {
 +			const group = editorPart.activeGroup;
-+			let owner: EditorInput | undefined;
-+			disposables.add(group.onDidModelChange(e => {
-+				if (e.kind !== GroupModelChangeKind.EDITOR_OPEN || !e.editor) {
++			group.lock(true); // from the start: an editor opened without naming a group goes to another group, never into this one
++			let owned = false;
++			const later = (run: () => void, ms = 0) => {
++				const handle = setTimeout(() => !disposables.isDisposed && run(), ms);
++				disposables.add(toDisposable(() => clearTimeout(handle)));
++			};
++
++			disposables.add(this.editorService.onDidEditorsChange(e => {
++				const event = e.event;
++				if (event.kind !== GroupModelChangeKind.EDITOR_OPEN || !event.editor) {
 +					return;
 +				}
 +
-+				if (!owner) {
-+					owner = e.editor;
-+					group.lock(true); // from now on an editor opened without a group goes to another group
-+					return;
-+				}
-+
-+				const stray = e.editor;
-+				if (stray !== owner) {
++				const editor = event.editor;
++				const here = e.groupId === group.id;
++				if (editor.typeId === AGENTS_PAGE_EDITOR_TYPE && (editor as EditorInput & { viewType?: string }).viewType === AGENTS_PAGE_VIEW_TYPE) {
++					if (here) {
++						owned = true;
++					} else if (!owned) {
++						// The column the extension was given shifted (a group was added or closed in another window meanwhile) and the page
++						// opened elsewhere: fetch it, after the open that brought it has finished.
++						later(() => {
++							const from = this.editorPartsView.getGroup(e.groupId);
++							if (!owned && from?.contains(editor)) {
++								owned = true;
++								from.moveEditor(editor, group);
++							}
++						});
++					}
++				} else if (here) {
 +					// After the open that brought it has finished
-+					const handle = setTimeout(() => {
-+						if (!disposables.isDisposed && group.contains(stray)) {
-+							group.moveEditor(stray, this.editorPartsView.mainPart.activeGroup);
-+						}
-+					}, 0);
-+					disposables.add(toDisposable(() => clearTimeout(handle)));
++					later(() => group.contains(editor) && group.moveEditor(editor, this.editorPartsView.mainPart.activeGroup));
 +				}
 +			}));
++
++			// No page by now (the extension failed, or does not know the window): an empty window is no use
++			later(() => !owned && editorPart.close(), AGENTS_WINDOW_WAIT_MS);
++
++			// Where the window was left, for the next one (the command reads it)
++			const remember = () => {
++				const { bounds } = auxiliaryWindow.createState();
++				const saved = JSON.stringify(bounds);
++				if (parseAgentsWindowBounds(saved)) {
++					this.storageService.store(AGENTS_WINDOW_BOUNDS_KEY, saved, StorageScope.APPLICATION, StorageTarget.MACHINE);
++				}
++			};
++			disposables.add(auxiliaryWindow.onDidLayout(remember));
++			disposables.add(auxiliaryWindow.onUnload(remember));
++			disposables.add(this.storageService.onWillSaveState(remember));
 +		}
 +
  		// Titlebar
  		let titlebarPart: IAuxiliaryTitlebarPart | undefined = undefined;
  		let titlebarVisible = false;
-@@ -351,6 +407,7 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
+@@ -351,6 +464,7 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
  		editorPartsView: IEditorPartsView,
  		private readonly state: IEditorPartUIState | undefined,
  		groupsLabel: string,
-+		private readonly exclusive: boolean,
++		readonly exclusive: boolean,
  		@IInstantiationService instantiationService: IInstantiationService,
  		@IThemeService themeService: IThemeService,
  		@IConfigurationService configurationService: IConfigurationService,
-@@ -366,6 +423,7 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
+@@ -366,6 +480,7 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
  	protected override handleContextKeys(): void {
  		const isAuxiliaryWindowContext = IsAuxiliaryWindowContext.bindTo(this.scopedContextKeyService);
  		isAuxiliaryWindowContext.set(true);
@@ -1463,7 +1530,7 @@ index 9e5aa386..0b1e9f7b 100644
  
  		super.handleContextKeys();
  	}
-@@ -378,7 +436,8 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
+@@ -378,7 +493,8 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
  				this.optionsDisposable.value = this.enforcePartOptions({
  					showTabs: 'none',
  					showBreadcrumbs: false,
@@ -1473,6 +1540,40 @@ index 9e5aa386..0b1e9f7b 100644
  				});
  			}
  		} else {
+diff --git a/src/vs/workbench/browser/parts/editor/editorParts.ts b/src/vs/workbench/browser/parts/editor/editorParts.ts
+index 8b80b195..96c36c7f 100644
+--- a/src/vs/workbench/browser/parts/editor/editorParts.ts
++++ b/src/vs/workbench/browser/parts/editor/editorParts.ts
+@@ -13,7 +13,7 @@ import { IEditorGroupView, IEditorPartsView } from './editor.js';
+ import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
+ import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+ import { distinct } from '../../../../base/common/arrays.js';
+-import { AuxiliaryEditorPart, IAuxiliaryEditorPartOpenOptions } from './auxiliaryEditorPart.js';
++import { AuxiliaryEditorPart, IAuxiliaryEditorPartOpenOptions, isExclusiveEditorPart } from './auxiliaryEditorPart.js';
+ import { ModalEditorPart } from './modalEditorPart.js';
+ import { MultiWindowParts } from '../../part.js';
+ import { DeferredPromise } from '../../../../base/common/async.js';
+@@ -507,15 +507,18 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
+ 	}
+ 
+ 	private createState(): IEditorPartsUIState {
++		// Insilode: an exclusive window (the Agents page's) is not saved: nothing in it can be restored (the page's webview is not), and
++		// what would come back is an empty window. `mru` indexes the parts that are saved, as the restore will have them.
++		const parts = this.parts.filter(part => !isExclusiveEditorPart(part));
+ 		return {
+-			auxiliary: this.parts
++			auxiliary: parts
+ 				.map(part => ({ part, auxiliaryWindow: this.auxiliaryWindowService.getWindow(part.windowId) }))
+ 				.filter(({ auxiliaryWindow }) => auxiliaryWindow !== undefined)
+ 				.map(({ part, auxiliaryWindow }) => ({
+ 					state: part.createState(),
+ 					...auxiliaryWindow!.createState()
+ 				})),
+-			mru: this.mostRecentActiveParts.map(part => this.parts.indexOf(part))
++			mru: this.mostRecentActiveParts.filter(part => parts.includes(part)).map(part => parts.indexOf(part))
+ 		};
+ 	}
+ 
 diff --git a/src/vs/workbench/electron-browser/actions/windowActions.ts b/src/vs/workbench/electron-browser/actions/windowActions.ts
 index e2659d27..5538be13 100644
 --- a/src/vs/workbench/electron-browser/actions/windowActions.ts

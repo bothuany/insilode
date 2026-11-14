@@ -1,5 +1,5 @@
-// Opening a file that came from a directory listing (src/safeFile.ts): a FIFO, a link, a directory or an oversized file is refused at once
-// instead of blocking a thread of the extension host for ever.
+// Opening a file that came from a directory listing (src/safeFile.ts): a FIFO, a directory or an oversized file is refused at once
+// instead of blocking a thread of the extension host for ever; a link to a regular file is followed.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
@@ -33,12 +33,25 @@ test('a regular file opens with its size; a bigger one than the limit, a directo
 	await assert.rejects(m.openRegular(join(tmp, 'missing')))
 })
 
-test('a FIFO is refused at once (a plain open would wait for a writer for ever), and so is a link', POSIX, async () => {
+test('a FIFO is refused at once (a plain open would wait for a writer for ever), also behind a link', POSIX, async () => {
 	const fifo = join(tmp, 'f.jsonl')
 	execFileSync('mkfifo', [fifo])
 	await assert.rejects(m.openRegular(fifo), /regular file/)
+	symlinkSync(fifo, join(tmp, 'fifo-link'))
+	await assert.rejects(m.openRegular(join(tmp, 'fifo-link')), /regular file/)
+	mkdirSync(join(tmp, 'dir'), { recursive: true })
+})
+
+test('a link to a regular file opens (a dotfiles setup links single files), and one to a directory or to nothing does not', POSIX, async () => {
 	writeFileSync(join(tmp, 'real'), 'x')
 	symlinkSync(join(tmp, 'real'), join(tmp, 'link'))
-	await assert.rejects(m.openRegular(join(tmp, 'link')))
-	mkdirSync(join(tmp, 'dir'), { recursive: true })
+	const { handle, size } = await m.openRegular(join(tmp, 'link'), 10)
+	assert.equal(size, 1)
+	await handle.close()
+	await assert.rejects(m.openRegular(join(tmp, 'link'), 0), 'the size limit still applies through a link')
+	mkdirSync(join(tmp, 'dir2'))
+	symlinkSync(join(tmp, 'dir2'), join(tmp, 'dirlink'))
+	await assert.rejects(m.openRegular(join(tmp, 'dirlink')))
+	symlinkSync(join(tmp, 'nowhere'), join(tmp, 'dangling'))
+	await assert.rejects(m.openRegular(join(tmp, 'dangling')))
 })

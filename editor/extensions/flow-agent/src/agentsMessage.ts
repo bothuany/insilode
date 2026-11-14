@@ -45,7 +45,8 @@ export type AgentsAction =
 	 * Open an agent in a terminal pane (termHost.ts): `sessionId` resumes that session, none starts a new one; in `cwd` (an absolute path; one
 	 * outside this window's workspace is asked about once) or this window's folder. `requestId` is the page's, echoed in the answer.
 	 */
-	| { type: 'termOpen'; requestId: string; kind: 'claude' | 'codex'; sessionId?: string; cwd?: string }
+	/** `force`: "Resume anyway" for a session another process runs; the host still asks the user itself (termHost.ts), so this is only a request. */
+	| { type: 'termOpen'; requestId: string; kind: 'claude' | 'codex'; sessionId?: string; cwd?: string; force?: true }
 	/**
 	 * The page's pane layout (paneLayout.ts, layoutStore.ts). `layoutSave` is the layout on screen, for the page to come back to; `layoutSaveAs` and
 	 * `layoutDelete` keep the layouts the user names. The layouts are validated here, so what reaches storage is always sound.
@@ -109,7 +110,7 @@ export function agentsAction(raw: unknown): AgentsAction | undefined {
 			return typeof m.requestId === 'string' && m.requestId.length > 0 && m.requestId.length <= MAX_REQUEST && (m.kind === 'claude' || m.kind === 'codex')
 				&& (m.sessionId === undefined || (typeof m.sessionId === 'string' && SESSION_ID.test(m.sessionId)))
 				&& (m.cwd === undefined || (typeof m.cwd === 'string' && m.cwd.length <= MAX_PATH && !m.cwd.includes('\0') && path.isAbsolute(m.cwd)))
-				? { type: 'termOpen', requestId: m.requestId, kind: m.kind, ...(m.sessionId === undefined ? {} : { sessionId: m.sessionId }), ...(m.cwd === undefined ? {} : { cwd: m.cwd }) } : undefined;
+				? { type: 'termOpen', requestId: m.requestId, kind: m.kind, ...(m.sessionId === undefined ? {} : { sessionId: m.sessionId }), ...(m.cwd === undefined ? {} : { cwd: m.cwd }), ...(m.force === true && m.kind === 'claude' && m.sessionId !== undefined ? { force: true as const } : {}) } : undefined;
 		case 'layoutSave': {
 			const layout = parse(m.layout);
 			const harness = panelState(m.harness);

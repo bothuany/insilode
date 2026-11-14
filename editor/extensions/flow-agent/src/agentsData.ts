@@ -227,6 +227,8 @@ export interface AgentsPageTermFailed {
 	type: 'termFailed';
 	requestId: string;
 	message: string;
+	/** The refusal is that another process runs the session: the page may offer "Resume anyway" (a `termOpen` with `force`, which the host confirms with a modal of its own). */
+	elsewhere?: true;
 }
 
 /** Host → page, once after `ready` and again when a layout is saved or deleted: the layout the page had on screen last (for the page to restore, once) and the layouts the user named. */

@@ -157,3 +157,18 @@ test('a Codex rollout that changed after the last scan is "recently active" in a
 	assert.deepEqual(cached.live, { status: 'unknown', source: 'Codex', basis: 'recent' })
 	assert.equal(codexOf(await index.projects()).live?.basis, 'recent', 'and so is a look that is free to scan but reuses a scan under ten seconds old')
 })
+
+test('the poll does not start more Codex stat calls while the last ones have not come back (a hung mount)', T, async () => {
+	const m = machine()
+	const dir = join(process.env.CODEX_HOME, 'sessions', '2026', '01', '01')
+	mkdirSync(dir, { recursive: true })
+	writeFileSync(join(dir, 'rollout-2026-01-01T00-00-00-x.jsonl'), JSON.stringify({ type: 'session_meta', payload: { id: '11111111-2222-3333-4444-555555555555', cwd: m.other } }) + '\n' + JSON.stringify({ type: 'event_msg', payload: { type: 'user_message', message: 'Add a retry' } }) + '\n')
+	let calls = 0
+	const index = new mod.ProjectIndex(() => m.own, () => [], () => [], async () => [], () => { calls++; return new Promise(() => undefined) })
+	await index.projects()
+	const first = calls
+	assert.equal(first >= 1, true, 'the rollout\'s time was asked for')
+	await index.projects({ cached: true })
+	await index.projects({ cached: true })
+	assert.equal(calls, first, 'nothing more while those are stuck')
+})

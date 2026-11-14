@@ -31,7 +31,8 @@ import { canExplain, explainPrompt } from './explain';
 import { claudeHookCommand, hookRunner, hookScript, type HookRunner } from './hookScript';
 import { ShellEditSweep } from './shellEdits';
 import { openRegular } from './safeFile';
-import { elsewhereMessage, idInUse } from './spawnGuard';
+import { confirmResumeAnyway } from './resumeAnyway';
+import { idInUse } from './spawnGuard';
 import { bypassAllowed } from './bypass';
 import { SKELETON_GATE, SKELETON_PROMPT_GATE } from './skeleton';
 import { canType, notReady, oneLine, slashRefusal, slashText, type AgentCli, type AgentState, type CustomCli, type SessionInfo, type SlashKind, type SlashResult } from './askTarget';
@@ -756,9 +757,9 @@ export class Agents implements vscode.Disposable {
 	 * agent in a git worktree of its own or in this checkout; left out, the flow.agents.worktree setting decides. A resumed
 	 * agent goes back to where it ran. `opts.cwd` runs it in that folder instead of this window's (the caller has asked the user about
 	 * a folder outside the workspace: folderTrust.ts), with no worktree of its own; `opts.quiet` leaves the terminal hidden and
-	 * the focus where it is, for a terminal that a page shows itself.
+	 * the focus where it is, for a terminal that a page shows itself. `opts.confirmed`: the user was already asked about a session another process runs.
 	 */
-	async spawn(cli: AgentCli, resume?: AgentSession, custom?: CustomAgent, place?: 'worktree' | 'here', opts?: { cwd?: string; quiet?: boolean }): Promise<AgentSession | undefined> {
+	async spawn(cli: AgentCli, resume?: AgentSession, custom?: CustomAgent, place?: 'worktree' | 'here', opts?: { cwd?: string; quiet?: boolean; confirmed?: boolean }): Promise<AgentSession | undefined> {
 		if (!vscode.workspace.isTrusted) {
 			void vscode.window.showWarningMessage('Agents run commands in your workspace: trust this folder to start one.', 'Manage Workspace Trust')
 				.then(c => c && vscode.commands.executeCommand('workbench.trust.manage'));
@@ -777,11 +778,11 @@ export class Agents implements vscode.Disposable {
 			return undefined;
 		}
 		// Every way to resume (the palette, the page, a click on an ended row) ends here, so the check is here: a Claude session that the
-		// registry says another live process runs is never resumed. Asked of the registry now, under every id the conversation has had.
-		if (cli === 'claude' && resume) {
+		// registry says another live process runs is not resumed unless the user, asked in a modal, says so (a stale entry looks the same).
+		// Asked of the registry now, under every id the conversation has had. `opts.confirmed`: the caller has just asked (termHost.ts).
+		if (cli === 'claude' && resume && !opts?.confirmed) {
 			const where = await this.elsewhere?.([id, resume.agentId, ...this.aliasesOf(id)]).catch(() => undefined);
-			if (where) {
-				void vscode.window.showErrorMessage(`Insilode: ${elsewhereMessage(resume.name, where)}`);
+			if (where && !await confirmResumeAnyway(resume.name, where)) {
 				return undefined;
 			}
 		}

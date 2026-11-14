@@ -25,7 +25,7 @@ import { savedAgents } from './pick';
 import type { ProjectIndex } from './projectIndex';
 import { startOrResume } from './resume';
 import type { TermAttachment } from './termBridge';
-import type { TermHost } from './termHost';
+import { ElsewhereError, type TermHost } from './termHost';
 import { readTail } from './transcriptTail';
 import type { WorktreeRows } from './worktreeActions';
 
@@ -234,7 +234,7 @@ export class AgentsPanel implements vscode.Disposable {
 			case 'termDetach': return this.termDetach(m.id);
 			case 'termInput': return void (this.attached.has(m.id) && this.term?.input(m.id, m.data));
 			case 'termResize': return void (this.attached.has(m.id) && this.term?.resize(m.id, m.cols, m.rows));
-			case 'termOpen': return void this.termOpen(m.requestId, m.kind, m.sessionId, m.cwd);
+			case 'termOpen': return void this.termOpen(m.requestId, m.kind, m.sessionId, m.cwd, m.force);
 		}
 	}
 
@@ -289,14 +289,14 @@ export class AgentsPanel implements vscode.Disposable {
 		this.attached.delete(id);
 	}
 
-	private async termOpen(requestId: string, kind: 'claude' | 'codex', sessionId: string | undefined, cwd: string | undefined) {
+	private async termOpen(requestId: string, kind: 'claude' | 'codex', sessionId: string | undefined, cwd: string | undefined, force?: true) {
 		try {
 			if (!this.term) {
 				throw new Error('Terminals are not available.');
 			}
-			this.send({ type: 'termOpened', id: await this.term.open(kind, sessionId, cwd), requestId });
+			this.send({ type: 'termOpened', id: await this.term.open(kind, sessionId, cwd, force), requestId });
 		} catch (e) {
-			this.send({ type: 'termFailed', requestId, message: (e as Error).message });
+			this.send({ type: 'termFailed', requestId, message: (e as Error).message, ...(e instanceof ElsewhereError ? { elsewhere: true as const } : {}) });
 		}
 	}
 

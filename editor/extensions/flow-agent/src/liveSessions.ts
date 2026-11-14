@@ -7,14 +7,17 @@
  *
  *  Everything here is untrusted input from the file system (any program may write there), so every field is type-checked. No vscode:
  *  the file system and the liveness check are injected and it is tested on its own (test/liveSessions.test.mjs). A pid that was reused
- *  by another process after Claude died without cleaning up looks alive: its file carries `procStart`, but comparing that needs
- *  a `ps` per entry or per-OS /proc arithmetic, so it is not compared (shortcut: a crashed session's stale file shows until its pid is gone or the file is).
+ *  by another process after Claude died without cleaning up looks alive to the poll (shortcut: a crashed session's stale file shows there until
+ *  its pid is gone or the file is, because telling costs a `ps` per entry). The resume check does tell: `runningElsewhere` asks for the one
+ *  process's start time and drops an entry whose process started after the entry says it was written.
  *--------------------------------------------------------------------------------------------*/
 
+import { execFile } from 'child_process';
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import type { ChatProject, LiveMark, LiveStatus } from './agentsData';
+import { Budgeted } from './budgeted';
 import { samePath } from './chatCore';
 import { openRegular } from './safeFile';
 
@@ -38,6 +41,8 @@ export interface LiveIo {
 	/** At most `max` bytes; rejects, without waiting, for anything but a regular file of at most that size (safeFile.ts). */
 	read(file: string, max: number): Promise<string>;
 	isAlive(pid: number): boolean;
+	/** When the process with this pid started (epoch ms), nothing when that is not known. Only the resume check asks, never the poll. */
+	startTime?(pid: number): Promise<number | undefined>;
 }
 
 /** One file is a few hundred bytes; anything bigger is not one of Claude's. */
@@ -109,8 +114,40 @@ export function parseLive(text: string, fileName: string): LiveSession | undefin
 }
 
 /**
- * The real thing: node's fs, and `kill(pid, 0)` (no signal is sent). EPERM means the process exists but is another user's: the registry
- * is in this user's home, so such a pid cannot be this user's Claude (a reused number), and it is not alive for this purpose.
+ * `kill(pid, 0)` sends no signal. EPERM means the process exists but may not be opened: on Windows that is Claude started from an elevated
+ * terminal (this user's own, so alive); elsewhere it is another user's process, and the registry is in this user's home, so such a pid is a
+ * reused number and not alive for this purpose. Pure: the signal function and the platform are passed in.
+ */
+export function isAliveWith(pid: number, kill: (pid: number, signal: 0) => unknown, platform: NodeJS.Platform = process.platform): boolean {
+	try {
+		kill(pid, 0);
+		return true;
+	} catch (e) {
+		return (e as NodeJS.ErrnoException).code === 'EPERM' && platform === 'win32';
+	}
+}
+
+/** `ps -o lstart=` prints local time as "Sat Nov 14 00:34:24 2026" (a one-digit day is padded with a space); nothing for anything else. */
+export function parsePsStart(out: string): number | undefined {
+	const t = Date.parse(out.trim().replace(/\s+/g, ' '));
+	return Number.isFinite(t) ? t : undefined;
+}
+
+/** Clock and rounding slack: the process cannot have started after the entry was written, give or take this. */
+const START_SLACK_MS = 5000;
+
+/**
+ * Whether the process that has this pid now cannot be the one that wrote the entry: it started after the entry's `startedAt`, so the pid was
+ * reused (the entry's own process had to exist before it wrote). Anything unclear (no `startedAt`, no start time) is not reused: two
+ * processes on one session corrupt it, so a doubt means "still running". (The file's `procStart` is a local-time string in the writer's own
+ * time zone, which this process may not share; `startedAt` is an epoch and has no such trap.)
+ */
+export function pidReused(startedAt: number | undefined, processStart: number | undefined): boolean {
+	return startedAt !== undefined && processStart !== undefined && Number.isFinite(processStart) && processStart > startedAt + START_SLACK_MS;
+}
+
+/**
+ * The real thing: node's fs, and `kill(pid, 0)`.
  */
 export const nodeIo: LiveIo = {
 	readdir: dir => fs.readdir(dir),
@@ -126,24 +163,32 @@ export const nodeIo: LiveIo = {
 			await handle.close();
 		}
 	},
-	isAlive: pid => {
-		try {
-			process.kill(pid, 0);
-			return true;
-		} catch {
-			return false;
-		}
-	},
+	isAlive: pid => isAliveWith(pid, (p, sig) => process.kill(p, sig)),
+	// One ps through an argument array (no shell) with a short timeout, C locale for English names. Windows has no ps: the check is skipped there.
+	startTime: pid => process.platform === 'win32' ? Promise.resolve(undefined) : new Promise(resolve => {
+		execFile('ps', ['-o', 'lstart=', '-p', String(pid)], { timeout: 1500, windowsHide: true, env: { ...process.env, LC_ALL: 'C' } }, (err, out) => resolve(err ? undefined : parsePsStart(out)));
+	}),
 };
+
+/** Per registry folder (and io): whether an earlier scan's file work is still stuck, and what it last found (budgeted.ts). */
+const scans = new WeakMap<LiveIo, Map<string, Budgeted<LiveSession[], LiveSession[]>>>();
 
 /**
  * The live sessions, newest activity first, at most `max` (200); one per session id. Never throws: no folder, an unreadable or garbled
  * file is skipped. A file's name carries its pid, so liveness is checked before any file is read, and the cap applies only to what
- * is returned. At `budgetMs` what has been read so far is returned (a read that never ends is simply missing).
+ * is returned. At `budgetMs` what has been read so far is returned (a read that never ends is simply missing); and while an earlier call's
+ * file work has not settled, no new work starts and the last list is returned (a hung home folder must not take a thread per poll).
  */
 export async function listLive(io: LiveIo = nodeIo, dir = claudeSessionsDir(), o: { max?: number; budgetMs?: number } = {}): Promise<LiveSession[]> {
-	const found: LiveSession[] = [];
-	const work = (async () => {
+	let byDir = scans.get(io);
+	if (!byDir) {
+		scans.set(io, byDir = new Map());
+	}
+	let scan = byDir.get(dir);
+	if (!scan) {
+		byDir.set(dir, scan = new Budgeted<LiveSession[], LiveSession[]>([]));
+	}
+	const all = await scan.run(o.budgetMs ?? LIST_MS, async found => {
 		const names = (await io.readdir(dir).catch(() => [] as string[])).filter(n => FILE_NAME.test(n) && parseInt(n) > 0).slice(0, MAX_NAMES);
 		await Promise.all(names.filter(n => io.isAlive(parseInt(n))).map(async name => {
 			try {
@@ -161,27 +206,33 @@ export async function listLive(io: LiveIo = nodeIo, dir = claudeSessionsDir(), o
 				// skipped
 			}
 		}));
-	})();
-	let timer: NodeJS.Timeout | undefined;
-	await Promise.race([work.catch(() => undefined), new Promise<void>(resolve => timer = setTimeout(resolve, o.budgetMs ?? LIST_MS))]);
-	clearTimeout(timer);
-	const byId = new Map<string, LiveSession>();
-	for (const s of [...found]) {
-		const old = byId.get(s.id);
-		if (!old || (s.updatedAt ?? 0) > (old.updatedAt ?? 0)) {
-			byId.set(s.id, s);
+	}, () => [], found => {
+		const byId = new Map<string, LiveSession>();
+		for (const s of [...found]) {
+			const old = byId.get(s.id);
+			if (!old || (s.updatedAt ?? 0) > (old.updatedAt ?? 0)) {
+				byId.set(s.id, s);
+			}
 		}
-	}
-	return [...byId.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0)).slice(0, o.max ?? MAX_FILES);
+		return [...byId.values()].sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+	});
+	return all.slice(0, o.max ?? MAX_FILES);
 }
 
 /**
  * The live session, if any, that has one of these ids (a session's own, and the ids its conversation went on under after /clear). Asked of
- * the registry itself, whole: a resume must not go through because the page's capped list did not show the session.
+ * the registry itself, whole: a resume must not go through because the page's capped list did not show the session. A stale file whose pid
+ * another process has taken since is not "running": its start time is asked for once (never in the page's poll, which only lists), and an
+ * entry the process is younger than is dropped; any doubt keeps it.
  */
 export async function runningElsewhere(ids: Iterable<string | undefined>, io: LiveIo = nodeIo, dir = claudeSessionsDir()): Promise<LiveSession | undefined> {
 	const want = new Set([...ids].filter((i): i is string => !!i).map(i => i.toLowerCase()));
-	return want.size ? (await listLive(io, dir, { max: Infinity })).find(l => want.has(l.id)) : undefined;
+	const found = want.size ? (await listLive(io, dir, { max: Infinity })).find(l => want.has(l.id)) : undefined;
+	if (!found || !io.startTime) {
+		return found;
+	}
+	const started = await io.startTime(found.pid).catch(() => undefined);
+	return pidReused(found.startedAt, started) ? undefined : found;
 }
 
 export interface MergeOptions {

@@ -160,6 +160,76 @@ test('a file that carries neither time takes its modification time: the same on 
 	assert.equal(a.updatedAt, b.updatedAt)
 })
 
+test('EPERM means the process exists but may not be opened: alive on Windows (Claude started from an elevated terminal), dead elsewhere (another user\'s)', T, () => {
+	const failing = code => () => { throw Object.assign(new Error('x'), { code }) }
+	assert.equal(m.isAliveWith(1, failing('EPERM'), 'win32'), true)
+	for (const platform of ['darwin', 'linux']) {
+		assert.equal(m.isAliveWith(1, failing('EPERM'), platform), false, platform)
+	}
+	for (const platform of ['win32', 'darwin', 'linux']) {
+		assert.equal(m.isAliveWith(1, failing('ESRCH'), platform), false, platform + ' ESRCH')
+		assert.equal(m.isAliveWith(1, () => true, platform), true, platform + ' signalled')
+	}
+})
+
+test('a scan whose file work has not settled is not followed by another: the last list is returned, and scanning resumes once it has settled', T, async () => {
+	const e61 = entry(61)
+	const f = folder({ '61.json': e61, '62.json': entry(62) })
+	let release
+	const gate = new Promise(r => { release = r })
+	let reads = 0, readdirs = 0
+	const io = { ...f.io, readdir: dir => { readdirs++; return f.io.readdir(dir) }, read: async (file, max) => { reads++; if (file.endsWith('62.json')) { await gate } return f.io.read(file, max) } }
+	assert.deepEqual((await m.listLive(io, f.dir, { budgetMs: 100 })).map(s => s.pid), [61], 'the budget passed with one read stuck')
+	const [r1, d1] = [reads, readdirs]
+	for (let i = 0; i < 3; i++) {
+		assert.deepEqual((await m.listLive(io, f.dir, { budgetMs: 100 })).map(s => s.pid), [61], 'the last list')
+	}
+	assert.deepEqual([reads, readdirs], [r1, d1], 'no new file work while the old one is stuck')
+	// The resume check shares the guard and the list.
+	assert.equal((await m.runningElsewhere([e61.sessionId], io, f.dir))?.pid, 61)
+	assert.deepEqual([reads, readdirs], [r1, d1])
+	release()
+	await new Promise(r => setTimeout(r, 50))
+	assert.deepEqual((await m.listLive(io, f.dir, { budgetMs: 1000 })).map(s => s.pid).sort(), [61, 62], 'scanning again once it settled')
+	assert.equal(readdirs > d1, true)
+})
+
+test('a start time later than the entry\'s startedAt means the pid was reused by another process; anything unclear is not stale', T, () => {
+	const at = 1_700_000_000_000
+	assert.equal(m.pidReused(at, at - 60_000), false, 'the process started before the entry was written')
+	assert.equal(m.pidReused(at, at + 1_000), false, 'within the clock slack')
+	assert.equal(m.pidReused(at, at + 3_600_000), true, 'an hour after: not the process that wrote it')
+	assert.equal(m.pidReused(undefined, at), false, 'no startedAt in the file')
+	assert.equal(m.pidReused(at, undefined), false, 'start time not known')
+	assert.equal(m.pidReused(at, NaN), false)
+	assert.equal(m.parsePsStart('Sat Nov 14 00:34:24 2026\n'), new Date(2026, 10, 14, 0, 34, 24).getTime())
+	assert.equal(m.parsePsStart('Sat Nov  7 09:05:01 2026\n'), new Date(2026, 10, 7, 9, 5, 1).getTime(), 'a padded day')
+	assert.equal(m.parsePsStart(''), undefined)
+	assert.equal(m.parsePsStart('not a date'), undefined)
+})
+
+test('the resume check ignores an entry whose pid now belongs to a younger process, and the poll never asks for start times', T, async () => {
+	const e = entry(71, { startedAt: 1_700_000_000_000 })
+	const f = folder({ '71.json': e })
+	const asked = []
+	const withStart = start => ({ ...f.io, startTime: async pid => { asked.push(pid); if (start instanceof Error) { throw start } return start } })
+	assert.equal((await m.runningElsewhere([e.sessionId], withStart(1_700_000_000_000 + 86_400_000), f.dir)), undefined, 'reused: not running')
+	assert.equal((await m.runningElsewhere([e.sessionId], withStart(1_700_000_000_000 - 5_000), f.dir))?.pid, 71, 'the same process')
+	assert.equal((await m.runningElsewhere([e.sessionId], withStart(undefined), f.dir))?.pid, 71, 'unknown start time: assumed running')
+	assert.equal((await m.runningElsewhere([e.sessionId], withStart(new Error('ps failed')), f.dir))?.pid, 71, 'ps failing: assumed running')
+	assert.deepEqual(asked, [71, 71, 71, 71])
+	asked.length = 0
+	await m.listLive(withStart(1), f.dir)
+	assert.deepEqual(asked, [], 'listing (the poll) spends no process')
+})
+
+test('the real start time of a process comes from one ps with an argument array', { ...T, skip: process.platform === 'win32' && 'no ps; Windows skips the check' }, async () => {
+	const t = await m.nodeIo.startTime(process.pid)
+	assert.equal(typeof t, 'number')
+	assert.equal(Math.abs(t - (Date.now() - process.uptime() * 1000)) < 3000, true, 'within the second ps rounds to')
+	assert.equal(await m.nodeIo.startTime(2 ** 22 + 12345), undefined, 'no such process')
+})
+
 // ---- the merge into the sidebar's projects --------------------------------------------------------------------------------------
 
 const live = (over = {}) => ({ id: randomUUID(), cwd: join(tmp, 'proj'), pid: 1, status: 'working', source: 'Claude desktop', name: 'Fix login', updatedAt: 5000, ...over })
