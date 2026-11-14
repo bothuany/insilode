@@ -18,6 +18,7 @@ import { gitIgnoredOf } from './ignored';
 import { claudeDir, codexDir } from './dirs';
 import { maskArgs, maskUrl, readMcp, type McpServer } from './mcpconfig';
 import { isNetworkPath, pathVerdict, within, type PathVerdict } from './pathGuard';
+import { listEntries } from './listEntries';
 
 export type Scope = 'user' | 'project' | 'local' | 'directory';
 export type Kind = 'instructions' | 'rules' | 'skills' | 'agents' | 'hooks' | 'mcp' | 'permissions' | 'memory';
@@ -88,6 +89,8 @@ export interface ScanHost {
 	listing(folder: ScanFolder, limit: number): Promise<string[]>;
 	/** Whether a file whose path ends with `ref` exists anywhere in the workspace; true when it cannot be told. */
 	somewhere(ref: string): Promise<boolean>;
+	/** What the host's searches left out so far (a folder with more entries than it reads): said with the result, never silently. */
+	limits?(): string[];
 }
 
 export interface ScanOptions {
@@ -127,11 +130,14 @@ let untrustedScan = false;
 /** The most bytes the scan may read in all, and how many it has (see `ScanOptions.maxTotalBytes`). */
 let maxTotal = Infinity;
 let readBytes = 0;
-/** Limits this scan hit (a settings file with more rules than are read), reported once with the result. */
-const limits = new Set<string>();
+/** Limits this scan hit (a settings file with more rules than are read) and the file or folder each was hit in, reported with the result: in `notes`, and as a finding the map and the lint show. */
+const limits = new Map<string, string>();
+const cut = (message: string, where: string) => void (limits.has(message) || limits.set(message, where));
+/** What a scan of a folder nobody trusted reads at most (`cap`); a trusted scan reads all of it, protected only by its deadline and, for links to folders, by loop detection. */
+const cap = (n: number) => untrustedScan ? n : Infinity;
 const late = () => Date.now() > stopAt;
 
-/** What one list or walk takes at most: a folder can hold anything, and the scan is for a map, not an index. */
+/** What one list or walk of an untrusted scan takes at most: a folder can hold anything, and the scan is for a map, not an index. */
 const MAX_ENTRIES = 1000;
 const MAX_WALK_ENTRIES = 3000;
 const MAX_WALK_FILES = 500;
@@ -195,7 +201,7 @@ async function readRegular(file: string, noFollow: boolean): Promise<string | un
 			return undefined;
 		}
 		if (readBytes + st.size > maxTotal) {
-			limits.add('The files of this folder add up to more than is read for a summary, so some were skipped.');
+			cut('The files of this folder add up to more than is read for a summary, so some were skipped.', file);
 			return undefined;
 		}
 		readBytes += st.size;
@@ -274,59 +280,65 @@ function frontMatter(text: string): Record<string, string> {
 	return out;
 }
 
-/** The entries of one folder, as Dirents, at most `limit` (a folder may hold millions: `readdir` would read them all in one call nobody can interrupt). Empty when the folder's real path leads out of the scanned folders. */
+/** The entries of one folder, as Dirents, at most `limit` (a folder may hold millions: `readdir` would read them all in one call nobody can interrupt). For a folder nobody trusted, empty when its real path leads out of the scanned folders. */
 async function entriesOf(dir: string, limit: number): Promise<import('fs').Dirent[]> {
-	if (late() || !(await inFolders(dir)).ok) {
+	// A trusted scan lists what it is pointed at: the files it reads from there are checked one by one (`read`), as ever.
+	if (late() || (untrustedScan && !(await inFolders(dir)).ok)) {
 		return [];
 	}
-	const handle = await fs.opendir(dir).catch(() => undefined);
-	const out: import('fs').Dirent[] = [];
-	try {
-		for (let e = await handle?.read(); e; e = out.length < limit && !late() ? await handle?.read() : null) {
-			out.push(e);
-		}
-	} catch {
-		// A folder that goes away while it is listed: what was read is the list.
-	} finally {
-		await handle?.close().catch(() => undefined);
-	}
-	return out.sort((a, b) => a.name < b.name ? -1 : 1);
+	return listEntries(dir, limit, () => cut(`A folder has more than ${limit} entries, so only the first ${limit} were read.`, dir));
 }
 
 async function listDir(dir: string): Promise<string[]> {
-	return (await entriesOf(dir, MAX_ENTRIES)).map(e => path.join(dir, e.name));
+	return (await entriesOf(dir, cap(MAX_ENTRIES))).map(e => path.join(dir, e.name));
 }
 
 /**
- * The files below `dir` that `accept` takes: real folders are entered, links to folders never are (a link back to its own folder, or
- * to /usr, would otherwise be walked for ever), and the walk stops at a depth, a number of entries and the scan's deadline.
- * A link to a file is a candidate like any file: `read` decides whether it may be read.
+ * The files below `dir` that `accept` takes. Real folders are entered. A link to a folder is entered only by a trusted scan, once per way
+ * in (a link back into a folder the walk is already in, `a -> .`, is a loop and is not entered); an untrusted scan never follows one, so a
+ * link to /usr or to its own folder costs nothing. An untrusted walk also stops at a depth, a number of entries and files, and the scan's
+ * deadline. A link to a file is a candidate like any file: `read` decides whether it may be read. Whatever is left out is said (`cut`).
  */
 async function filesBelow(dir: string, accept: (name: string) => boolean): Promise<string[]> {
 	const out: string[] = [];
 	let seen = 0;
-	const visit = async (d: string, depth: number): Promise<void> => {
-		for (const e of await entriesOf(d, MAX_ENTRIES)) {
+	const visit = async (d: string, depth: number, chain: string[]): Promise<void> => {
+		for (const e of await entriesOf(d, cap(MAX_ENTRIES))) {
 			if (late()) {
 				return;
 			}
-			if (out.length >= MAX_WALK_FILES || ++seen > MAX_WALK_ENTRIES) {
-				limits.add(`Only the first ${MAX_WALK_FILES} rule files of a folder are read.`);
+			if (out.length >= cap(MAX_WALK_FILES) || ++seen > cap(MAX_WALK_ENTRIES)) {
+				cut(out.length >= cap(MAX_WALK_FILES) ? `Only the first ${MAX_WALK_FILES} rule files of a folder are read.` : `A rules folder holds more than ${MAX_WALK_ENTRIES} entries, so only part of it was read.`, dir);
 				return;
 			}
 			const p = path.join(d, e.name);
 			// Some file systems give no type with a listing: lstat answers for them, still without following a link.
 			const st = e.isDirectory() || e.isFile() || e.isSymbolicLink() ? e : await fs.lstat(p).catch(() => undefined);
+			const here = chain[chain.length - 1];
 			if (st?.isDirectory()) {
-				if (depth < MAX_DEPTH) {
-					await visit(p, depth + 1);
+				// A folder reached through a link may hold a real folder that is one the walk is in (`x -> ..`): the same loop.
+				const real = untrustedScan ? '' : path.join(here, e.name);
+				if (chain.includes(real)) {
+					cut('A link leads back into a folder the walk is already in, so it was not followed again.', dir);
+				} else if (depth < cap(MAX_DEPTH)) {
+					await visit(p, depth + 1, untrustedScan ? chain : [...chain, real]);
+				} else {
+					cut(`A rules folder is more than ${MAX_DEPTH} levels deep, so what lies below it was not read.`, dir);
+				}
+			} else if (st?.isSymbolicLink() && (await fs.stat(p).catch(() => undefined))?.isDirectory()) {
+				const real = untrustedScan ? undefined : await fs.realpath(p).catch(() => undefined);
+				if (real === undefined || chain.includes(real)) {
+					cut(untrustedScan ? 'A link to a folder was not followed.' : 'A link leads back into a folder the walk is already in, so it was not followed again.', dir);
+				} else {
+					await visit(p, depth + 1, [...chain, real]);
 				}
 			} else if (st && accept(e.name) && (st.isFile() || (st.isSymbolicLink() && (await fs.stat(p).catch(() => undefined))?.isFile()))) {
 				out.push(p);
 			}
 		}
 	};
-	await visit(dir, 0);
+	// The real path of each folder on the way in, so a link back to any of them is found; an untrusted walk follows no link and keeps none.
+	await visit(dir, 0, untrustedScan ? [] : [await fs.realpath(dir).catch(() => dir)]);
 	return out;
 }
 
@@ -390,8 +402,8 @@ async function brokenPaths(file: string, text: string, root: string): Promise<Is
 			if (!userScan && c.ref.startsWith('~')) {
 				continue;
 			}
-			if (++checked > MAX_REFS) {
-				limits.add(`Only the first ${MAX_REFS} paths named in an instruction file are checked.`);
+			if (++checked > cap(MAX_REFS)) {
+				cut(`Only the first ${MAX_REFS} paths named in an instruction file are checked.`, file);
 				break;
 			}
 			// A file may name anything: only what the guard allows is looked at (a network path would open a connection to whoever wrote it).
@@ -500,8 +512,8 @@ async function settingsFile(items: HarnessItem[], root: string, file: string, sc
 				if (!h.command) {
 					continue;
 				}
-				if (++hookCount > MAX_SETTING_ITEMS) {
-					limits.add(`Only the first ${MAX_SETTING_ITEMS} hooks, and the first ${MAX_SETTING_ITEMS} allow, ask and deny rules each, of a settings file are read.`);
+				if (++hookCount > cap(MAX_SETTING_ITEMS)) {
+					cut(`Only the first ${MAX_SETTING_ITEMS} hooks, and the first ${MAX_SETTING_ITEMS} allow, ask and deny rules each, of a settings file are read.`, file);
 					break;
 				}
 				const issues: Issue[] = [];
@@ -543,10 +555,10 @@ async function settingsFile(items: HarnessItem[], root: string, file: string, sc
 		}
 	}
 	for (const effect of ['allow', 'ask', 'deny'] as const) {
-		if ((s.permissions?.[effect]?.length ?? 0) > MAX_SETTING_ITEMS) {
-			limits.add(`Only the first ${MAX_SETTING_ITEMS} hooks, and the first ${MAX_SETTING_ITEMS} allow, ask and deny rules each, of a settings file are read.`);
+		if ((s.permissions?.[effect]?.length ?? 0) > cap(MAX_SETTING_ITEMS)) {
+			cut(`Only the first ${MAX_SETTING_ITEMS} hooks, and the first ${MAX_SETTING_ITEMS} allow, ask and deny rules each, of a settings file are read.`, file);
 		}
-		for (const pattern of (s.permissions?.[effect] ?? []).slice(0, MAX_SETTING_ITEMS)) {
+		for (const pattern of (s.permissions?.[effect] ?? []).slice(0, cap(MAX_SETTING_ITEMS))) {
 			items.push({ kind: 'permissions', scope, label: pattern, detail: effect, file, issues: [], agents: ['Claude'], rule: { effect, pattern }, line: lineOf(JSON.stringify(pattern)) });
 		}
 	}
@@ -683,12 +695,16 @@ async function lintItems(items: HarnessItem[], root: string, folder: ScanFolder)
 	const limit = 20_000;
 	// This folder's files only: a rule's globs are relative to the folder that holds it.
 	const listed = scoped ? await host.listing(folder, limit) : [];
+	if (listed.length >= limit) {
+		cut(`The project has more than ${limit} files, so a rule's globs were checked against the first ${limit} only: none is called dead.`, root);
+	}
 	const findings = late() ? [] : lint({
 		files,
 		hooks: items.filter(i => i.hook).map(i => ({ ...i.hook!, line: i.line ?? 0 })),
 		rules: items.filter(i => i.rule).map(i => ({ ...i.rule!, scope: i.scope === 'directory' ? 'project' : i.scope, file: i.file, line: i.line ?? 0 })),
 		projectFiles: scoped ? listed : undefined,
 		projectFilesTruncated: listed.length >= limit,
+		untrusted: untrustedScan,
 		cwd: root, home,
 	});
 	const byFile = new Map<string, HarnessItem[]>();
@@ -875,14 +891,24 @@ async function scanNow(folders: ScanFolder[], scanHost: ScanHost, options: ScanO
 	}
 
 	conflicts(items);
-	notes.push(...limits);
+	for (const why of host.limits?.() ?? []) {
+		cut(why, root);
+	}
 	for (const file of outside) {
 		items.push({ kind: 'instructions', scope: 'project', label: show(root, file), detail: 'A link to a file outside the repository: not read', file, issues: [{ severity: 'warning', message: `${show(root, file)} is a link to something outside the repository, so it was not read`, fix: 'Keep the file in the repository, or leave it out of the lint', code: 'outside-repo' }], agents: [] });
 	}
 
+	// The gaps are told before the limit items are added: an item that says what was cut is not a CLAUDE.md.
+	const gaps = projectGaps(items);
+	// What was cut or skipped is a finding of its own (info): the map and the lint list findings, and a note nobody reads is a silent cut.
+	// Its file is a file that was read (the map and the summary open it), the folder it was cut in when there is none.
+	const anyFile = items.find(i => i.file)?.file;
+	for (const [message, where] of limits) {
+		notes.push(message);
+		items.push({ kind: 'instructions', scope: 'directory', label: 'Scan limit', detail: message, file: statSync(where, { throwIfNoEntry: false })?.isFile() ? where : anyFile ?? where, issues: [{ severity: 'info', message, code: 'scan-limited' }], agents: [] });
+	}
 	const counts: Record<Severity, number> = { error: 0, warning: 0, info: 0 };
 	items.forEach(i => i.issues.forEach(x => counts[x.severity]++));
-	const gaps = projectGaps(items);
 	const score = Math.max(0, 100 - counts.error * 12 - counts.warning * 4 - counts.info - gaps.reduce((a, g) => a + g.cost, 0));
 	const claudeStartup = items.filter(i => i.agents.includes('Claude') && i.tokens && (i.kind === 'instructions' || i.kind === 'skills' || i.kind === 'agents' || i.kind === 'rules' || i.kind === 'memory'));
 	return { root, items, score, counts, gaps, startupTokens: claudeStartup.reduce((a, i) => a + (i.tokens ?? 0), 0), ...(notes.length ? { notes } : {}) };

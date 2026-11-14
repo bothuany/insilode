@@ -13,6 +13,7 @@ import { claudeDir } from './dirs';
 import { lintFolder } from './harnessLint';
 import { within } from './pathGuard';
 import { scanFolders, type Scope } from './scanCore';
+import { listEntries } from './listEntries';
 import { fsScanHost } from './scanFsHost';
 import { buildSummary, type SummaryExtras, type SummaryResult } from './summaryCore';
 
@@ -26,6 +27,9 @@ const MAX_COMMANDS = 200;
 const MAX_FILE = 1024 * 1024;
 /** All the files of one summary together: 500 links to one big file are 500 big files to read. */
 const MAX_TOTAL = 8 * 1024 * 1024;
+/** The most entries read from one commands folder (`readdir` reads a whole folder in one call nobody can interrupt), and the most `realpath` calls running at once. */
+const MAX_DIR_ENTRIES = 5000;
+const LINKS_AT_ONCE = 256;
 
 /** The absolute folder `raw` names, or undefined: anything but a string holding an absolute path (no NUL, at most 1024 characters). */
 export function folderOf(raw: unknown): string | undefined {
@@ -99,8 +103,7 @@ async function commandsIn(dir: string, scope: Scope, root?: string, deadline = I
 		if (Date.now() > deadline) {
 			return;
 		}
-		const entries = (await fs.readdir(path.join(dir, ...rel), { withFileTypes: true }).catch(() => [])).sort((a, b) => a.name < b.name ? -1 : 1);
-		for (const e of entries) {
+		for (const e of await listEntries(path.join(dir, ...rel), MAX_DIR_ENTRIES)) {
 			if (out.length >= MAX_COMMANDS || Date.now() > deadline) {
 				return;
 			}
@@ -115,17 +118,27 @@ async function commandsIn(dir: string, scope: Scope, root?: string, deadline = I
 	return out;
 }
 
-/** The files among `files` that lie in the folder as written (the user's own files are the user's) but whose real path is outside it: what the summary must not name. */
-async function linksOut(root: string, files: string[]): Promise<Set<string>> {
+/**
+ * The files among `files` that lie in the folder as written (the user's own files are the user's) but whose real path is outside it: what the summary must not name.
+ * Checked a few at a time up to `deadline` (the caller leaves room before the hard limit); a file not checked by then is treated as outside (left out rather than named unchecked).
+ */
+async function linksOut(root: string, files: string[], deadline = Infinity): Promise<Set<string>> {
 	const real = await fs.realpath(root).catch(() => root);
 	const unsafe = new Set<string>();
-	const mine = [...new Set(files)].filter(f => within(root, f)).slice(0, 20_000);
-	await Promise.all(mine.map(async f => {
-		const target = await fs.realpath(f).catch(() => undefined);
-		if (target !== undefined && !within(real, target)) {
-			unsafe.add(f);
+	const mine = [...new Set(files)].filter(f => within(root, f));
+	for (let at = 0; at < mine.length; at += LINKS_AT_ONCE) {
+		const batch = mine.slice(at, at + LINKS_AT_ONCE);
+		if (Date.now() > deadline) {
+			batch.forEach(f => unsafe.add(f));
+			continue;
 		}
-	}));
+		await Promise.all(batch.map(async f => {
+			const target = await fs.realpath(f).catch(() => undefined);
+			if (target !== undefined && !within(real, target)) {
+				unsafe.add(f);
+			}
+		}));
+	}
 	return unsafe;
 }
 
@@ -134,11 +147,11 @@ const running = new Map<string, Promise<SummaryResult>>();
 async function summarize(root: string): Promise<SummaryResult> {
 	const deadline = Date.now() + WALK_MS;
 	const user = claudeDir();
-	const host = fsScanHost([root], deadline);
+	const host = fsScanHost([root], deadline, true);
 	// The findings are the lint's own (the CLI's scan: the folder only, by its real path), so the panel says what a pull request would fail on. The lists below
 	// come from a second scan that also reads the user's own settings, hooks, commands and servers, which are part of the harness an agent here runs with.
 	const real = await fs.realpath(root).catch(() => root);
-	const lint = await lintFolder(root, real === root ? host : fsScanHost([real], deadline), { maxFileBytes: MAX_FILE, maxTotalBytes: MAX_TOTAL, deadline, untrusted: true });
+	const lint = await lintFolder(root, real === root ? host : fsScanHost([real], deadline, true), { maxFileBytes: MAX_FILE, maxTotalBytes: MAX_TOTAL, deadline, untrusted: true });
 	// Without the user's own memory files (not part of a summary) and with the user's settings, hooks and servers, which are part of the harness an agent here runs with.
 	// A link in the folder that leads out of it is not followed (the user's own files are read as they are).
 	const harness = await scanFolders([{ name: path.basename(root) || root, fsPath: root }], host, { memory: false, confine: true, maxFileBytes: MAX_FILE, maxTotalBytes: MAX_TOTAL, deadline, untrusted: true });
@@ -150,7 +163,7 @@ async function summarize(root: string): Promise<SummaryResult> {
 		commandsIn(path.join(root, '.claude', 'commands'), 'project', root, deadline),
 		commandsIn(path.join(user, 'commands'), 'user', undefined, deadline),
 	]);
-	const unsafe = await linksOut(root, [...harness.items.map(i => i.file), ...lint.map(l => l.abs), ...project.map(c => c.file)]);
+	const unsafe = await linksOut(root, [...harness.items.map(i => i.file), ...lint.map(l => l.abs), ...project.map(c => c.file)], deadline + HARD_MS - WALK_MS - 300);
 	return { ok: true, summary: buildSummary(harness, { lint, mode, commands: [...project, ...own], timedOut: Date.now() > deadline, home: os.homedir(), unsafe }, root) };
 }
 

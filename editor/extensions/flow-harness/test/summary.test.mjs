@@ -86,7 +86,7 @@ test('Authorization-like headers lose their value, in any case, in -H arguments 
 test('flags that name a credential lose their value, joined by = or in the next word; other flags and the command stay', T, () => {
 	assert.equal(R.redact('tool --token=hunter2 --port=3000 --verbose'), 'tool --token=*** --port=3000 --verbose')
 	assert.equal(R.redact('tool --api-key hunter2 --out build'), 'tool --api-key *** --out build')
-	assert.equal(R.redact(`tool --password 'p4ssw0rd!' --user admin`), 'tool --password *** --user ***')
+	assert.equal(R.redact(`tool --password 'p4ssw0rd!' --user admin`), 'tool --password *** --user admin', '--user hides its value for curl-like programs and for a name:secret, not for a bare name')
 	assert.equal(R.redact('curl -u admin:hunter2 https://x.dev'), 'curl -u *** https://x.dev')
 	assert.equal(R.redact('npx -y @scope/server --path=/usr/bin --config ./c.json'), 'npx -y @scope/server --path=/usr/bin --config ./c.json')
 })

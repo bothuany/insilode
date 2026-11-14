@@ -35,7 +35,7 @@ const AS_ERRORS = new Set(['rule-never-applies']);
 /** A finding's file as printed: relative to the folder with `/` on every platform (a Windows runner prints the lines a Linux one does), as it is when it lies elsewhere. */
 export function shownPath(root: string, file: string, p: path.PlatformPath = path): string {
 	const rel = p.relative(root, file);
-	return rel.startsWith('..') || p.isAbsolute(rel) ? file : rel.split(p.sep).join('/');
+	return rel === '' ? '.' : rel.startsWith('..') || p.isAbsolute(rel) ? file : rel.split(p.sep).join('/');
 }
 
 /** The findings of a scan as lint lines, in the order the CLI prints them (by file, then line). */

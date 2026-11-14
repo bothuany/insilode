@@ -141,6 +141,7 @@ const SAYS: Record<string, string> = {
 	'path-not-checked': 'A path named here is outside the project or on the network, so it was not checked',
 	'rule-conflict': 'This permission rule is also set to another effect in other settings, which wins',
 	'rule-never-applies': 'A permission rule that is never consulted',
+	'scan-limited': 'Part of this folder was not read or listed, so this scan may be incomplete',
 	'shadowed': 'A deny or ask rule overrides this allow rule',
 	'skill-shadow': 'Another skill has the same name; one shadows the other',
 	'unknown-event': 'Not a hook event: this hook never runs',
@@ -189,7 +190,8 @@ export function buildSummary(harness: Harness, extras: SummaryExtras, root: stri
 	const items = harness.items.filter(i => !unsafe.has(i.file));
 	const of = (kind: HarnessItem['kind']) => items.filter(i => i.kind === kind);
 
-	const instructions = capped(items.filter(i => i.kind === 'instructions' || i.kind === 'rules').map((i): SummaryInstruction => ({
+	// What the scan cut is said as a finding and in `notes`; the limit item itself is no instruction file.
+	const instructions = capped(items.filter(i => (i.kind === 'instructions' || i.kind === 'rules') && !i.issues.some(x => x.code === 'scan-limited')).map((i): SummaryInstruction => ({
 		...base(i), name: clip(i.label, CAPS.name), kind: i.kind as 'instructions' | 'rules', scope: i.scope, detail: clip(i.detail, CAPS.where),
 		...(i.tokens !== undefined || i.onDemand !== undefined ? { tokens: i.tokens ?? i.onDemand } : {}),
 	})), CAPS.instructions, 'instruction files');

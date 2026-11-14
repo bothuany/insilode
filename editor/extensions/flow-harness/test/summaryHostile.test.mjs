@@ -40,7 +40,9 @@ const timed = async f => {
 	const value = await f()
 	return { value, ms: Date.now() - started }
 }
-const scan = (dir, deadline, options = {}) => SC.scanFolders([{ name: 'x', fsPath: dir }], H.fsScanHost([dir], deadline), { user: false, ...(deadline ? { deadline } : {}), ...options })
+// The scan as the summary runs it (nobody trusts the folder: capped, no link to a folder followed), and as the CLI and the map run it (trusted: scanTrusted.test.mjs has the rest).
+const scan = (dir, deadline, options = {}) => SC.scanFolders([{ name: 'x', fsPath: dir }], H.fsScanHost([dir], deadline, true), { user: false, untrusted: true, ...(deadline ? { deadline } : {}), ...options })
+const scanTrusted = (dir, options = {}) => SC.scanFolders([{ name: 'x', fsPath: dir }], H.fsScanHost([dir]), { user: false, ...options })
 
 before(async () => {
 	tmp = realpathSync.native(mkdtempSync(join(tmpdir(), 'flow-hostile-')))
@@ -120,7 +122,7 @@ test('the walks stop at a depth and an entry cap, and a scan past its deadline s
 	assert.ok(after.ms < 500)
 })
 
-test('the same links in the editor\'s own scan (user files read, nothing confined) are not followed either', T, async () => {
+test('the editor\'s own scan (user files read, nothing confined) follows a link to a folder, and does not walk a link back into its own folder', T, async () => {
 	const outside = join(tmp, 'outside-' + n++)
 	write(join(outside, 'NEWS.md'), '# news\n')
 	const dir = repo({ 'CLAUDE.md': '# x\n', '.claude/rules/keep.md': 'A rule.\n' })
@@ -128,7 +130,7 @@ test('the same links in the editor\'s own scan (user files read, nothing confine
 	link(outside, join(dir, '.claude', 'rules', 'u'))
 	const r = await timed(() => SC.scanFolders([{ name: 'x', fsPath: dir }], H.fsScanHost([dir]), { memory: false }))
 	assert.ok(r.ms < 2000, 'took ' + r.ms)
-	assert.deepEqual(r.value.items.filter(i => i.kind === 'rules').map(i => i.label), ['keep.md'])
+	assert.deepEqual(r.value.items.filter(i => i.kind === 'rules').map(i => i.label), ['keep.md', 'u/NEWS.md'])
 })
 
 // ---- 2: quadratic parsing -----------------------------------------------------------------------------------------------------
@@ -202,7 +204,7 @@ test('a CLAUDE.md that imports a network path or a path outside the folder, and 
 	// The CLI trusts the folder's own: an import from the parent is checked, a network path never is.
 	const cli = await LI.lintFolder?.(dir)
 	void cli
-	const harness = await scan(dir)
+	const harness = await scanTrusted(dir)
 	const issues = harness.items.flatMap(i => i.issues)
 	assert.ok(!issues.some(i => i.code === 'broken-import' && /attacker/.test(i.message)), 'a network path is not checked in a trusted scan either')
 	assert.ok(issues.some(i => i.code === 'broken-import'), 'a trusted scan still checks @/etc/hosts.md')
@@ -292,6 +294,18 @@ const LEAKS = [
 	// the same with the program around it and after it
 	['$env:API_TOKEN="hunter2xyz"', 'hunter2xyz'], ['db.password="hunter2 xyz"', 'xyz'], ['token = "hunter2xyz"', 'hunter2xyz'], ['password = hunter2xyz', 'hunter2xyz'], ['curl -d \'password="hunter2xyz"\' x', 'hunter2xyz'],
 	['bash -c "TOKEN=hunter2xyz npm run x && echo ok"', 'hunter2xyz'], ['sudo -u x env PASSWORD=hunter2xyz run', 'hunter2xyz'], ['a && b --secret hunter2xyz || c', 'hunter2xyz'], ['x\nY_TOKEN=hunter2xyz\nz', 'hunter2xyz'],
+	// short flags of the programs that take a secret there, however the program is launched
+	['sudo mysql -phunter2xyz', 'hunter2xyz'], ['sudo -u root mysql -p hunter2xyz db', 'hunter2xyz'], ['env FOO=1 mysqldump -phunter2xyz db', 'hunter2xyz'], ['time mariadb -p hunter2xyz', 'hunter2xyz'], ['npx mongosh -p hunter2xyz', 'hunter2xyz'],
+	['docker login -u me -p hunter2xyz reg.io', 'hunter2xyz'], ['docker --debug login -p hunter2xyz', 'hunter2xyz'], ['podman login -p hunter2xyz r', 'hunter2xyz'], ['ldapsearch -x -w hunter2xyz -b base', 'hunter2xyz'], ['sqlcmd -S h -U sa -P hunter2xyz', 'hunter2xyz'],
+	['zip -P hunter2xyz a.zip b', 'hunter2xyz'], ['echo y | sshpass -p hunter2xyz ssh h', 'hunter2xyz'], ['nohup sshpass -p hunter2xyz scp a h:b', 'hunter2xyz'], ['curl -s -u hunter2xyz:x https://a.dev', 'hunter2xyz'], ['xargs curl -u a:hunter2xyz', 'hunter2xyz'],
+	['pnpm dlx redis-cli -a hunter2xyz ping', 'hunter2xyz'], ['yarn dlx http -a u:hunter2xyz x', 'hunter2xyz'],
+	// stdin, command substitutions and positional values
+	['docker login --password-stdin <<< hunter2xyz', 'hunter2xyz'], ['gh auth login --with-token <<< hunter2xyz', 'hunter2xyz'], ['docker login -u me --password-stdin 2>&1 <<< hunter2xyz', 'hunter2xyz'], ['gh auth login --with-token <<<"hunter2xyz"', 'hunter2xyz'],
+	['TOKEN=$(cat ~/.hunter2xyz)', 'hunter2xyz'], ['TOKEN=`cat ~/.hunter2xyz`', 'hunter2xyz'], ['export API_KEY="$(pass show hunter2xyz)" && run', 'hunter2xyz'], ['SECRET=$(echo $(cat ~/.hunter2xyz) | tr a b) run', 'hunter2xyz'],
+	['docker exec -it db mysql -uroot -phunter2xyz', 'hunter2xyz'], ['docker compose exec db mysql -phunter2xyz', 'hunter2xyz'], ['kubectl exec -it db -- mysql -phunter2xyz', 'hunter2xyz'], ['ssh host mysql -phunter2xyz', 'hunter2xyz'],
+	['bash -c "mysql -phunter2xyz"', 'hunter2xyz'], ["sh -c 'mysql -p hunter2xyz db'", 'hunter2xyz'], ['docker exec r redis-cli -a hunter2xyz ping', 'hunter2xyz'], ['ssh host curl -u a:hunter2xyz x', 'hunter2xyz'],
+	['TOKEN=$(a $(b $(cat hunter2xyz)))', 'hunter2xyz'], ['TOKEN=$(a $(b $(cat hunter2xyz', 'hunter2xyz'], ['mytool --user admin:hunter2xyz', 'hunter2xyz'], ['wget --user a:hunter2xyz x', 'hunter2xyz'],
+	['aws configure set aws_secret_access_key hunter2xyz', 'hunter2xyz'], ['aws configure set --profile p aws_secret_access_key hunter2xyz', 'hunter2xyz'], ['npm config set //registry.npmjs.org/:_authToken hunter2xyz', 'hunter2xyz'], ['git config set credential.password hunter2xyz', 'hunter2xyz'],
 ]
 
 test('redaction by name: dozens of hostile lines, and none of their secrets is in the output', T, () => {
@@ -301,13 +315,39 @@ test('redaction by name: dozens of hostile lines, and none of their secrets is i
 	assert.ok(LEAKS.length >= 100, 'a table of ' + LEAKS.length)
 })
 
+/** Everyday hook commands: every one must come out of `redact` exactly as it went in. (A bare `NAME=value` is not here: an environment assignment is hidden on purpose.) */
+const ORDINARY = [
+	'mvn -pl auth-service test', 'mvn -q -pl auth-service -am clean install', 'npx tsc -p .', 'npx tsc -p tsconfig.build.json --noEmit', 'bunx tsc -p .', 'pnpm dlx tsc -p .', 'yarn dlx tsc -p .', 'sudo mkdir -p /opt/x',
+	'time cargo build -p core', 'cargo test -p auth-core -- --nocapture', 'ssh -p 2222 deploy@host', 'ssh -i ~/.ssh/id_ed25519 -p 22 host', 'docker compose -p myproj up -d', 'docker run -p 8080:80 nginx', 'docker exec -it web sh -c "ls /app"',
+	'pytest -p no:cacheprovider tests/', 'python -m pytest -p no:randomly -q', 'uv run -p 3.12 pytest', 'git add -p src/a.ts', 'git push -u origin main', 'git stash -u', 'git log -n 5 --oneline', 'git diff --stat HEAD~1',
+	'git commit -m "fix: handle empty input"', 'git commit --author "A B <a@b.c>" -m "fix"', 'gh pr create --title "feat: auth flow" --body-file body.md', 'mkdir -p out', 'cp -p a b', 'lsof -p 1234',
+	'npm install -D typescript', 'npm run auth:check', 'npm run session:clear', 'npm run test:auth -- --watch', 'pnpm -r run build', 'pnpm --filter auth-service test', 'yarn workspace auth-service build', 'kubectl -n auth get pods',
+	'rsync -avz -e "ssh -p 2222" src/ host:dst/', 'ls -la', 'grep -rn "TODO" src', 'find . -name "*.ts" -not -path "./node_modules/*"', 'sed -n 1,20p README.md', 'tar -xzf a.tgz -C out', 'rm -rf dist', 'wc -l src/*.ts',
+	'curl -s -o /dev/null -w "%{http_code}" https://example.com/health', 'curl -X POST -H "Content-Type: application/json" -d "{}" http://localhost:3000/api', 'node --test test/*.test.mjs', 'node scripts/build.mjs --watch --port 3000',
+	'eslint . --max-warnings 0', 'prettier --check "src/**/*.ts"', 'dotnet test --no-build -c Release', 'go test ./auth/... -run TestLogin -count=1', 'make -j4 all', 'jq -r ".name" package.json', 'echo "build done" >> log.txt',
+	'pip install --user requests', 'systemctl --user restart app', 'docker run --user 1000:1000 img', 'docker run -d --name mysql -p 3306:3306 mysql:8', 'docker compose -p mysql up -d', 'ssh -p 2222 mysql-host', 'rsync -e "ssh -p 2222" mysql/ h:d/',
+	'cd editor/extensions/flow-harness && npm test', 'bash .claude/hooks/check.sh', 'bash "$CLAUDE_PROJECT_DIR"/.claude/hooks/check.sh', 'npx -y @scope/server --path=/usr/bin --config ./c.json',
+]
+
+test('everyday hook commands come out of redact byte for byte, and each short flag of a secret-taking program still hides its value', T, () => {
+	const R = R0.redact
+	assert.ok(ORDINARY.length >= 45, 'a table of ' + ORDINARY.length)
+	assert.deepEqual(ORDINARY.map(line => [line, R(line, 400)]).filter(([line, out]) => out !== line).map(([line, out]) => `${line}  =>  ${out}`), [])
+	assert.equal(R('mysql -u root -phunter2xyz db', 400), 'mysql -u root -p*** db')
+	assert.equal(R('docker login --password-stdin <<< hunter2xyz', 400), 'docker login --password-stdin <<< ***')
+	assert.equal(R('TOKEN=$(cat ~/.token)', 400), 'TOKEN=***')
+	assert.equal(R('echo $(date) && grep -q x <<< "$y"', 400), 'echo $(date) && grep -q x <<< "$y"', 'a here-string with no secret-named flag is kept')
+	assert.equal(R('aws configure set region eu-west-1', 400), 'aws configure set region eu-west-1')
+})
+
 test('redaction leaves harmless commands readable', T, () => {
 	const R = R0.redact
 	for (const line of ['npm run lint -- --fix', 'prettier --write src', 'node scripts/build.mjs --watch --port 3000', 'git commit --author "A B <a@b.c>" -m "fix"', 'jest --passWithNoTests src', 'eslint . --max-warnings 0 --exit-code 1',
 		'bash .claude/hooks/check.sh', 'echo "Content-Type: application/json"', 'curl -H "Accept: application/json" -H "User-Agent: x" https://api.example.com/v1/items?page=2&per_page=10', 'tsc --noEmit -p .', 'npx -y @scope/server --path=/usr/bin --config ./c.json']) {
 		assert.equal(R(line, 400), line)
 	}
-	assert.equal(R('git push -u origin main'), 'git push -u *** main', 'a flag that may carry user:pass hides its word, the rest stays')
+	assert.equal(R('git push -u origin main'), 'git push -u origin main', '-u is hidden for the programs that take user:pass there (curl), not for git')
+	assert.equal(R('curl -u admin:hunter2 https://x.dev'), 'curl -u *** https://x.dev')
 })
 
 test('a cut inside a token cannot leave its start in view: the last word of a cut input is dropped when everything before it shrank into view', T, () => {
@@ -339,12 +379,13 @@ test('rules full of globs: 500 rule files of 100 globs against 20 000 files, bra
 	}))
 	files.push({ file: '/p/.claude/rules/bomb.md', label: 'bomb.md', kind: 'claude-rule', text: '---\npaths: ["' + '{a,b}'.repeat(40) + '", "*a*a*a*a*a*a*a*a*b", "**/**/**/**/x", "' + 'x'.repeat(5000) + '"]\n---\nbody\n' })
 	const projectFiles = Array.from({ length: 20_000 }, (_, i) => `src/pkg${i % 50}/module${i}/${'a'.repeat(60)}.ts`)
-	const r = await timed(() => LI.lint({ files, hooks: [], rules: [], cwd: '/p', home: '/h', projectFiles }))
+	const r = await timed(() => LI.lint({ files, hooks: [], rules: [], cwd: '/p', home: '/h', projectFiles, untrusted: true }))
 	assert.ok(r.ms < 2500, 'took ' + r.ms)
 	assert.ok(!r.value.some(f => f.file.endsWith('bomb.md') && f.code === 'dead-glob'), 'no verdict on globs that cannot be matched safely')
 	// And an ordinary dead glob is still found, with a glob that is compiled once.
-	const one = LI.lint({ files: [files[0]], hooks: [], rules: [], cwd: '/p', home: '/h', projectFiles })
-	assert.equal(one.filter(f => f.code === 'dead-glob').length, 50, 'a file has at most 50 findings of one check')
+	const one = LI.lint({ files: [files[0]], hooks: [], rules: [], cwd: '/p', home: '/h', projectFiles, untrusted: true })
+	assert.equal(one.filter(f => f.code === 'dead-glob').length, 50, 'a file of a folder nobody trusts has at most 50 findings of one check')
+	assert.equal(LI.lint({ files: [files[0]], hooks: [], rules: [], cwd: '/p', home: '/h', projectFiles }).filter(f => f.code === 'dead-glob').length, 100, 'and a trusted one has all of them')
 	const live = LI.lint({ files: [{ file: '/p/r.md', label: 'r.md', kind: 'claude-rule', text: '---\npaths: ["src/**/*.ts"]\n---\nbody\n' }], hooks: [], rules: [], cwd: '/p', home: '/h', projectFiles })
 	assert.deepEqual(live.filter(f => f.code === 'dead-glob'), [])
 })

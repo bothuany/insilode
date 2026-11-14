@@ -49,8 +49,10 @@ export interface LintInput {
 	rules: readonly (Rule & { line: number })[];
 	/** Project files relative to the root with `/`, bounded; undefined skips the glob check. */
 	projectFiles?: readonly string[];
-	/** True when `projectFiles` hit its bound: a glob that matches nothing may match a file not listed. */
+	/** True when `projectFiles` hit its bound: a glob that matches nothing may match a file not listed, so no glob is called dead. */
 	projectFilesTruncated?: boolean;
+	/** The files are those of a folder nobody trusted: the glob checks have a time budget and look at no long path, and a file has at most MAX_PER_CHECK findings of one check (each cut is a finding). Default false. */
+	untrusted?: boolean;
 	cwd: string;
 	home: string;
 }
@@ -72,7 +74,7 @@ const FRONT_VALUE = 4096;
 /** The longest line of prose compared with the others, and the most globs one rule is checked for. */
 const MAX_STATEMENT = 1000;
 const MAX_GLOBS = 100;
-/** The most findings of one check in one file. */
+/** The most findings of one check in one file, for an untrusted folder only (a file full of the same mistake is one list of it, not a hundred thousand lines). */
 const MAX_PER_CHECK = 50;
 
 function frontBlock(text: string): Front | undefined {
@@ -238,17 +240,20 @@ export function ruleGlobs(f: LintFile): { glob: string; line: number }[] {
 	return [...parts, ...entry.list].map(g => g.trim().replace(/^(["'])(.*)\1$/, '$2')).filter(Boolean).slice(0, MAX_GLOBS).map(glob => ({ glob, line: entry.line }));
 }
 
-/** How long all the glob checks of one lint run may take together, and the longest path they look at: rules are the text of files, and 500 rules of 100 globs against 20 000 files is a billion matches. */
+/** For an untrusted folder: how long all the glob checks of one lint run may take together, and the longest path they look at: rules are the text of files, and 500 rules of 100 globs against 20 000 files is a billion matches. A trusted folder has neither. */
 const GLOB_MS = 500;
 const MAX_PATH = 400;
 
 function lintGlobs(f: LintFile, input: LintInput, out: Finding[], until: number, longPaths: boolean) {
-	if (!input.projectFiles || (f.kind !== 'claude-rule' && f.kind !== 'cursor-rule')) {
+	// A cut listing is no ground for "matches no file": the file may be in the part not listed (the scan says the listing was cut: scanCore.ts).
+	if (!input.projectFiles || (f.kind !== 'claude-rule' && f.kind !== 'cursor-rule') || input.projectFilesTruncated) {
 		return;
 	}
+	let skipped: number | undefined;
 	for (const { glob, line } of ruleGlobs(f)) {
-		// No verdict, so no finding, for a glob that is too elaborate to match safely, a listing with paths too long to look at, or a check that ran out of time.
+		// No verdict, so no finding, for a glob that is too elaborate to match safely, a listing with paths too long to look at, or a check that ran out of time: said once per file below.
 		if (!globIsBounded(glob) || longPaths) {
+			skipped ??= line;
 			continue;
 		}
 		const match = globMatcher(glob);
@@ -263,15 +268,19 @@ function lintGlobs(f: LintFile, input: LintInput, out: Finding[], until: number,
 			}
 		}
 		if (n < input.projectFiles.length && !found) {
+			skipped ??= line;
 			continue;
 		}
 		if (!found) {
 			out.push({
-				file: f.file, line, severity: input.projectFilesTruncated ? 'info' : 'warning', code: 'dead-glob',
-				message: `${glob} matches no file in the project${input.projectFilesTruncated ? ' among the files Insilode listed' : ''}: the rule never loads`,
+				file: f.file, line, severity: 'warning', code: 'dead-glob',
+				message: `${glob} matches no file in the project: the rule never loads`,
 				fix: 'Point the glob at the folder you meant (globs are relative to the project root), or delete the rule',
 			});
 		}
+	}
+	if (skipped !== undefined) {
+		out.push({ file: f.file, line: skipped, severity: 'info', code: 'scan-limited', message: 'A glob of this rule was too elaborate, or took too long, to check against the project\'s files, so it got no verdict.', fix: '' });
 	}
 }
 
@@ -517,8 +526,8 @@ function sampleCall(tool: string, spec: string | undefined) {
 
 export function lint(input: LintInput): Finding[] {
 	const all: Finding[] = [];
-	const until = Date.now() + GLOB_MS;
-	const longPaths = !!input.projectFiles?.some(p => p.length > MAX_PATH);
+	const until = input.untrusted ? Date.now() + GLOB_MS : Infinity;
+	const longPaths = !!input.untrusted && !!input.projectFiles?.some(p => p.length > MAX_PATH);
 	for (const f of input.files) {
 		lintFrontmatter(f, all);
 		lintGlobs(f, input, all, until, longPaths);
@@ -526,13 +535,20 @@ export function lint(input: LintInput): Finding[] {
 	lintOverlap(input, all);
 	lintHooks(input, all);
 	lintRules(input, all);
-	// A file full of the same mistake is one list of it, not a hundred thousand lines.
-	const seen = new Map<string, number>();
-	const out = all.filter(x => {
-		const key = `${x.file}\n${x.code}`;
-		seen.set(key, (seen.get(key) ?? 0) + 1);
-		return seen.get(key)! <= MAX_PER_CHECK;
-	});
+	let out = all;
+	if (input.untrusted) {
+		const seen = new Map<string, { file: string; code: string; count: number }>();
+		out = all.filter(x => {
+			const entry = seen.get(`${x.file}\n${x.code}`) ?? { file: x.file, code: x.code, count: 0 };
+			seen.set(`${x.file}\n${x.code}`, entry);
+			return ++entry.count <= MAX_PER_CHECK;
+		});
+		for (const { file, code, count } of seen.values()) {
+			if (count > MAX_PER_CHECK) {
+				out.push({ file, line: 0, severity: 'info', code: 'scan-limited', message: `${count - MAX_PER_CHECK} more ${code} findings in this file were not listed.`, fix: '' });
+			}
+		}
+	}
 	const rank = { error: 0, warning: 1, info: 2 };
 	return out.sort((a, b) => rank[a.severity] - rank[b.severity] || a.file.localeCompare(b.file) || a.line - b.line);
 }
