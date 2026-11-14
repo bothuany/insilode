@@ -20,6 +20,7 @@ import { Peers } from './peers';
 import { pickAgent } from './pick';
 import { PrEvents } from './prEvents';
 import { startOrResume } from './resume';
+import { toggleBypass } from './bypass';
 import { sweepLeftoverCopies } from './swap';
 import { AgentSessionType } from './sessionType';
 import { WorktreeRows } from './worktreeActions';
@@ -79,6 +80,7 @@ export function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('flow.agents.newClaudeWorktree', () => agents.spawn('claude', undefined, undefined, 'worktree')),
 		vscode.commands.registerCommand('flow.agents.newCodexWorktree', () => agents.spawn('codex', undefined, undefined, 'worktree')),
 		vscode.commands.registerCommand('flow.agents.resume', () => startOrResume(agents, 'claude', false)),
+		vscode.commands.registerCommand('flow.agents.claudeBypass', () => toggleBypass()),
 		// The dock's ⇄ on an agent row: the same conversation, continued in the other CLI (swap.ts).
 		vscode.commands.registerCommand('flow.agents.swap', (id?: unknown) => swapFromPalette(agents, id)),
 		vscode.commands.registerCommand('flow.agents.rename', (id?: unknown) => renameFromPalette(agents, id)),

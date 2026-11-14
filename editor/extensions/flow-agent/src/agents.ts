@@ -30,6 +30,7 @@ import { shimScript } from './shim';
 import { canExplain, explainPrompt } from './explain';
 import { claudeHookCommand, hookRunner, hookScript, type HookRunner } from './hookScript';
 import { ShellEditSweep } from './shellEdits';
+import { bypassAllowed } from './bypass';
 import { SKELETON_GATE, SKELETON_PROMPT_GATE } from './skeleton';
 import { canType, notReady, oneLine, slashRefusal, slashText, type AgentCli, type AgentState, type CustomCli, type SessionInfo, type SlashKind, type SlashResult } from './askTarget';
 import { applyUsage, claudeTranscriptUsage, codexRolloutUsage, endUsage, findOnPath, hasOwnStatusLine, LimitsSender, parseClaudeStatus, statusScript, type ContextUsage, type UsageLimits } from './usage';
@@ -799,7 +800,7 @@ export class Agents implements vscode.Disposable {
 		const codexHooks = !!codex?.hooks;
 		const profile = codex ? ` -p ${CODEX_PROFILE}` : '';
 		const command = cli === 'claude'
-			? claudeCommand({ resume: !!resume, id, settings: this.server && this.settingsOk ? this.claudeSettings() : undefined, mcp, allowBypass: vscode.workspace.getConfiguration('flowAgent.claude').get<boolean>('allowBypassPermissions', false) === true })
+			? claudeCommand({ resume: !!resume, id, settings: this.server && this.settingsOk ? this.claudeSettings() : undefined, mcp, allowBypass: bypassAllowed() })
 			// Codex chose its session id; until a hook told us, `codex resume` without one opens its own picker.
 			// The id is typed into the shell: one that is not a uuid (from a hook, or Codex's importer) is never typed; Codex's picker opens instead.
 			: cli === 'codex' ? (resume ? `codex resume${profile}${resume.agentId && UUID.test(resume.agentId) ? ` ${resume.agentId}` : ''}` : `codex${profile}`)

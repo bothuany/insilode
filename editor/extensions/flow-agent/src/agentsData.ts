@@ -93,6 +93,8 @@ export interface AgentsPageData {
 	limits?: UsageLimits;
 	/** The names of the user's own agents (flow.agents.custom), for the New menu. */
 	customs: string[];
+	/** flowAgent.claude.allowBypassPermissions, for the Claude start menu's bypass item. */
+	bypass?: boolean;
 	/** This window's project, for the sidebar's first group. */
 	project?: { name: string };
 	/** Other open windows' projects and sessions, and projects with no window (peers.ts). */

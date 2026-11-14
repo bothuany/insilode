@@ -279,7 +279,7 @@
           "type": "boolean",
           "default": false,
           "scope": "machine",
-          "markdownDescription": "Offer Claude Code's own **bypass permissions** mode in terminal Claude sessions: Insilode starts them with `--allow-dangerously-skip-permissions`, so you can switch to that mode with Shift+Tab. Sessions still start in their usual mode, and nothing is bypassed until you switch. In that mode Claude runs every tool without asking. Off by default; a repository's settings cannot turn it on. Does not change the chat panel."
+          "markdownDescription": "Offer Claude Code's own **bypass permissions** mode in terminal Claude sessions: Insilode starts them with `--allow-dangerously-skip-permissions`, so you can switch to that mode with Shift+Tab. Sessions still start in their usual mode, and nothing is bypassed until you switch. In that mode Claude runs every tool without asking. Off by default; a repository's settings cannot turn it on. The menu beside the Claude button in the Agents dock turns it on (after a warning) or off. Does not change the chat panel."
         },
         "flow.agents.showChat": {
           "type": "boolean",

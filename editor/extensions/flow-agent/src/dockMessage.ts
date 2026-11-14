@@ -10,8 +10,11 @@
 export const WORKTREE_ACTIONS = ['open', 'diff', 'merge', 'remove'] as const;
 export type WorktreeAction = typeof WORKTREE_ACTIONS[number];
 
-/** The other ways to start an agent, from the menu beside its button: in a worktree of its own, or resuming an earlier session. */
-export const START_HOWS = ['worktree', 'resume'] as const;
+/**
+ * The other ways to start an agent, from the menu beside its button: in a worktree of its own, or resuming an earlier session.
+ * `bypass` starts nothing: it is Claude's switch for offering bypass permissions mode (src/bypass.ts), so Codex has none.
+ */
+export const START_HOWS = ['worktree', 'resume', 'bypass'] as const;
 export type StartHow = typeof START_HOWS[number];
 
 export type DockAction =
@@ -53,7 +56,7 @@ export function dockAction(raw: unknown): DockAction | undefined {
 		case 'new':
 			return m.cli === 'claude' || m.cli === 'codex' ? { type: 'new', cli: m.cli } : undefined;
 		case 'start':
-			return (m.cli === 'claude' || m.cli === 'codex') && START_HOWS.includes(m.how as StartHow) ? { type: 'start', cli: m.cli, how: m.how as StartHow } : undefined;
+			return (m.cli === 'claude' || m.cli === 'codex') && START_HOWS.includes(m.how as StartHow) && (m.how !== 'bypass' || m.cli === 'claude') ? { type: 'start', cli: m.cli, how: m.how as StartHow } : undefined;
 		case 'flow':
 			return id !== undefined && typeof m.index === 'number' && Number.isInteger(m.index) && m.index >= 0 ? { type: 'flow', id, index: m.index } : undefined;
 		case 'sk':

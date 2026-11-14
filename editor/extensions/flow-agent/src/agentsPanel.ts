@@ -8,6 +8,8 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { buildRows, skeletonStages } from './agentRows';
 import type { Agents } from './agents';
+import { bypassAllowed, BYPASS_SETTING } from './bypass';
+import type { StartHow } from './dockMessage';
 import type { AgentsPageData, AgentsPageMessage, AgentsPageTail } from './agentsData';
 import { agentsAction } from './agentsMessage';
 import { agentsHtml } from './agentsPage';
@@ -71,7 +73,7 @@ export class AgentsPanel implements vscode.Disposable {
 			this.agents.onDidChange(repaint),
 			...(this.worktrees ? [this.worktrees.onDidChange(repaint)] : []),
 			...(this.peers ? [this.peers.onDidChange(repaint)] : []),
-			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst') || e.affectsConfiguration('flow.agents.custom')) && this.post()),
+			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst') || e.affectsConfiguration('flow.agents.custom') || e.affectsConfiguration(BYPASS_SETTING)) && this.post()),
 			// A hidden page is not repainted (it keeps its state anyway): it catches up the moment it shows again.
 			panel.onDidChangeViewState(e => e.webviewPanel.visible && this.post()),
 			panel.onDidDispose(() => this.release(panel)),
@@ -138,8 +140,11 @@ export class AgentsPanel implements vscode.Disposable {
 		}
 	}
 
-	/** "In a worktree" and "Resume a session…" of a start button's menu. */
-	private start(cli: 'claude' | 'codex', how: 'worktree' | 'resume') {
+	/** "In a worktree", "Resume a session…" and Claude's bypass switch of a start button's menu. */
+	private start(cli: 'claude' | 'codex', how: StartHow) {
+		if (how === 'bypass') {
+			return vscode.commands.executeCommand('flow.agents.claudeBypass');
+		}
 		if (how === 'worktree') {
 			return cli === 'claude' ? vscode.commands.executeCommand('flow.agents.newClaudeWorktree') : vscode.commands.executeCommand('flow.agents.newCodexWorktree');
 		}
@@ -182,6 +187,7 @@ export class AgentsPanel implements vscode.Disposable {
 				kept: this.agents.keptWorktrees.map(k => ({ agent: k.agent, branch: k.branch, base: k.base, folder: path.basename(k.path) })),
 				limits: this.agents.latestLimits,
 				customs: customs.map(a => a.name),
+				bypass: bypassAllowed(),
 				project: { name: vscode.workspace.workspaceFolders?.[0]?.name ?? 'This window' },
 				peers: this.peers?.view().peers ?? [],
 				recent: this.peers?.view().recent ?? [],

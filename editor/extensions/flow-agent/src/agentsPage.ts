@@ -337,6 +337,7 @@ function setMenu(on) {
 			item('Codex in a worktree', { type: 'start', cli: 'codex', how: 'worktree' }),
 			item('Resume a Claude session…', { type: 'start', cli: 'claude', how: 'resume' }),
 			item('Resume a Codex session…', { type: 'start', cli: 'codex', how: 'resume' }),
+			item(data.bypass ? '✓ Claude: bypass permissions mode offered (turn off)' : 'Claude: allow bypass permissions mode…', { type: 'start', cli: 'claude', how: 'bypass' }),
 			h('hr'),
 			data.customs.map((n, i) => item(n, { type: 'custom', index: i, name: n })),
 			data.customs.length ? h('hr') : null,

@@ -202,6 +202,21 @@ test('Claude and Codex are split buttons with a chevron that has a menu; the las
 	assert.match(html, /<div id="menu" class="menu" role="menu" hidden>/)
 })
 
+test('the Claude menu ends with the bypass switch (its state from the host); the Codex menu has none', () => {
+	const { chev, menu, send } = boot()
+	chev.onclick({ detail: 1 })
+	assert.match(menu.innerHTML, /data-how="bypass"[^>]*>Allow bypass permissions mode…</)
+	assert.match(menu.innerHTML, /role="menuitemcheckbox" aria-checked="false"/)
+	send([], { bypass: true })
+	chev.onclick({ detail: 1 })
+	chev.onclick({ detail: 1 })
+	assert.match(menu.innerHTML, /aria-checked="true"[^>]*data-how="bypass"[^>]*>✓ Bypass permissions mode offered \(turn off\)</)
+	chev.dataset.menu = 'codex'
+	chev.onclick({ detail: 1 })
+	chev.onclick({ detail: 1 })
+	assert.doesNotMatch(menu.innerHTML, /bypass/)
+})
+
 test('the menu opens with the keyboard, moves with the arrows, closes on Escape and gives focus back', () => {
 	const { chev, menu, items, posted, focus } = boot()
 	// Enter or Space on the chevron arrive as a click with no pointer: the menu opens and focus moves into it.

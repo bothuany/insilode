@@ -162,7 +162,7 @@ ${AVATAR_CSS}
 .peer button:hover { background: var(--hover); }
 </style></head><body>
 <div class="new">
-	<div class="split"><button type="button" class="go" data-cli="claude" title="Start Claude Code in a new terminal, or resume an earlier session">${ICON.claude}Claude</button><button type="button" class="chev" data-menu="claude" aria-haspopup="menu" aria-expanded="false" aria-controls="menu" aria-label="More ways to start Claude Code" title="In a worktree, or resume a session">&#9662;</button></div>
+	<div class="split"><button type="button" class="go" data-cli="claude" title="Start Claude Code in a new terminal, or resume an earlier session">${ICON.claude}Claude</button><button type="button" class="chev" data-menu="claude" aria-haspopup="menu" aria-expanded="false" aria-controls="menu" aria-label="More ways to start Claude Code" title="In a worktree, resume a session, or allow bypass permissions mode">&#9662;</button></div>
 	<div class="split"><button type="button" class="go" data-cli="codex" title="Start Codex in a new terminal, or resume an earlier session">${ICON.codex}Codex</button><button type="button" class="chev" data-menu="codex" aria-haspopup="menu" aria-expanded="false" aria-controls="menu" aria-label="More ways to start Codex" title="In a worktree, or resume a session">&#9662;</button></div>
 	<button type="button" class="more" data-cli="pick" title="Start another agent: Gemini, Aider, your own command…" aria-label="Start another agent">More agents…</button>
 </div>
@@ -331,7 +331,8 @@ document.getElementById('list').addEventListener('click', e => {
 });
 // The start buttons: one click starts; the chevron beside each opens a small menu (worktree, resume), with the keys a menu has.
 const menuEl = document.getElementById('menu');
-const MENU = [['worktree', 'In a worktree'], ['resume', 'Resume a session…']];
+// Claude's menu ends with the switch for offering bypass permissions mode; the host says whether it is on, and turning it on asks first.
+const menuFor = cli => [['worktree', 'In a worktree'], ['resume', 'Resume a session…']].concat(cli === 'claude' ? [['bypass', data.bypass ? '✓ Bypass permissions mode offered (turn off)' : 'Allow bypass permissions mode…']] : []);
 let menuOwner;
 function closeMenu(refocus) {
 	if (!menuOwner) { return; }
@@ -343,7 +344,7 @@ function closeMenu(refocus) {
 }
 function openMenu(btn, focusFirst) {
 	closeMenu(false);
-	menuEl.innerHTML = MENU.map(m => '<button type="button" role="menuitem" tabindex="-1" data-how="' + m[0] + '" data-cli="' + esc(btn.dataset.menu) + '">' + esc(m[1]) + '</button>').join('');
+	menuEl.innerHTML = menuFor(btn.dataset.menu).map(m => '<button type="button" role="' + (m[0] === 'bypass' ? 'menuitemcheckbox" aria-checked="' + (data.bypass ? 'true' : 'false') : 'menuitem') + '" tabindex="-1" data-how="' + m[0] + '" data-cli="' + esc(btn.dataset.menu) + '">' + esc(m[1]) + '</button>').join('');
 	menuEl.setAttribute('aria-label', 'Start ' + (btn.dataset.menu === 'claude' ? 'Claude Code' : 'Codex'));
 	menuEl.hidden = false;
 	const r = btn.getBoundingClientRect();
