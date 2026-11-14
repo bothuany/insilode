@@ -1,0 +1,146 @@
+editor/extensions/flow-harness/cli/harness-lint.ts
+  s_c2897d6f2cc16d::t_213d1557039d19 10,12-13,64
+editor/extensions/flow-harness/src/scanFsHost.ts
+  s_c2897d6f2cc16d::t_154a0af037881b 50-51
+  s_c2897d6f2cc16d::t_db51288c6f1ed4 19-20,23-25,28,45-46,56
+editor/extensions/flow-agent/src/agentsPanel.ts
+  s_c2897d6f2cc16d::t_65a9bcd875d51e 16,21,155,166-171,173-174,215,231-245
+  s_c2897d6f2cc16d::t_0275b247f8401f 19,72-80,212-214,217-219,246-258,354-355
+  s_c2897d6f2cc16d::t_9e17fb8d793f90 414
+  s_c2897d6f2cc16d::t_afe6205a097ed1 220-221
+editor/extensions/flow-agent/src/layoutStore.ts
+  s_c2897d6f2cc16d::t_8ad178a7b07395 21-35,51-58
+  s_c2897d6f2cc16d::t_389128b38c875a 59
+site/src/agentsPage.ts
+  s_c2897d6f2cc16d::t_bcb5bcfac2be32 5,171-205,240
+  s_c2897d6f2cc16d::t_9adf5d63000784 228,241-243
+editor/extensions/flow-agent/test/agentsPage.test.mjs
+  s_c2897d6f2cc16d::t_0cd1be58ac3268 1065-1066,1070-1096,1200,1206,1223-1243,1247,1253-1258,1262-1266,1271,1273
+  s_c2897d6f2cc16d::t_45541e9844f2aa 1260,1582
+  s_c2897d6f2cc16d::t_bb33b72692dbad 1875-1949,1951-2031,2033,2036-2037,2052-2201,2203-2227,2273-2275
+  s_c2897d6f2cc16d::t_dc31393f9b00dd 69,89,99-101
+  s_c2897d6f2cc16d::t_1eb7623d4ba118 645,647-648,650-652,654-656,658,761
+  s_c2897d6f2cc16d::t_8f21aa1fde1010 1950,2032,2034-2035,2038-2051,2202
+  s_c2897d6f2cc16d::t_598e4d11b4b847 607-609,614-633,635-644,646,649,653,657,659-662,664-667,670,675-692,698,703,706,710-760,764-794,803,806-812
+  s_c2897d6f2cc16d::t_4edd5984201cd6 1244-1246,1248-1252,1259,1261,1267-1270,1272,1274
+  s_c2897d6f2cc16d::t_5ae3c95694459f 2242,2250,2258
+  s_c2897d6f2cc16d::t_6fa5fdbf9f313d 2228-2238,2244-2245,2247,2249,2252,2255,2260,2262-2264,2266-2272
+  s_c2897d6f2cc16d::t_e044dd573e8a65 2239-2241,2243,2246,2248,2251,2253-2254,2256-2257,2259,2261,2265
+editor/extensions/flow-agent/src/agentsWorkspace.ts
+  s_c2897d6f2cc16d::t_9e17fb8d793f90 636-637
+  s_c2897d6f2cc16d::t_9fe15cc2040757 322,426,634-635,642
+  s_c2897d6f2cc16d::t_6fa5fdbf9f313d 319
+  s_c2897d6f2cc16d::t_5641e6bd15c960 273,728,730,897,903,911,914-924,927
+  s_c2897d6f2cc16d::t_b822d707fd3bbe 390-391,393
+  s_c2897d6f2cc16d::t_2b17ca8a334a47 501-503,865-881,886-887,890-894
+editor/extensions/flow-harness/src/summaryCore.ts
+  s_c2897d6f2cc16d::t_316a09b9ea26f5 12,90-91,93,110,122-123,182-184,187
+  s_c2897d6f2cc16d::t_2163fb488ea4ed 194
+  s_c2897d6f2cc16d::t_f6836259e35327 1-11,13-89,92,94-109,111-121,124-181,185-186,188-193,195-205
+editor/extensions/flow-agent/test/agentsPanel.test.mjs
+  s_c2897d6f2cc16d::t_fa5c20b525fdf1 127-147,233-246
+  s_c2897d6f2cc16d::t_7a3d03568efc28 25-29,247,390-520
+  s_c2897d6f2cc16d::t_63c64cd3809a88 248
+editor/extensions/flow-harness/test/summary.test.mjs
+  s_c2897d6f2cc16d::t_c5b8469ea2734f 49-52
+  s_c2897d6f2cc16d::t_eb5b0417a53381 95-96
+  s_c2897d6f2cc16d::t_231b701ac258e0 19-20,33,35,46,48,118-120,131,136,161,164-175,182,242,301-337
+  s_c2897d6f2cc16d::t_6c6bddab10d4e1 286-291
+  s_c2897d6f2cc16d::t_6b1ff2e3b0df0d 1-18,21-32,34,36-45,47,53-94,97-117,121-130,132-135,137-160,162-163,176-181,183-241,243-285,292-300,338-362
+docs/privacy.md
+  s_c2897d6f2cc16d::t_8b585ac79db90b 13-14
+site/test/e2e.test.mjs
+  s_c2897d6f2cc16d::t_bcb5bcfac2be32 385-396,401-404
+  s_c2897d6f2cc16d::t_9adf5d63000784 397-400
+editor/extensions/flow-harness/src/redact.ts
+  s_c2897d6f2cc16d::t_a24f68154c0c29 1-10,12-20,24-26,28-52
+  s_c2897d6f2cc16d::t_c643de42655361 23,27
+  s_c2897d6f2cc16d::t_eb5b0417a53381 21-22
+  s_c2897d6f2cc16d::t_3d22bb78211532 11
+editor/extensions/flow-agent/src/agentsShell.ts
+  s_c2897d6f2cc16d::t_5641e6bd15c960 137-143
+  s_c2897d6f2cc16d::t_ef7d14df8c6bcb 193-207,213,295-296,300,493
+  s_c2897d6f2cc16d::t_9fe15cc2040757 779
+  s_c2897d6f2cc16d::t_c9a9ab911cea80 358-362,829
+  s_c2897d6f2cc16d::t_e97afb88018247 372-374
+  s_c2897d6f2cc16d::t_134e3a4ad8fd0e 415,418-439,599,756
+.dependency-cruiser.cjs
+  s_c2897d6f2cc16d::t_a9dea16b318b34 108
+editor/extensions/flow-agent/test/paneLayout.test.mjs
+  s_c2897d6f2cc16d::t_f8d80ad51ced29 327-328
+  s_c2897d6f2cc16d::t_8efe3acfa23122 246,250,254-279,291-326,329-341
+  s_c2897d6f2cc16d::t_61fbae6d21073e 280-290
+  s_c2897d6f2cc16d::t_ea18c4b347a740 342
+editor/extensions/flow-agent/src/agentsMessage.ts
+  s_c2897d6f2cc16d::t_8ad178a7b07395 10,53,55-66,115-126,128-129
+  s_c2897d6f2cc16d::t_65a9bcd875d51e 71-79
+editor/extensions/flow-harness/package.json
+  s_c2897d6f2cc16d::t_b16e37b8399b38 186-190,299-300
+  s_c2897d6f2cc16d::t_f21a032536a639 301-302
+editor/extensions/flow-agent/test/agentsMessage.test.mjs
+  s_c2897d6f2cc16d::t_eab482c2980b59 180-215
+docs/agent-tools.md
+  s_c2897d6f2cc16d::t_b3aae2687017dd 66
+  s_c2897d6f2cc16d::t_8b585ac79db90b 67
+editor/extensions/flow-agent/src/harnessBridge.ts
+  s_c2897d6f2cc16d::t_d118546b6830a4 1-23,26-27,34-71,74-75,78-110
+  s_c2897d6f2cc16d::t_080a43136f05c1 24-25,28-33,72-73,76-77
+editor/extensions/flow-agent/src/harnessData.ts
+  s_c2897d6f2cc16d::t_dfd42ae9cff66b 1-107
+editor/extensions/flow-agent/src/agentsPage.ts
+  s_c2897d6f2cc16d::t_e97afb88018247 8,19,59,68
+test/arch/harness-cli.test.mjs
+  s_c2897d6f2cc16d::t_a9dea16b318b34 24
+editor/extensions/flow-agent/src/agentsHarnessPanel.ts
+  s_c2897d6f2cc16d::t_173f4ca8f40ee5 71-72,81,92-96,98,101-102,106-110,112-113,123,136,148,152,157,163,201,221,230,237-239,243-245,248-249,251,254,260,263,265-266,268-276,283-284,289-291,293-295,297-298,300,306,329-336,344
+  s_c2897d6f2cc16d::t_8f21aa1fde1010 308-309
+  s_c2897d6f2cc16d::t_6fa5fdbf9f313d 50,61,166,168-187,191-192,204-205
+  s_c2897d6f2cc16d::t_e97afb88018247 114,194,202-203,206-211,250,252-253,255-257
+  s_c2897d6f2cc16d::t_6d2dda37f22ca7 1-49,51-60,62-70,73-80,82-91,97,99-100,103-105,111,115-122,124-135,137-147,149-151,153-156,158-162,164-165,167,188-190,193,195-200,212-220,222-229,231-236,240-242,246-247,258-259,261-262,264,267,277-282,285-288,292,296,299,301-305,307,310-328,337-343,345-347
+editor/extensions/flow-harness/src/scanCore.ts
+  s_c2897d6f2cc16d::t_db51288c6f1ed4 58,412,608-617
+  s_c2897d6f2cc16d::t_6c6bddab10d4e1 97-98,112-113,121,627-629
+  s_c2897d6f2cc16d::t_2163fb488ea4ed 95-96,541,588,635
+  s_c2897d6f2cc16d::t_7a1174f2c07c6c 93-94,115-116,128-132,619
+editor/extensions/flow-harness/src/extension.ts
+  s_c2897d6f2cc16d::t_b16e37b8399b38 23
+  s_c2897d6f2cc16d::t_6a7818e24e88d8 294-295
+editor/extensions/flow-harness/src/harnessLint.ts
+  s_c2897d6f2cc16d::t_7a1174f2c07c6c 11,52,54,59
+  s_c2897d6f2cc16d::t_213d1557039d19 1-10,12-51,53,55-58,60-61
+editor/extensions/flow-harness/src/ignored.ts
+  s_c2897d6f2cc16d::t_7a1174f2c07c6c 27-28
+editor/extensions/flow-agent/src/paneLayout.ts
+  s_c2897d6f2cc16d::t_61fbae6d21073e 182-183,230,244,246,271
+  s_c2897d6f2cc16d::t_3cfddff9d34047 516
+  s_c2897d6f2cc16d::t_84495a83f26146 77-78,360-394,517,520,548,552
+editor/extensions/flow-harness/src/summary.ts
+  s_c2897d6f2cc16d::t_316a09b9ea26f5 13,89-92,105
+  s_c2897d6f2cc16d::t_770feb9c1d238d 1-11,14-23,26-36,39-40,48,50-88,94,97-100,102-104,106-127
+  s_c2897d6f2cc16d::t_b3be2d7798ca85 37-38,41-47,101
+  s_c2897d6f2cc16d::t_7a1174f2c07c6c 24-25,49,93,96
+  s_c2897d6f2cc16d::t_6c6bddab10d4e1 12,95
+editor/extensions/flow-agent/test/harnessBridge.test.mjs
+  s_c2897d6f2cc16d::t_db0018affd3c43 40
+  s_c2897d6f2cc16d::t_eab482c2980b59 1-39,41-133
+editor/extensions/flow-agent/src/agentsData.ts
+  s_c2897d6f2cc16d::t_65a9bcd875d51e 237-244
+  s_c2897d6f2cc16d::t_8ad178a7b07395 10-11,232-233,245
+  s_c2897d6f2cc16d::t_9e17fb8d793f90 104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "9d7fdf9ac777e069c69d2cf812d81e480b5dc924",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
