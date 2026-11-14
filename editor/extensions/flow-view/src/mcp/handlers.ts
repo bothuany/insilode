@@ -18,7 +18,7 @@ import { fillCode, isCanvasInput, lintOf, parseCanvasBoard, patchElements, rende
 import { formatLint, lintBoard } from '../board/lint';
 import { checkOverlap } from '../board/overlap';
 import { importMermaid } from '../board/mermaidImport';
-import { parseBoardWithNotes, type BoardHighlight, type BoardSpec } from '../board/spec';
+import { parseBoardWithNotes, type BoardHighlight, type BoardSpec } from '../../../../../board-canvas/spec';
 import { describeCandidate, matchSymbols, symbolQuery, type SymbolCandidate } from '../board/symbols';
 import { annotate, architectureFromGraph, checkScope, erFromTables, partialIndexNotes, sequenceFromFlow, stateFromEnum, strings, type FromCodeKind, type Generated } from '../board/fromCode';
 import { cleanBoardId, type BoardStore } from '../board/store';

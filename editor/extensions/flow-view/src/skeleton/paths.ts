@@ -5,7 +5,7 @@
  *  Pure: no vscode, no fs.
  *--------------------------------------------------------------------------------------------*/
 
-import type { BoardNode, BoardSpec } from '../board/spec';
+import type { BoardNode, BoardSpec } from '../../../../../board-canvas/spec';
 import type { TypeInfo } from '../types/model';
 
 export interface Target {

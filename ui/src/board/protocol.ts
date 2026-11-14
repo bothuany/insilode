@@ -1,7 +1,7 @@
 // What the board webview and its host (flow-view/src/boardPanel.ts) say to each other, and the look-up tables both the
 // renderer and the SVG export use. Pure: no DOM, no React.
 import type { Overrides } from '../../../board-canvas/canvas'
-import type { BoardSpec, ChangeMark, EdgeKind, EdgeLine, NodeKind } from './spec'
+import type { BoardSpec, ChangeMark, EdgeKind, EdgeLine, NodeKind } from '../../../board-canvas/spec'
 
 /** What a rebuild asks the host for. Mirrors flow-view's BoardOptions: the host recomputes the board from these. */
 export interface BoardOpts {

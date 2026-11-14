@@ -3,7 +3,7 @@
  *  The descriptions are written for the model: they say when to reach for each tool, in a few sentences
  *  (a test caps them at 600 characters); the rules and examples live in prompts.ts and the server instructions
  *  in protocol.ts. No tool writes a file. Keep draw_board's schema in sync with
- *  ../board/spec.ts (a test compares the enums).
+ *  board-canvas/spec.ts (a test compares the enums).
  *--------------------------------------------------------------------------------------------*/
 
 export interface ToolDef {

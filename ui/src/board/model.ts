@@ -1,7 +1,7 @@
 // The board's pure core: which nodes are visible (collapsed groups become one summary node), where each goes (a small
 // layered layout, recursive for nested groups) and which edges connect what is visible. No DOM, no React: the renderer
 // draws what this returns, the SVG export draws the same, and tests run it directly.
-import type { BoardEdge, BoardGroup, BoardMember, BoardNode, BoardSpec, ChangeMark, EdgeKind, EdgeLine } from './spec'
+import type { BoardEdge, BoardGroup, BoardMember, BoardNode, BoardSpec, ChangeMark, EdgeKind, EdgeLine } from '../../../board-canvas/spec'
 
 export interface Box { x: number; y: number; w: number; h: number }
 

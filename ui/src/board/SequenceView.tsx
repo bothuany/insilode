@@ -1,7 +1,7 @@
 // The sequence board on screen: the shapes of sequence.ts in one SVG with its own pan (drag) and zoom (wheel). The layout is the pure
 // buildSequence; nothing here decides where anything goes.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { BoardNode, BoardSpec } from './spec'
+import type { BoardNode, BoardSpec } from '../../../board-canvas/spec'
 import { buildSequence, sequenceShapes, type Lit, type SeqLayout, type Shape, type Tone } from './sequence'
 
 export const TONE_VAR: Record<Tone, string> = {

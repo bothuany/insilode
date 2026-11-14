@@ -8,7 +8,7 @@ import { ROOT } from './helpers.mjs'
 
 let spec, lint, symbols, tools
 before(async () => {
-	spec = await load('src/board/spec.ts')
+	spec = await load('../../../board-canvas/spec.ts')
 	lint = await load('src/board/lint.ts')
 	symbols = await load('src/board/symbols.ts')
 	tools = await load('src/mcp/tools.ts')
@@ -119,7 +119,7 @@ test('board-schema: sequence fragments need a group of kind alt, loop or opt', (
 })
 
 test('board-schema: the draw_board schema lists every new field and the enums match spec.ts', () => {
-	const src = readFileSync(join(ROOT, 'src', 'board', 'spec.ts'), 'utf8')
+	const src = readFileSync(join(ROOT, '..', '..', '..', 'board-canvas', 'spec.ts'), 'utf8')
 	const union = name => [...new RegExp(`export type ${name}\\s*=([^;]+);`).exec(src)[1].matchAll(/'([^']+)'/g)].map(x => x[1])
 	const props = tools.BOARD_SCHEMA.properties
 	assert.deepEqual(props.level.enum, union('BoardLevel'))

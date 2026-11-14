@@ -1,6 +1,6 @@
 # Boards: the diagram format agents draw
 
-An agent draws a board with the `draw_board` tool of the `insilode` MCP server (`editor/extensions/flow-view/src/mcp`). The board is JSON, checked by `parseBoard` (`src/board/spec.ts`, mirrored byte for byte in `ui/src/board/spec.ts`), laid out automatically (agents never send coordinates) and drawn by the board canvas (`ui/src/board`). The research behind the design is `docs/research/agent-diagrams.md`.
+An agent draws a board with the `draw_board` tool of the `insilode` MCP server (`editor/extensions/flow-view/src/mcp`). The board is JSON, checked by `parseBoard` (`board-canvas/spec.ts`, the one file the host and the canvas both import), laid out automatically (agents never send coordinates) and drawn by the board canvas (`ui/src/board`). The research behind the design is `docs/research/agent-diagrams.md`.
 
 `version: 1` stays: every field below is optional and old boards parse unchanged.
 

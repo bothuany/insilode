@@ -13,7 +13,7 @@ Not committed on purpose. Sources are marked: **[read]** I opened the code or th
 
 ## 1. What exists today (read)
 
-`draw_board` / `update_board` (`editor/extensions/flow-view/src/mcp/tools.ts`, handler `handlers.ts:1070`), spec in `ui/src/board/spec.ts` (mirrored in flow-view, a test compares them).
+`draw_board` / `update_board` (`editor/extensions/flow-view/src/mcp/tools.ts`, handler `handlers.ts:1070`), spec in `board-canvas/spec.ts` (one file for the host and the canvas).
 
 | Aspect | Today |
 | --- | --- |
@@ -213,7 +213,7 @@ Order logic: 1 makes everything after it safer; 2 and 3 are what users *see* imp
 }
 ```
 
-Host rules that go with it: `change`, `check`, `warn` stay host-only except `change` on a *proposed* board; every new string field is capped like the existing ones in `parseBoard`; `symbol` is resolved only inside the workspace (same rule as `file`); counts stay capped; `BOARD_KINDS`/`NODE_KINDS`/`EDGE_KINDS` in `tools.ts` and `spec.ts` move together (the existing enum test catches drift); mirrored `ui/src/board/spec.ts` and the flow-view copy are updated together.
+Host rules that go with it: `change`, `check`, `warn` stay host-only except `change` on a *proposed* board; every new string field is capped like the existing ones in `parseBoard`; `symbol` is resolved only inside the workspace (same rule as `file`); counts stay capped; `BOARD_KINDS`/`NODE_KINDS`/`EDGE_KINDS` in `tools.ts` and `spec.ts` move together (the existing enum test catches drift); `board-canvas/spec.ts` is the one copy.
 
 `draw_board` result shape (text, as today): first line "Board `id` drawn: kind, N nodes, M edges", then `LINT` with numbered items, then for plans the update hint. `update_board` gains `highlight` (node ids / path) and `change`, and may take an array of node updates in one call.
 

@@ -16,7 +16,7 @@ import { canvasSpecOf } from './board/canvas';
 import { toMermaid } from './board/mermaid';
 import { OverridesStore } from './board/overrides';
 import { cleanBoardId, type BoardExtra, type BoardHost, type BoardRef } from './board/store';
-import type { BoardSpec } from './board/spec';
+import type { BoardSpec } from '../../../../board-canvas/spec';
 import { flowRoot } from './root';
 
 /** Something that can draw a board again for new options: what the canvas's focus, search and filter controls ask for. */

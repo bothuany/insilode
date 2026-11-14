@@ -8,7 +8,7 @@ import { ROOT } from './helpers.mjs'
 
 let spec, tools, prompts, store, mermaid, markdown
 before(async () => {
-	spec = await load('src/board/spec.ts')
+	spec = await load('../../../board-canvas/spec.ts')
 	tools = await load('src/mcp/tools.ts')
 	prompts = await load('src/mcp/prompts.ts')
 	store = await load('src/board/store.ts')
@@ -19,7 +19,7 @@ after(cleanup)
 
 /** The members of a string-literal union in spec.ts: `export type X = 'a' | 'b'`, possibly across lines. */
 function union(name) {
-	const src = readFileSync(join(ROOT, 'src', 'board', 'spec.ts'), 'utf8')
+	const src = readFileSync(join(ROOT, '..', '..', '..', 'board-canvas', 'spec.ts'), 'utf8')
 	const m = new RegExp(`export type ${name}\\s*=([^;]+);`).exec(src)
 	assert.ok(m, `${name} is declared in spec.ts`)
 	return [...m[1].matchAll(/'([^']+)'/g)].map(x => x[1])
@@ -37,7 +37,7 @@ test('board-schema: the draw_board enums are the ones spec.ts accepts', () => {
 	assert.deepEqual(props.edges.items.properties.kind.enum, union('EdgeKind'))
 	assert.deepEqual(props.direction.enum, ['LR', 'TB'])
 	// every field of BoardNode / BoardEdge in spec.ts is in the schema, except skeleton first's host-only marks (parseBoard drops them)
-	const src = readFileSync(join(ROOT, 'src', 'board', 'spec.ts'), 'utf8')
+	const src = readFileSync(join(ROOT, '..', '..', '..', 'board-canvas', 'spec.ts'), 'utf8')
 	const fields = name => [...new RegExp(`export interface ${name} \\{([\\s\\S]*?)\\n\\}`).exec(src)[1].matchAll(/^\t(\w+)\??:/gm)].map(m => m[1])
 	const HOST_ONLY = ['check', 'checkNote', 'warn', 'target']
 	assert.deepEqual(fields('BoardNode').filter(f => !HOST_ONLY.includes(f)).sort(), Object.keys(props.nodes.items.properties).sort())

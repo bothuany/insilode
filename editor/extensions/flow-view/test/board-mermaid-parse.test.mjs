@@ -18,7 +18,7 @@ before(async () => {
 	if (!available) {
 		return
 	}
-	spec = await load('src/board/spec.ts')
+	spec = await load('../../../board-canvas/spec.ts')
 	mermaid = await load('src/board/mermaid.ts')
 	plan = await load('src/board/plan.ts')
 	// Mermaid's parser sanitizes through DOMPurify, which needs a DOM: outside a browser it is replaced by a pass-through.

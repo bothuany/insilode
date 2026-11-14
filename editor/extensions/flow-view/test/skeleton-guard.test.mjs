@@ -14,7 +14,7 @@ after(cleanup)
 
 const match = await load('src/skeleton/match.ts')
 const guard = await load('src/skeleton/guard.ts')
-const spec = await load('src/board/spec.ts')
+const spec = await load('../../../board-canvas/spec.ts')
 
 const PLAN = spec.parseBoard({
 	kind: 'class',

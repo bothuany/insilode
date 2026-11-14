@@ -1,13 +1,13 @@
 /*---------------------------------------------------------------------------------------------
  *  Insilode board: one diagram format for everything that is drawn on its own canvas rather than
  *  traced from the code: the DTO relations, the architecture (UML) view, and flows or plans an
- *  agent draws. Hosts build a BoardSpec, the canvas renders it. Keep this file identical to
- *  ui/src/board/spec.ts (a test compares them; only the path of the board-canvas import differs).
+ *  agent draws. Hosts build a BoardSpec, the canvas renders it. One file for both sides: the extension host
+ *  and the canvas webview import it from here, so it reaches neither `vscode` nor a Node built-in.
  *--------------------------------------------------------------------------------------------*/
 
 // The free-form canvas board's own types live in board-canvas/ (one engine for the host and the webview); this file only
 // carries them on the spec.
-import type { CanvasElement } from '../../../../../board-canvas/canvas';
+import type { CanvasElement } from './canvas';
 
 export type BoardKind = 'flow' | 'plan' | 'class' | 'er' | 'sequence' | 'architecture' | 'state' | 'canvas';
 

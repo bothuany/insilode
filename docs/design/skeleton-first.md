@@ -123,7 +123,7 @@ The hand-over answer ends with "play a closing tour with `tour` on `{"changes": 
 | Matcher, header guard, stages (pure) | `flow-view/src/skeleton/{match,guard,sessions}.ts` |
 | Host: graph refresh, board decorator, steps, the Revert command | `flow-view/src/skeletonHost.ts` |
 | `check_skeleton` tool (with `step`), `skeleton_first` prompt, instructions | `flow-view/src/mcp/{tools,handlers,prompts,protocol,register}.ts` |
-| `check` and `checkNote` on board nodes and members | `flow-view/src/board/spec.ts` = `ui/src/board/spec.ts`, rendered in `ui/src/board/cards.tsx` |
+| `check` and `checkNote` on board nodes and members | `board-canvas/spec.ts`, rendered in `ui/src/board/cards.tsx` |
 | The Skeleton button, the per-agent switch, the hook reminders | `flow-agent/src/{skeleton,hookScript,dockMessage,dockPage,dock,agents}.ts`, the setting in `flow-agent/package.json` |
 
 Commands across the boundary (all registered, checked by `test/arch/commands.test.mjs`):

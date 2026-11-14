@@ -14,7 +14,7 @@ let tmp
 before(async () => {
 	tmp = mkdtempSync(join(tmpdir(), 'flow-pinboard-'))
 	const outfile = join(tmp, 'fromFlow.mjs')
-	await build({ entryPoints: [join(ROOT, 'src', 'board', 'fromFlow.ts'), join(ROOT, 'src', 'board', 'spec.ts')], bundle: true, platform: 'node', format: 'esm', outdir: tmp, logLevel: 'silent' })
+	await build({ entryPoints: { fromFlow: join(ROOT, 'src', 'board', 'fromFlow.ts'), spec: join(ROOT, '..', '..', '..', 'board-canvas', 'spec.ts') }, bundle: true, platform: 'node', format: 'esm', outdir: tmp, logLevel: 'silent' })
 	b = await import(pathToFileURL(join(tmp, 'fromFlow.js')).href)
 	spec = await import(pathToFileURL(join(tmp, 'spec.js')).href)
 })

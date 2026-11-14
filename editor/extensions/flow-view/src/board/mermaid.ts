@@ -6,7 +6,7 @@
  *  Pure: no `vscode`.
  *--------------------------------------------------------------------------------------------*/
 
-import type { BoardEdge, BoardGroup, BoardNode, BoardSpec, NodeStatus } from './spec';
+import type { BoardEdge, BoardGroup, BoardNode, BoardSpec, NodeStatus } from '../../../../../board-canvas/spec';
 
 /** A label inside "...": quotes, angle brackets, separators and line breaks become mermaid entities. */
 export function label(text: string): string {

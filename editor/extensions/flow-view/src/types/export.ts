@@ -5,7 +5,7 @@
  *  n1, ... and every text is cleaned, so nothing in a type name can break the diagram. Pure.
  *--------------------------------------------------------------------------------------------*/
 
-import type { BoardEdge, BoardNode, BoardSpec } from '../board/spec';
+import type { BoardEdge, BoardNode, BoardSpec } from '../../../../../board-canvas/spec';
 import { toMermaid } from '../board/mermaid';
 
 /**

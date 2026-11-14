@@ -4,7 +4,7 @@
  *  Pure: no vscode.
  *--------------------------------------------------------------------------------------------*/
 
-import type { BoardEdge, BoardGroup, BoardMember, BoardNode, BoardSpec, NodeKind } from '../board/spec';
+import type { BoardEdge, BoardGroup, BoardMember, BoardNode, BoardSpec, NodeKind } from '../../../../../board-canvas/spec';
 import { findType } from './graph';
 import { byCode, moduleGroupId, roleGroupId, type Collection, type TypeEdge, type TypeGraph, type TypeInfo, type TypeRole } from './model';
 import { displayType } from './typeref';

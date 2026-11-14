@@ -5,7 +5,7 @@ import { cleanup, load } from './bundle.mjs'
 
 let spec, compare, store
 before(async () => {
-	spec = await load('src/board/spec.ts')
+	spec = await load('../../../board-canvas/spec.ts')
 	compare = await load('src/board/compare.ts')
 	store = await load('src/board/store.ts')
 })

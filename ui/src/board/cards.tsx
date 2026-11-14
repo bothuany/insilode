@@ -2,7 +2,7 @@
 // group's container. They are memoized and take everything from `data`; clicks go through ActionsCtx.
 import { createContext, memo, useContext, useState, type CSSProperties } from 'react'
 import type { Node, NodeProps } from '@xyflow/react'
-import type { BoardMember, BoardNode } from './spec'
+import type { BoardMember, BoardNode } from '../../../board-canvas/spec'
 import { DETAIL_H, detailOf, GROUP_HEAD, HEADER_H, MARK_SIZE, type VGroup, type VNode } from './model'
 import { KIND_COLOR, STEREOTYPE, VISIBILITY_NAME } from './protocol'
 

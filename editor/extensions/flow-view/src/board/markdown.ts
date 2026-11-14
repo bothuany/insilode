@@ -4,7 +4,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { toMermaid } from './mermaid';
-import type { BoardNode, BoardSpec, NodeStatus } from './spec';
+import type { BoardNode, BoardSpec, NodeStatus } from '../../../../../board-canvas/spec';
 
 const STATUS: Record<NodeStatus, string> = { todo: 'todo', doing: '**doing**', done: 'done', skipped: 'skipped', blocked: '**blocked**' };
 const DONE_MARK: Record<NodeStatus, string> = { todo: '[ ]', doing: '[~]', done: '[x]', skipped: '[-]', blocked: '[!]' };

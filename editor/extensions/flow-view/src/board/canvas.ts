@@ -10,7 +10,7 @@ import { lintCanvas, type Finding } from '../../../../../board-canvas/lint';
 import { boxesOf, DARK, LIGHT, paintCanvas, toSvg, type Painted } from '../../../../../board-canvas/paint';
 import { parseCanvas } from '../../../../../board-canvas/parse';
 import type { LintItem, LintResult } from './lint';
-import type { BoardSpec, BoardStep } from './spec';
+import type { BoardSpec, BoardStep } from '../../../../../board-canvas/spec';
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const strings = (v: unknown, max = 100): string[] => (Array.isArray(v) ? v : []).filter((x): x is string => typeof x === 'string').slice(0, max);

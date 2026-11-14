@@ -1,6 +1,6 @@
 // The legend popover: node colours for the kinds on the board, and what each line style means.
 import { EDGE_STYLE, KIND_COLOR, STEREOTYPE } from './protocol'
-import type { EdgeKind, NodeKind } from './spec'
+import type { EdgeKind, NodeKind } from '../../../board-canvas/spec'
 
 const LINES: { kind: EdgeKind; text: string }[] = [
   { kind: 'extends', text: 'extends' },

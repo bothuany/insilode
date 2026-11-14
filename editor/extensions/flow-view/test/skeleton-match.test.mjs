@@ -14,7 +14,7 @@ import { FIXTURES, graphOf } from './types-helpers.mjs'
 after(cleanup)
 
 const match = await load('src/skeleton/match.ts')
-const spec = await load('src/board/spec.ts')
+const spec = await load('../../../board-canvas/spec.ts')
 
 /** The design an agent would draw for "add discounts to checkout". */
 const PLAN = spec.parseBoard({
