@@ -1,0 +1,23 @@
+editor/extensions/flow-view/src/editHooks.ts
+  s_1c1a3e293d98a8::t_5d0e443312671a 1-53
+editor/extensions/flow-view/src/panel.ts
+  s_1c1a3e293d98a8::t_169cfdb0f4b716 18,33,578
+editor/extensions/flow-view/test/edit-hooks.test.mjs
+  s_1c1a3e293d98a8::t_839ed81fd2ae4d 1-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8a136f74367cd417c392017a43316efe443e0481",
+  "prompts": {},
+  "sessions": {
+    "s_1c1a3e293d98a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a99a3dd-7db0-4ba0-882d-a4dd922189be",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}
