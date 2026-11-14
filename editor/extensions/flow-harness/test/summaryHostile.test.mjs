@@ -305,6 +305,8 @@ const LEAKS = [
 	['docker exec -it db mysql -uroot -phunter2xyz', 'hunter2xyz'], ['docker compose exec db mysql -phunter2xyz', 'hunter2xyz'], ['kubectl exec -it db -- mysql -phunter2xyz', 'hunter2xyz'], ['ssh host mysql -phunter2xyz', 'hunter2xyz'],
 	['bash -c "mysql -phunter2xyz"', 'hunter2xyz'], ["sh -c 'mysql -p hunter2xyz db'", 'hunter2xyz'], ['docker exec r redis-cli -a hunter2xyz ping', 'hunter2xyz'], ['ssh host curl -u a:hunter2xyz x', 'hunter2xyz'],
 	['TOKEN=$(a $(b $(cat hunter2xyz)))', 'hunter2xyz'], ['TOKEN=$(a $(b $(cat hunter2xyz', 'hunter2xyz'], ['mytool --user admin:hunter2xyz', 'hunter2xyz'], ['wget --user a:hunter2xyz x', 'hunter2xyz'],
+	['cmd --msg $(a $(b $(c))) --token hunter2xyz', 'hunter2xyz'], ['x --count $((n*(m+(1)))) --password hunter2xyz', 'hunter2xyz'], ['x $(a $(b $(c $(d)))) --token hunter2xyz', 'hunter2xyz'], ['x $(a $(b --token hunter2xyz', 'hunter2xyz'],
+	['echo password:hunter2xyz', 'hunter2xyz'], ['node -e "login({token:\'hunter2xyz\'})"', 'hunter2xyz'], ['echo auth:hunter2xyz', 'hunter2xyz'], ['npm run auth:check --token hunter2xyz', 'hunter2xyz'], ['npm run auth:check && echo token:hunter2xyz', 'hunter2xyz'], ['echo ok:fine && echo password:hunter2xyz', 'hunter2xyz'],
 	['aws configure set aws_secret_access_key hunter2xyz', 'hunter2xyz'], ['aws configure set --profile p aws_secret_access_key hunter2xyz', 'hunter2xyz'], ['npm config set //registry.npmjs.org/:_authToken hunter2xyz', 'hunter2xyz'], ['git config set credential.password hunter2xyz', 'hunter2xyz'],
 ]
 
@@ -338,6 +340,17 @@ test('everyday hook commands come out of redact byte for byte, and each short fl
 	assert.equal(R('TOKEN=$(cat ~/.token)', 400), 'TOKEN=***')
 	assert.equal(R('echo $(date) && grep -q x <<< "$y"', 400), 'echo $(date) && grep -q x <<< "$y"', 'a here-string with no secret-named flag is kept')
 	assert.equal(R('aws configure set region eu-west-1', 400), 'aws configure set region eu-west-1')
+})
+
+test('a nested command substitution does not swallow the rest of the line, and an npm script name is not a `name:value`', T, () => {
+	const R = R0.redact
+	assert.equal(R('cmd --msg $(a $(b $(c))) --token hunter2xyz', 400), 'cmd --msg $(a $(b $(c))) --token ***')
+	assert.equal(R('x --count $((n*(m+(1)))) --password hunter2xyz', 400), 'x --count $((n*(m+(1)))) --password ***')
+	assert.ok(R('x $(a ' + '$(b '.repeat(5000), 400).length <= 400, 'a deeply unbalanced line is linear and cut')
+	for (const line of ['npm run auth:check', 'pnpm run session:clear', 'yarn run test:auth', 'bun run auth:check', 'npm run-script auth:check', 'npm --prefix x run auth:check', 'npx -y pnpm run session:clear -- --watch']) {
+		assert.equal(R(line, 400), line)
+	}
+	assert.equal(R('echo password:hunter2xyz', 400), 'echo password:***')
 })
 
 test('redaction leaves harmless commands readable', T, () => {

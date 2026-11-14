@@ -17,13 +17,15 @@ export const HIDDEN = '***';
 /** A double-quoted string (escapes honoured; an unterminated one runs to the end), a single-quoted one, or a run of characters with backslash escapes. */
 const DQ = String.raw`"(?:\\[\s\S]|[^"\\])*(?:"|$)`;
 const SQ = String.raw`'[^']*(?:'|$)`;
-/** A command substitution `$(…)` (one level of parentheses inside it; an unterminated one runs to the end) and a backtick one: part of a plain value, so `TOKEN=$(cat ~/.token)` is one value and not a word and a half. */
-const SUBST = String.raw`\$\((?:[^()\\]|\\[\s\S]|\((?:[^()\\]|\\[\s\S])*\))*(?:\)|$)`;
 const BACKTICK = String.raw`\`[^\`]*(?:\`|$)`;
-/** A `$(` that the balanced form above cannot close (nested deeper, or never closed) runs to the end of the line: more hidden is safer than the rest of it shown. */
-const UNBALANCED = String.raw`\$\([^\n]*`;
-/** A value: one quoted string, or a run of escaped or plain characters and substitutions (`a\ b`). Not a mix of quotes and plain: a quote right after a plain run is more likely the end of an enclosing string (`"…&token=abc"`) than the start of another part, and it is kept. */
-const VALUE = String.raw`(?:${DQ}|${SQ}|(?:\\[\s\S]|${SUBST}|${UNBALANCED}|${BACKTICK}|\$(?!\()|[^\s;&|"'\\$\`])+)`;
+/** Stands for one `$(…)` while the rules run (see `shield`): a value that holds a substitution is one value, and a character no rule treats as a separator. */
+const OPEN = '\uE000';
+const CLOSE = '\uE001';
+const SHIELDED = new RegExp(`${OPEN}(\\d+)${CLOSE}`, 'g');
+/** How many substitutions deep `shield` looks before it hides the rest. */
+const MAX_NEST = 32;
+/** A value: one quoted string, or a run of escaped or plain characters and substituted `$(…)` (`a\ b`). Not a mix of quotes and plain: a quote right after a plain run is more likely the end of an enclosing string (`"…&token=abc"`) than the start of another part, and it is kept. */
+const VALUE = String.raw`(?:${DQ}|${SQ}|(?:\\[\s\S]|${BACKTICK}|\$(?!\()|[^\s;&|"'\\$\`])+)`;
 
 /** Whether a name (a flag, a variable, a header, a key) says its value is a secret: by its words, so `--passWithNoTests` and `--author` are not and `DB_PASSWORD`, `x-api-key` and `_authToken` are. */
 export function isSecretName(name: string): boolean {
@@ -98,7 +100,72 @@ function maskSet(tail: string): string {
 	return out + tail.slice(at);
 }
 
-const RULES: [RegExp, string | ((...m: string[]) => string)][] = [
+/**
+ * Every `$(…)` of `text` (any depth, balanced by a counter, one pass) replaced by a placeholder, so the rules see it as one plain value; its inside is redacted
+ * on its own and put back by `redactText`. A `$(` that is never closed runs to the end, and what is in it is still redacted by name. Past `MAX_NEST` levels the inside is hidden.
+ */
+function shield(text: string, spans: string[], depth: number): string {
+	let out = '';
+	let at = 0;
+	let i = 0;
+	while (i < text.length) {
+		if (text[i] === '\\') {
+			i += 2;
+		} else if (text[i] !== '$' || text[i + 1] !== '(') {
+			i++;
+		} else {
+			let end = i + 2;
+			let open = 1;
+			while (end < text.length && open) {
+				if (text[end] === '\\') {
+					end++;
+				} else if (text[end] === '(') {
+					open++;
+				} else if (text[end] === ')') {
+					open--;
+				}
+				end++;
+			}
+			const inner = text.slice(i + 2, open ? text.length : end - 1);
+			spans.push('$(' + (depth < MAX_NEST ? redactText(inner, depth + 1) : HIDDEN) + (open ? '' : ')'));
+			out += text.slice(at, i) + OPEN + (spans.length - 1) + CLOSE;
+			at = i = open ? text.length : end;
+		}
+	}
+	return out + text.slice(at);
+}
+
+/** `name:value`, `name: value`: `name` is a word of its own. */
+const COLON = String.raw`(^|[\s{,("'])([\w.-]{1,64})(\s*:\s*)`;
+/**
+ * Whether the word at `at` is the script of `npm|pnpm|yarn|bun run <script>` (`npm run auth:check`): a script name, not a `name:value`. The package manager
+ * is found as any program of the command is (`npx pnpm run x`, `sudo npm run x`), the script is the first word after `run` that is not a flag or a flag's value.
+ */
+function isScriptName(text: string, at: number): boolean {
+	const words = segmentBefore(text, at).split(/\s+/).map(w => w.replace(/^["'(]+|["')]+$/g, '')).filter(Boolean);
+	const run = words.findLastIndex(w => w === 'run' || w === 'run-script');
+	return run >= 0 && programsBefore(text, at).some(p => /^(?:npm|pnpm|yarn|bun)$/.test(p)) && words.slice(run + 1).every((w, i, after) => w.startsWith('-') || (i > 0 && after[i - 1].startsWith('-') && !after[i - 1].includes('=')));
+}
+/** The value of every `secretName:value` is hidden, except a script name after `run`; for any other name the text after the colon is looked at as text of its own. */
+function maskColons(text: string): string {
+	const re = new RegExp(`${COLON}(?:${DQ}|${SQ}|[^\\r\\n"']*)`, 'g');
+	let out = '';
+	let at = 0;
+	for (let m = re.exec(text); m; m = re.exec(text)) {
+		const [all, pre, name, sep] = m;
+		const nameAt = m.index + pre.length;
+		const colon = nameAt + name.length + sep.indexOf(':') + 1;
+		if (isSecretName(name) && !isScriptName(text, nameAt)) {
+			out += text.slice(at, nameAt + name.length + sep.length) + HIDDEN;
+			at = m.index + all.length;
+		} else {
+			re.lastIndex = colon;
+		}
+	}
+	return out + text.slice(at);
+}
+
+const RULES: ([RegExp, string | ((...m: string[]) => string)] | ((text: string) => string))[] = [
 	// https://user:password@host and https://token@host: the user info goes (up to the last @ before the path, a password may hold one), the host stays.
 	[/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/'"]*@/gi, `$1${HIDDEN}@`],
 	// Webhook URLs carry the secret in their path.
@@ -150,9 +217,8 @@ const RULES: [RegExp, string | ((...m: string[]) => string)][] = [
 	}],
 	// "password": "x", 'api_key': 'x', "token": 123: JSON keys, and the same with = (a Python or properties literal).
 	[new RegExp(String.raw`(["'])([\w.@ -]{1,64})\1(\s*[:=]\s*)(?:${DQ}|${SQ}|[^\s,}\]]+)`, 'g'), (m, q, name, sep) => isSecretName(name) ? `${q}${name}${q}${sep}"${HIDDEN}"` : m],
-	// password: x, Authorization: Bearer x, Cookie: a=b; c=d, x-api-key: x: YAML and headers: a quoted value, or the rest of the line.
-	// A colon with no space after it is not YAML or a header: `npm run auth:check` is a script name (a `-H` header is above).
-	[new RegExp(String.raw`(^|[\s{,("'])([\w.-]{1,64})(\s*:\s+)(?:${DQ}|${SQ}|[^\r\n"']*)`, 'g'), (m, pre, name, sep) => isSecretName(name) ? `${pre}${name}${sep}${HIDDEN}` : m],
+	// password: x, password:x, Authorization: Bearer x, Cookie: a=b; c=d, x-api-key: x, {token:'x'}: YAML, headers and object literals: a quoted value, or the rest of the line (maskColons).
+	maskColons,
 	// password=x, client_secret=x, _authToken=x, aws_secret_access_key=x wherever they stand (not after a dash: flags are above).
 	[new RegExp(String.raw`(?<![\w.%-])([A-Za-z_][\w.%-]*)(\s*=\s*)${VALUE}`, 'g'), (m, name, eq) => isSecretName(name) ? `${name}${eq}${HIDDEN}` : m],
 	// Bearer abc / Basic abc anywhere.
@@ -165,14 +231,21 @@ const RULES: [RegExp, string | ((...m: string[]) => string)][] = [
 	[/(?<![\w/.~-])(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}(?![\w/.-])/g, HIDDEN],
 ];
 
+/** The rules applied to `text`: its substitutions are redacted first and set aside (`shield`), then the rest, then they are put back. */
+function redactText(text: string, depth: number): string {
+	const spans: string[] = [];
+	let out = shield(text, spans, depth);
+	for (const rule of RULES) {
+		out = typeof rule === 'function' ? rule(out) : out.replace(rule[0], rule[1] as string);
+	}
+	return out.replace(SHIELDED, (_, n: string) => spans[Number(n)] ?? '');
+}
+
 /** The text with every credential-looking part replaced by `***`, cut to `max` characters (with an ellipsis). The input is cut first, so a huge line costs no more than a long one. */
 export function redact(text: string, max = 200): string {
 	// Longer than anything worth showing: the cut is at 4x so a secret that straddles `max` is still seen whole, then the result is cut.
 	const cut = text.length > max * 4;
-	let out = cut ? text.slice(0, max * 4) : text;
-	for (const [pattern, replacement] of RULES) {
-		out = out.replace(pattern, replacement as string);
-	}
+	let out = redactText(cut ? text.slice(0, max * 4) : text, 0);
 	// One line: a newline in a command is how a second command hides below the first.
 	out = out.replace(/\s+/g, ' ').trim();
 	if (cut && out.length <= max) {

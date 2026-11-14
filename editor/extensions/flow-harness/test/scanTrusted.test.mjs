@@ -106,6 +106,44 @@ test('trusted: a link to a folder in .claude/rules is followed (a loop by its re
 	assert.ok(saidOf(theirs).some(x => /link/i.test(x)), JSON.stringify(saidOf(theirs)))
 })
 
+test('trusted: a real folder is entered once and a real file listed once, whatever number of links lead to them', T, async () => {
+	// 12 folders, each with two links to the next: every file is reachable through 2^n paths, and the walk takes each real folder once.
+	const files = { 'CLAUDE.md': '# x\n' }
+	for (let i = 0; i <= 12; i++) { files[`.claude/rules/n${i}/r${i}.md`] = `Rule ${i}.\n` }
+	const dir = repo(files)
+	for (let i = 0; i < 12; i++) {
+		symlinkSync(`../n${i + 1}`, join(dir, '.claude', 'rules', `n${i}`, 'a'))
+		symlinkSync(`../n${i + 1}`, join(dir, '.claude', 'rules', `n${i}`, 'b'))
+	}
+	const own = await timed(() => trusted(dir))
+	assert.ok(own.ms < 3000, 'took ' + own.ms)
+	assert.equal(own.value.items.filter(i => i.kind === 'rules').length, 13, own.value.items.filter(i => i.kind === 'rules').map(i => i.label).join(' '))
+	assert.ok(saidOf(own.value).some(x => /link/i.test(x)), JSON.stringify(saidOf(own.value)))
+	// Two folders that link to each other, and two links to one file: each file once.
+	const two = repo({ 'CLAUDE.md': '# x\n', '.claude/rules/x/ax.md': 'In x.\n', '.claude/rules/y/by.md': 'In y.\n', '.claude/rules/real.md': 'One file.\n' })
+	symlinkSync('../y', join(two, '.claude', 'rules', 'x', 'toy'))
+	symlinkSync('../x', join(two, '.claude', 'rules', 'y', 'tox'))
+	symlinkSync('real.md', join(two, '.claude', 'rules', 'again.md'))
+	const labels = (await trusted(two)).items.filter(i => i.kind === 'rules').map(i => i.label).sort()
+	assert.equal(labels.length, 3, labels.join(' '))
+	assert.equal(new Set(labels.map(l => l.replace(/^.*\//, ''))).size, 3, 'no file twice: ' + labels.join(' '))
+})
+
+test('a cut made in a folder is a finding of that folder: no line, and no instruction file stands in for it', T, async () => {
+	const dir = repo({ 'CLAUDE.md': '# x\n', '.claude/rules/keep.md': 'A rule.\n' })
+	symlinkSync('.', join(dir, '.claude', 'rules', 'a'))
+	const harness = await trusted(dir)
+	const limit = harness.items.find(i => i.issues.some(x => x.code === 'scan-limited'))
+	assert.equal(limit.file, join(dir, '.claude', 'rules'))
+	assert.equal(limit.issues[0].line, undefined)
+	assert.equal(limit.agents.length, 0)
+	const lines = await LL.lintFolder(dir)
+	assert.equal(lines.find(l => l.rule === 'scan-limited').file, '.claude/rules')
+	assert.equal(lines.filter(l => l.file === 'CLAUDE.md').length, 0, JSON.stringify(lines))
+	const A = await bundle('activity')
+	assert.equal(A.isTracked(limit), false)
+})
+
 test('the CLI still reports a rules folder that is a link out of the repository: outside-repo, and nothing of it is read', T, async () => {
 	const outside = join(tmp, 'dotfiles-' + n++)
 	write(join(outside, 'mine.md'), 'A rule of mine, elsewhere.\n')

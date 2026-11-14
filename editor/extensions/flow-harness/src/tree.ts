@@ -3,6 +3,7 @@
  *  comes from (user, project, local, folder), what it costs, and whether it looks broken.
  *--------------------------------------------------------------------------------------------*/
 
+import * as fs from 'fs';
 import * as vscode from 'vscode';
 import type { Harness, HarnessItem, Kind, Severity } from './scan';
 
@@ -19,6 +20,10 @@ const GROUPS: { kind: Kind; label: string; icon: string; color: string; empty: s
 
 const SCOPE_LABEL = { user: 'you', project: 'repo', local: 'local', directory: 'folder' } as const;
 const tok = (n?: number) => n === undefined ? '' : n >= 1000 ? `${(n / 1000).toFixed(1)}k tok` : `${n} tok`;
+/** A file opens in the editor; a folder (where the scan hit a limit) is shown in the Explorer, `vscode.open` has no editor for it. */
+const openCommand = (file: string, line?: number): vscode.Command => fs.statSync(file, { throwIfNoEntry: false })?.isDirectory()
+	? { title: 'Reveal', command: 'revealInExplorer', arguments: [vscode.Uri.file(file)] }
+	: { title: 'Open', command: 'vscode.open', arguments: [vscode.Uri.file(file), { selection: new vscode.Range(line ?? 0, 0, line ?? 0, 0) }] };
 const worst = (i: HarnessItem): Severity | undefined => i.issues.some(x => x.severity === 'error') ? 'error' : i.issues.some(x => x.severity === 'warning') ? 'warning' : i.issues.length ? 'info' : undefined;
 
 type Node = { type: 'group'; kind: Kind } | { type: 'item'; item: HarnessItem } | { type: 'issue'; item: HarnessItem; index: number };
@@ -96,7 +101,7 @@ export class HarnessTree implements vscode.TreeDataProvider<Node> {
 			}
 			t.iconPath = new vscode.ThemeIcon(issue.severity === 'error' ? 'error' : issue.severity === 'warning' ? 'warning' : 'info',
 				new vscode.ThemeColor(issue.severity === 'error' ? 'errorForeground' : issue.severity === 'warning' ? 'editorWarning.foreground' : 'descriptionForeground'));
-			t.command = { title: 'Open', command: 'vscode.open', arguments: [vscode.Uri.file(node.item.file), { selection: new vscode.Range(issue.line ?? 0, 0, issue.line ?? 0, 0) }] };
+			t.command = openCommand(node.item.file, issue.line);
 			return t;
 		}
 		const i = node.item;
@@ -129,7 +134,7 @@ export class HarnessTree implements vscode.TreeDataProvider<Node> {
 		// An MCP server opens in the manager, which shows it with its status and offers its edits; the file is one click from there.
 		t.command = i.mcp
 			? { title: 'Manage', command: 'flowHarness.manageMcp', arguments: [{ mcpId: i.mcp.id }] }
-			: { title: 'Open', command: 'vscode.open', arguments: [vscode.Uri.file(i.file)] };
+			: openCommand(i.file);
 		t.contextValue = i.hook ? 'hook' : i.memory ? 'memory' : i.mcp ? 'mcp' : `item.${i.kind}`;
 		t.resourceUri = undefined;
 		(t as vscode.TreeItem & { item?: HarnessItem }).item = i;

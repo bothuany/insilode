@@ -293,18 +293,30 @@ async function listDir(dir: string): Promise<string[]> {
 	return (await entriesOf(dir, cap(MAX_ENTRIES))).map(e => path.join(dir, e.name));
 }
 
+/** How long a trusted walk may take: it is chained with the scans that follow it, so a folder tree nobody can finish is cut and said, not waited for. */
+const TRUSTED_WALK_MS = 20_000;
+
 /**
- * The files below `dir` that `accept` takes. Real folders are entered. A link to a folder is entered only by a trusted scan, once per way
- * in (a link back into a folder the walk is already in, `a -> .`, is a loop and is not entered); an untrusted scan never follows one, so a
- * link to /usr or to its own folder costs nothing. An untrusted walk also stops at a depth, a number of entries and files, and the scan's
- * deadline. A link to a file is a candidate like any file: `read` decides whether it may be read. Whatever is left out is said (`cut`).
+ * The files below `dir` that `accept` takes. Real folders are entered. A link to a folder is entered only by a trusted scan; an untrusted scan never
+ * follows one, so a link to /usr or to its own folder costs nothing. A trusted walk takes each real folder once and lists each real file once, whatever
+ * number of links lead to them (a link back into a folder, `a -> .`, is a loop; two links to one folder would double the walk at every level), and stops
+ * after `TRUSTED_WALK_MS`. An untrusted walk instead stops at a depth, a number of entries and files, and the scan's deadline. A link to a file is a
+ * candidate like any file: `read` decides whether it may be read. Whatever is left out is said (`cut`).
  */
 async function filesBelow(dir: string, accept: (name: string) => boolean): Promise<string[]> {
 	const out: string[] = [];
 	let seen = 0;
-	const visit = async (d: string, depth: number, chain: string[]): Promise<void> => {
+	const until = Date.now() + TRUSTED_WALK_MS;
+	// The real path of every folder entered and file listed in this walk (a trusted one: an untrusted walk follows no link, so there is no second way in).
+	const visited = new Set<string>();
+	// `here` is the real path of `d`, so `here/name` is the real path of a real entry of it.
+	const visit = async (d: string, depth: number, here: string): Promise<void> => {
 		for (const e of await entriesOf(d, cap(MAX_ENTRIES))) {
 			if (late()) {
+				return;
+			}
+			if (!untrustedScan && Date.now() > until) {
+				cut(`Reading a rules folder took longer than ${TRUSTED_WALK_MS / 1000} seconds, so only part of it was read.`, dir);
 				return;
 			}
 			if (out.length >= cap(MAX_WALK_FILES) || ++seen > cap(MAX_WALK_ENTRIES)) {
@@ -314,31 +326,40 @@ async function filesBelow(dir: string, accept: (name: string) => boolean): Promi
 			const p = path.join(d, e.name);
 			// Some file systems give no type with a listing: lstat answers for them, still without following a link.
 			const st = e.isDirectory() || e.isFile() || e.isSymbolicLink() ? e : await fs.lstat(p).catch(() => undefined);
-			const here = chain[chain.length - 1];
+			const again = 'A link leads back into a folder or to a file the walk has already been to, so it was not followed again.';
 			if (st?.isDirectory()) {
-				// A folder reached through a link may hold a real folder that is one the walk is in (`x -> ..`): the same loop.
-				const real = untrustedScan ? '' : path.join(here, e.name);
-				if (chain.includes(real)) {
-					cut('A link leads back into a folder the walk is already in, so it was not followed again.', dir);
+				const real = path.join(here, e.name);
+				if (!untrustedScan && visited.has(real)) {
+					cut(again, dir);
 				} else if (depth < cap(MAX_DEPTH)) {
-					await visit(p, depth + 1, untrustedScan ? chain : [...chain, real]);
+					visited.add(real);
+					await visit(p, depth + 1, real);
 				} else {
 					cut(`A rules folder is more than ${MAX_DEPTH} levels deep, so what lies below it was not read.`, dir);
 				}
 			} else if (st?.isSymbolicLink() && (await fs.stat(p).catch(() => undefined))?.isDirectory()) {
 				const real = untrustedScan ? undefined : await fs.realpath(p).catch(() => undefined);
-				if (real === undefined || chain.includes(real)) {
-					cut(untrustedScan ? 'A link to a folder was not followed.' : 'A link leads back into a folder the walk is already in, so it was not followed again.', dir);
+				if (real === undefined || visited.has(real)) {
+					cut(untrustedScan ? 'A link to a folder was not followed.' : again, dir);
 				} else {
-					await visit(p, depth + 1, [...chain, real]);
+					visited.add(real);
+					await visit(p, depth + 1, real);
 				}
 			} else if (st && accept(e.name) && (st.isFile() || (st.isSymbolicLink() && (await fs.stat(p).catch(() => undefined))?.isFile()))) {
-				out.push(p);
+				const real = untrustedScan ? undefined : st.isSymbolicLink() ? await fs.realpath(p).catch(() => undefined) : path.join(here, e.name);
+				if (real !== undefined && visited.has(real)) {
+					cut(again, dir);
+				} else {
+					real !== undefined && visited.add(real);
+					out.push(p);
+				}
 			}
 		}
 	};
-	// The real path of each folder on the way in, so a link back to any of them is found; an untrusted walk follows no link and keeps none.
-	await visit(dir, 0, untrustedScan ? [] : [await fs.realpath(dir).catch(() => dir)]);
+	// An untrusted walk follows no link and keeps no real path: `here` is only used by a trusted one.
+	const top = untrustedScan ? dir : await fs.realpath(dir).catch(() => dir);
+	visited.add(top);
+	await visit(dir, 0, top);
 	return out;
 }
 
@@ -901,11 +922,10 @@ async function scanNow(folders: ScanFolder[], scanHost: ScanHost, options: ScanO
 	// The gaps are told before the limit items are added: an item that says what was cut is not a CLAUDE.md.
 	const gaps = projectGaps(items);
 	// What was cut or skipped is a finding of its own (info): the map and the lint list findings, and a note nobody reads is a silent cut.
-	// Its file is a file that was read (the map and the summary open it), the folder it was cut in when there is none.
-	const anyFile = items.find(i => i.file)?.file;
+	// Its file is the file or folder it was cut in, with no line: it is no instruction file, and the map opens no other file for it.
 	for (const [message, where] of limits) {
 		notes.push(message);
-		items.push({ kind: 'instructions', scope: 'directory', label: 'Scan limit', detail: message, file: statSync(where, { throwIfNoEntry: false })?.isFile() ? where : anyFile ?? where, issues: [{ severity: 'info', message, code: 'scan-limited' }], agents: [] });
+		items.push({ kind: 'instructions', scope: 'directory', label: 'Scan limit', detail: message, file: where, issues: [{ severity: 'info', message, code: 'scan-limited' }], agents: [] });
 	}
 	const counts: Record<Severity, number> = { error: 0, warning: 0, info: 0 };
 	items.forEach(i => i.issues.forEach(x => counts[x.severity]++));

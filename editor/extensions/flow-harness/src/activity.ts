@@ -197,10 +197,10 @@ export function itemKey(i: { kind: string; label: string; file: string; hook?: H
 	}
 }
 
-/** Items whose use can be seen: an always-on instruction file is read in every session, so a count says nothing about it. */
-export function isTracked(i: { kind: string; scope: string; paths?: string[]; hook?: HookLike; memory?: unknown }): boolean {
+/** Items whose use can be seen: an always-on instruction file is read in every session, so a count says nothing about it. An item no agent reads is the scan's own finding (the scan limit), not a file. */
+export function isTracked(i: { kind: string; scope: string; paths?: string[]; hook?: HookLike; memory?: unknown; agents?: string[] }): boolean {
 	return (i.kind === 'memory' && !!i.memory) || i.kind === 'skills' || i.kind === 'agents' || i.kind === 'mcp' || (i.kind === 'hooks' && !!i.hook)
-		|| (i.kind === 'rules' && !!i.paths?.length) || (i.kind === 'instructions' && i.scope === 'directory');
+		|| (i.kind === 'rules' && !!i.paths?.length) || (i.kind === 'instructions' && i.scope === 'directory' && i.agents?.length !== 0);
 }
 
 /**
