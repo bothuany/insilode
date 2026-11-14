@@ -1,7 +1,7 @@
 /*---------------------------------------------------------------------------------------------
  *  Insilode: what the agents have done on this machine. Claude keeps every conversation as ~/.claude/projects/<folder>/<id>.jsonl,
  *  Codex as ~/.codex/sessions/<date>/rollout-*.jsonl; both name the real folder inside the file (the Claude directory name is
- *  lossy, so it is never decoded). `scan` lists the newest sessions grouped by that folder, for the Agents page's chat. The
+ *  lossy, so it is never decoded). `scan` lists the newest sessions grouped by that folder, for the sidebar of the Agents page. The
  *  helpers that read the ends of a transcript are shared with resume.ts. Only fs and os here (no vscode): tested on its own.
  *--------------------------------------------------------------------------------------------*/
 

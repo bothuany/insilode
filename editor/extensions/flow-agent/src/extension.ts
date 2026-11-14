@@ -3,14 +3,15 @@
  *  Agents dock shows their status. The chat-panel session types stay available behind a setting.
  *--------------------------------------------------------------------------------------------*/
 
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { AgentHost, type AgentKind } from './acp';
 import { agentLook } from './agentLook';
 import { installAgentExtensions } from './agentExtensions';
 import { Agents } from './agents';
 import { AgentsPanel, OPEN_AGENTS_PAGE } from './agentsPanel';
-import { ChatSessions } from './chatSessions';
 import { forgetTrustedFolders } from './folderTrust';
+import { LayoutStore } from './layoutStore';
 import { AskRouter } from './ask';
 import { DesktopStatus } from './desktop';
 import { AgentsDock } from './dock';
@@ -21,6 +22,7 @@ import { renameFromPalette, removeFromPalette, swapFromPalette } from './palette
 import { Peers } from './peers';
 import { pickAgent } from './pick';
 import { PrEvents } from './prEvents';
+import { ProjectIndex } from './projectIndex';
 import { startOrResume } from './resume';
 import { toggleBypass } from './bypass';
 import { sweepLeftoverCopies } from './swap';
@@ -80,10 +82,10 @@ export async function activate(context: vscode.ExtensionContext) {
 	const worktrees = new WorktreeRows(agents);
 	const peers = new Peers(agents, worktrees);
 	const dock = new AgentsDock(agents, worktrees, peers);
-	// The Agents page's own chat (not VS Code's chat: it works with or without flow.agents.showChat), with agent processes of its own.
-	const chats = new ChatSessions(context, agents, log);
+	// The Agents page's sidebar of earlier sessions, its terminals and its pane layouts (none of it is VS Code's chat).
+	const projects = new ProjectIndex(() => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath, () => [...agents.sessions.values()].filter(s => s.state !== 'ended').flatMap(s => [s.id, s.agentId ?? '', path.basename(s.transcript ?? '', '.jsonl')]));
 	const term = new TermHost(agents, context);
-	const page = new AgentsPanel(agents, worktrees, peers, chats, term);
+	const page = new AgentsPanel(agents, worktrees, peers, projects, term, new LayoutStore(context.workspaceState, context.globalState));
 	const router = new AskRouter(context, agents);
 	context.subscriptions.push(
 		agents,
@@ -91,7 +93,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		worktrees,
 		peers,
 		dock,
-		chats,
 		term,
 		page,
 		vscode.commands.registerCommand(OPEN_AGENTS_PAGE, () => page.open()),

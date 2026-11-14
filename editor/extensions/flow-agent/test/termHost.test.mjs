@@ -3,7 +3,7 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -18,10 +18,10 @@ globalThis.__vs = { write, close, warnings: [], executed: [], answer: 'Run Agent
 module.exports = {
 	window: {
 		onDidWriteTerminalData: write.event, onDidCloseTerminal: close.event,
-		showWarningMessage: async (message, options) => { globalThis.__vs.warnings.push({ message, options }); return globalThis.__vs.answer },
+		showWarningMessage: async (message, options) => { globalThis.__vs.warnings.push({ message, options }); globalThis.__vs.onWarn?.(); return globalThis.__vs.answer },
 		showInformationMessage: async () => undefined,
 	},
-	workspace: { isTrusted: true, workspaceFolders: [] },
+	workspace: { get isTrusted() { return globalThis.__vs.trusted !== false }, workspaceFolders: [] },
 	commands: { executeCommand: async (...a) => { globalThis.__vs.executed.push(a); return true } },
 }`
 
@@ -68,6 +68,8 @@ function setup() {
 	vs.warnings.length = 0
 	vs.executed.length = 0
 	vs.answer = 'Run Agent Here'
+	vs.onWarn = undefined
+	vs.trusted = true
 	return { host, agents, terminals, sessions, spawns, vs }
 }
 
@@ -191,6 +193,50 @@ test('a folder outside the workspace is asked about once and kept; refusing, or 
 	await assert.rejects(t.host.open('claude', undefined, other), /not allowed to run in that folder/)
 	await assert.rejects(t.host.open('claude', undefined, join(tmp, 'missing')), /not a folder/)
 	assert.equal(t.spawns.length, 2)
+})
+
+test('the question names the folder and says what else runs there', T, async () => {
+	const t = setup()
+	const folder = join(tmp, 'project-c')
+	mkdirSync(folder)
+	await t.host.open('claude', undefined, folder)
+	const { message, options } = t.vs.warnings[0]
+	assert.match(options.detail, /\.mcp\.json/)
+	assert.match(options.detail, /hooks/)
+	assert.match(options.detail, /Forget Folders Trusted for Agents/)
+	assert.ok(message.includes(folder))
+})
+
+test('the folder is asked about by its real path and checked again right before the agent starts: a link pointed elsewhere after the yes is refused', { ...T, skip: process.platform === 'win32' && 'a symbolic link needs a privilege a Windows runner does not have' }, async () => {
+	const t = setup()
+	const real = join(tmp, 'real-folder')
+	const elsewhere = join(tmp, 'elsewhere')
+	const link = join(tmp, 'link-to-folder')
+	mkdirSync(real)
+	mkdirSync(elsewhere)
+	symlinkSync(real, link)
+	t.vs.onWarn = () => { unlinkSync(link); symlinkSync(elsewhere, link) }
+	await assert.rejects(t.host.open('claude', undefined, link), /folder changed/)
+	assert.ok(t.vs.warnings[0].message.includes(real), 'the dialog shows the real folder, not the link')
+	assert.equal(t.spawns.length, 0)
+})
+
+test('control characters in a folder name never reach the dialog', { ...T, skip: process.platform === 'win32' && 'a Windows file name cannot hold a control character' }, async () => {
+	const t = setup()
+	const odd = join(tmp, 'bad\nname\u001b[31m')
+	mkdirSync(odd)
+	await t.host.open('claude', undefined, odd)
+	assert.doesNotMatch(t.vs.warnings[0].message, /[\u0000-\u001f]/)
+})
+
+test('in a workspace that is not trusted no agent starts in a folder, and nothing is asked', T, async () => {
+	const t = setup()
+	t.vs.trusted = false
+	const folder = join(tmp, 'project-d')
+	mkdirSync(folder)
+	await assert.rejects(t.host.open('claude', undefined, folder), /Trust this workspace/)
+	assert.equal(t.vs.warnings.length, 0)
+	assert.equal(t.spawns.length, 0)
 })
 
 test('two asks for the same session at once start one terminal', T, async () => {

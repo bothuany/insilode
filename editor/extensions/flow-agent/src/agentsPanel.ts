@@ -5,21 +5,22 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { randomBytes } from 'crypto';
+import { readFileSync } from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { buildRows, skeletonStages } from './agentRows';
 import type { Agents } from './agents';
 import { bypassAllowed, BYPASS_SETTING } from './bypass';
 import type { StartHow } from './dockMessage';
-import type { AgentsPageData, AgentsPageMessage, AgentsPageTail, ChatEvent } from './agentsData';
+import type { AgentsPageData, AgentsPageLayouts, AgentsPageMessage, AgentsPageTail } from './agentsData';
 import { agentsAction } from './agentsMessage';
-import { agentsHtml } from './agentsPage';
-import { appendEvent } from './chatCore';
-import type { ChatSessions } from './chatSessions';
+import { agentsHtml, type TermAssets } from './agentsPage';
 import { readAvatar } from './desktopModel';
+import type { LayoutStore } from './layoutStore';
 import type { Peers } from './peers';
 import { renameFromPalette } from './paletteActions';
 import { savedAgents } from './pick';
+import type { ProjectIndex } from './projectIndex';
 import { startOrResume } from './resume';
 import type { TermAttachment } from './termBridge';
 import type { TermHost } from './termHost';
@@ -28,24 +29,34 @@ import type { WorktreeRows } from './worktreeActions';
 
 export const OPEN_AGENTS_PAGE = 'flow.agents.openPage';
 
+let assets: TermAssets | undefined | null;
+/**
+ * xterm.js and its style sheet, built next to the extension (esbuild.mjs writes out/xterm.js and out/xterm.css). Read once. Without them (a
+ * checkout that was not built, a test) the page still opens: its panes then point at the terminal in the editor.
+ */
+function termAssets(): TermAssets | undefined {
+	if (assets === undefined) {
+		try {
+			assets = { js: readFileSync(path.join(__dirname, 'xterm.js'), 'utf8'), css: readFileSync(path.join(__dirname, 'xterm.css'), 'utf8') };
+		} catch {
+			assets = null;
+		}
+	}
+	return assets ?? undefined;
+}
+
 export class AgentsPanel implements vscode.Disposable {
 	private panel: vscode.WebviewPanel | undefined;
 	private timer: NodeJS.Timeout | undefined;
 	/** A repaint waits for flow-view's answers; one that a newer repaint overtook while waiting is dropped, so the older data never lands last. */
 	private paint = 0;
 	private listeners: vscode.Disposable[] = [];
-	/** The chat the page has open, and the events of it not sent yet: bursts of streamed text go out as one message every ~30 ms. */
-	private openChat: string | undefined;
-	private chatQueue: ChatEvent[] = [];
-	private chatTimer: NodeJS.Timeout | undefined;
 	/** The session search in flight: a newer query aborts it, and so does closing the page. */
 	private searching: AbortController | undefined;
-	/** Counts the page's opens: when two are asked in a row the last one wins, however long each takes. */
-	private openSeq = 0;
 	/** The terminals this page shows, by agent session: only these may be typed into or resized by the page. */
 	private readonly attached = new Map<string, TermAttachment>();
 
-	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows, private readonly peers?: Peers, private readonly chats?: ChatSessions, private readonly term?: TermHost) {}
+	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows, private readonly peers?: Peers, private readonly projects?: ProjectIndex, private readonly term?: TermHost, private readonly layouts?: LayoutStore) {}
 
 	/**
 	 * Opens the page, or brings the open one to the front. On the desktop it opens in a window of its own (flow.agents.page.location,
@@ -81,12 +92,11 @@ export class AgentsPanel implements vscode.Disposable {
 		const panel = vscode.window.createWebviewPanel('flow.agentsPage', 'Agents', vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true, localResourceRoots: [] });
 		this.panel = panel;
 		panel.iconPath = new vscode.ThemeIcon('sparkle') as unknown as vscode.WebviewPanel['iconPath'];
-		panel.webview.html = agentsHtml(randomBytes(16).toString('base64'));
+		panel.webview.html = agentsHtml(randomBytes(16).toString('base64'), termAssets());
 		const repaint = () => this.post();
 		this.listeners = [
 			panel.webview.onDidReceiveMessage(raw => this.onMessage(raw)),
 			this.agents.onDidChange(repaint),
-			...(this.chats ? [this.chats.onEvent(e => this.chatEvent(e.chat, e.event))] : []),
 			...(this.worktrees ? [this.worktrees.onDidChange(repaint)] : []),
 			...(this.peers ? [this.peers.onDidChange(repaint)] : []),
 			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst') || e.affectsConfiguration('flow.agents.custom') || e.affectsConfiguration(BYPASS_SETTING)) && this.post()),
@@ -109,9 +119,6 @@ export class AgentsPanel implements vscode.Disposable {
 		}
 		this.panel = undefined;
 		clearTimeout(this.timer);
-		clearTimeout(this.chatTimer);
-		this.openChat = undefined;
-		this.chatQueue = [];
 		this.searching?.abort();
 		this.attached.forEach(a => a.detach());
 		this.attached.clear();
@@ -128,8 +135,9 @@ export class AgentsPanel implements vscode.Disposable {
 		switch (m?.type) {
 			case 'ready':
 				this.post();
-				// A page that (re)loads gets the list and the chat it had open, in full.
-				return void this.chatReady();
+				// A page that (re)loads gets the list of earlier sessions and the layout it had.
+				void this.sendIndex();
+				return this.sendLayouts(true);
 			case 'new': return void vscode.commands.executeCommand('flow.agents.start', m.cli);
 			case 'show': return this.agents.show(m.id);
 			case 'flow': return this.agents.openImpactFlow(m.id, m.index);
@@ -148,11 +156,6 @@ export class AgentsPanel implements vscode.Disposable {
 			case 'pick': return void vscode.commands.executeCommand('flow.agents.new');
 			case 'sk': return void this.agents.setSkeletonOn(m.id, m.on);
 			case 'tail': return void this.tail(m.id);
-			case 'reply':
-				if (!this.agents.typeInto(m.id, m.text, true, savedAgents(), false)) {
-					this.send({ type: 'replyFailed', id: m.id });
-				}
-				return;
 			// By index into the list the host sent: the page never names a command.
 			case 'custom': {
 				const custom = savedAgents()[m.index];
@@ -162,14 +165,13 @@ export class AgentsPanel implements vscode.Disposable {
 			case 'kept': return void vscode.commands.executeCommand('flow.agents.keptWorktrees');
 			// Another window's project or session: looked up by key and id in what this window read (peers.ts), never a path.
 			case 'peer': return void this.peers?.act(m.action, m.key, m.id);
-			// The page's own chat (chatSessions.ts): every id was issued by the host, and the host re-checks it.
+			// The sidebar's earlier sessions: every id in what the host answers is its own.
 			case 'chatList': return void this.sendIndex();
 			case 'chatSearch': return void this.chatSearch(m.query);
-			case 'chatOpen': return void this.chatOpen(m.project, m.kind, m.session);
-			case 'chatPrompt': return void this.chats?.prompt(m.chat, m.text);
-			case 'chatCancel': return void this.chats?.cancel(m.chat);
-			case 'chatAnswer': return this.chats?.answer(m.chat, m.req, m.option);
-			case 'chatSet': return void this.chats?.setOption(m.chat, m.config, m.value);
+			// The pane layouts, validated by agentsAction; what is stored is only ever what paneLayout.ts accepts.
+			case 'layoutSave': return this.layouts?.setCurrent(m.layout);
+			case 'layoutSaveAs': return void (this.layouts?.save(m.name, m.layout) && this.sendLayouts(false));
+			case 'layoutDelete': return void (this.layouts?.remove(m.name), this.sendLayouts(false));
 			// The terminal panes (termHost.ts): the page may only touch a terminal it attached to.
 			case 'termAttach': return this.termAttach(m.id);
 			case 'termDetach': return this.termDetach(m.id);
@@ -214,13 +216,13 @@ export class AgentsPanel implements vscode.Disposable {
 	}
 
 	private async chatSearch(query: string) {
-		if (!this.chats) {
+		if (!this.projects) {
 			return;
 		}
 		this.searching?.abort();
 		const mine = this.searching = new AbortController();
 		// A search that failed is not "no match": it is cut short.
-		const { hits, more, cut } = await this.chats.search(query, mine.signal).catch(() => ({ hits: [], more: false, cut: true }));
+		const { hits, more, cut } = await this.projects.search(query, mine.signal).catch(() => ({ hits: [], more: false, cut: true }));
 		// Only the newest query is answered; the page drops an answer for a query it no longer shows as well.
 		if (!mine.signal.aborted) {
 			this.send({ type: 'chatFound', query, hits, more, cut });
@@ -228,60 +230,18 @@ export class AgentsPanel implements vscode.Disposable {
 	}
 
 	private async sendIndex() {
-		if (this.chats) {
-			this.send({ type: 'chatIndex', projects: await this.chats.projects() });
+		if (this.projects) {
+			this.send({ type: 'chatIndex', projects: await this.projects.projects() });
 		}
 	}
 
-	/** The open chat in full: its header and its whole transcript, which replaces what the page drew. */
-	private sendChat() {
-		const chat = this.openChat ? this.chats?.get(this.openChat) : undefined;
-		if (!chat || !this.chats) {
-			return;
+	/** The layout the page had last (only on load: the page restores it once) and the layouts the user named. */
+	private sendLayouts(withCurrent: boolean) {
+		if (this.layouts) {
+			const current = withCurrent ? this.layouts.current() : undefined;
+			const m: AgentsPageLayouts = { type: 'layouts', ...(current ? { current } : {}), saved: this.layouts.saved() };
+			this.send(m);
 		}
-		clearTimeout(this.chatTimer);
-		this.chatTimer = undefined;
-		this.chatQueue = [];
-		const { opened, events } = this.chats.opened(chat);
-		this.send(opened);
-		this.send({ type: 'chatEvents', chat: opened.chat, reset: true, events });
-	}
-
-	private async chatReady() {
-		await this.sendIndex();
-		this.sendChat();
-	}
-
-	private async chatOpen(project: string, kind: 'claude' | 'codex', session: string | undefined) {
-		const seq = ++this.openSeq;
-		try {
-			const chat = await this.chats?.open(project, kind, session);
-			if (chat && seq === this.openSeq) {
-				this.openChat = chat.id;
-				this.sendChat();
-				void this.sendIndex();
-			}
-		} catch (e) {
-			// An older open that failed after a newer one began is not what the page waits for.
-			if (seq === this.openSeq) {
-				this.send({ type: 'chatFailed', project, text: (e as Error).message });
-			}
-		}
-	}
-
-	private chatEvent(chat: string, event: ChatEvent) {
-		if (chat !== this.openChat) {
-			return;
-		}
-		appendEvent(this.chatQueue, event);
-		this.chatTimer ??= setTimeout(() => {
-			this.chatTimer = undefined;
-			const events = this.chatQueue;
-			this.chatQueue = [];
-			if (this.openChat === chat && events.length) {
-				this.send({ type: 'chatEvents', chat, events });
-			}
-		}, 30);
 	}
 
 	/** "In a worktree", "Resume a session…" and Claude's bypass switch of a start button's menu. */

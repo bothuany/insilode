@@ -1,5 +1,5 @@
 /*---------------------------------------------------------------------------------------------
- *  Insilode: what both chat front ends share (sessionType.ts, VS Code's own chat, and chatSessions.ts, the Agents page's chat):
+ *  Insilode: what VS Code's own chat (sessionType.ts) is built from, and what the Agents page's chat used to share with it:
  *  reading an ACP agent's config options, the rule that answers a permission request for the user, and turning the session
  *  updates of a turn or of a history replay into the page's ChatEvents. Pure (no vscode): tested on its own (test/chatCore.test.mjs).
  *--------------------------------------------------------------------------------------------*/

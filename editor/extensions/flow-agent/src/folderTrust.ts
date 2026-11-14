@@ -1,6 +1,5 @@
 /*---------------------------------------------------------------------------------------------
- *  Insilode: the one question asked before an agent runs in a folder outside this window's workspace, shared by the Agents page's chat
- *  (chatSessions.ts) and its terminals (termHost.ts). The yes is kept by the folder's real path, across windows and restarts.
+ *  Insilode: the one question asked before an agent runs in a folder outside this window's workspace, used by the Agents page's terminals (termHost.ts). The yes is kept by the folder's real path, across windows and restarts.
  *--------------------------------------------------------------------------------------------*/
 
 import { promises as fs } from 'fs';
@@ -16,7 +15,7 @@ const MAX_TRUSTED = 200;
 export async function forgetTrustedFolders(context: vscode.ExtensionContext): Promise<void> {
 	const n = context.globalState.get<string[]>(TRUSTED_FOLDERS, []).length;
 	await context.globalState.update(TRUSTED_FOLDERS, undefined);
-	void vscode.window.showInformationMessage(n ? `Insilode: forgot ${n} folder${n === 1 ? '' : 's'} trusted for agents. The next chat in one asks again.` : 'Insilode: no folder was trusted for agents.');
+	void vscode.window.showInformationMessage(n ? `Insilode: forgot ${n} folder${n === 1 ? '' : 's'} trusted for agents. The next agent in one asks again.` : 'Insilode: no folder was trusted for agents.');
 }
 
 /** A path realpath cannot resolve in a second (a dead network mount) is taken as written: the caller then compares it with other paths as written. */

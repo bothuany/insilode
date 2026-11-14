@@ -7,6 +7,8 @@
 import type { AgentSession } from './agents';
 import type { AttentionKind } from './attention';
 import type { AvatarKind } from './desktopModel';
+import type { SavedLayout } from './layoutStore';
+import type { PaneLayout } from './paneLayout';
 import type { UsageLimits } from './usage';
 import type { WorktreeView } from './worktreeActions';
 
@@ -111,7 +113,7 @@ export interface TailEntry {
 	at?: number;
 }
 
-/** Host → page: the last messages of one agent's conversation, after the page asked for them. */
+/** Host → page: the last messages of one agent's conversation, after the page asked for them (for a transcript pane). */
 export interface AgentsPageTail {
 	type: 'tail';
 	id: string;
@@ -120,15 +122,9 @@ export interface AgentsPageTail {
 	note?: string;
 }
 
-/** Host → page: the reply box's text could not be typed in (the agent is not at its prompt, or it is gone). */
-export interface AgentsPageReplyFailed {
-	type: 'replyFailed';
-	id: string;
-}
+// ---- the sidebar's earlier sessions (projectIndex.ts) -------------------------------------------------------------------------
 
-// ---- the page's own chat (chatSessions.ts) ------------------------------------------------------------------------------------
-
-/** A past or open chat session of a project, as the host's index knows it. */
+/** A past session of a project, as the host's index knows it. */
 export interface ChatIndexSession {
 	id: string;
 	kind: 'claude' | 'codex';
@@ -142,6 +138,8 @@ export interface ChatProject {
 	name: string;
 	/** The folder with the home directory shortened, for a tooltip. */
 	where: string;
+	/** The folder itself: what a terminal that resumes one of its sessions starts in (the host asks before an agent runs outside this window's workspace). */
+	cwd: string;
 	/** This window's own folder. */
 	own: boolean;
 	sessions: ChatIndexSession[];
@@ -173,31 +171,6 @@ export type ChatEvent =
 export interface AgentsPageChatIndex {
 	type: 'chatIndex';
 	projects: ChatProject[];
-}
-
-/** A chat is open: `chat` is the host's id for it, used in every later message. */
-export interface AgentsPageChatOpened {
-	type: 'chatOpened';
-	chat: string;
-	project: string;
-	kind: 'claude' | 'codex';
-	title: string;
-	busy: boolean;
-	config: ChatConfigOption[];
-}
-
-/** `reset` replaces the transcript (a replay); otherwise the events are appended (a tool event updates its card). */
-export interface AgentsPageChatEvents {
-	type: 'chatEvents';
-	chat: string;
-	reset?: true;
-	events: ChatEvent[];
-}
-
-export interface AgentsPageChatFailed {
-	type: 'chatFailed';
-	project: string;
-	text: string;
 }
 
 /** The answer to a `chatSearch`: `query` is the page's own, so a late answer to an earlier one can be told apart. `more`: the search was cut short or capped. `cut`: it was cut short (sessions not searched in full), so no hits does not mean no match. */
@@ -238,4 +211,11 @@ export interface AgentsPageTermFailed {
 	message: string;
 }
 
-export type AgentsPageMessage = AgentsPageData | AgentsPageTail | AgentsPageReplyFailed | AgentsPageChatIndex | AgentsPageChatOpened | AgentsPageChatEvents | AgentsPageChatFailed | AgentsPageChatFound | AgentsPageTermData | AgentsPageTermGone | AgentsPageTermOpened | AgentsPageTermFailed;
+/** Host → page, once after `ready` and again when a layout is saved or deleted: the layout the page had on screen last (for the page to restore, once) and the layouts the user named. */
+export interface AgentsPageLayouts {
+	type: 'layouts';
+	current?: PaneLayout;
+	saved: SavedLayout[];
+}
+
+export type AgentsPageMessage = AgentsPageData | AgentsPageTail | AgentsPageChatIndex | AgentsPageChatFound | AgentsPageLayouts | AgentsPageTermData | AgentsPageTermGone | AgentsPageTermOpened | AgentsPageTermFailed;

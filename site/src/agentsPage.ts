@@ -1,6 +1,6 @@
 // The Try page's Agents page: the app's full-editor page behind the title bar's Agents button, in an iframe, told about five agents
 // on the demo project. Like the dock beside it this is a fixed moment written here; the page itself is the app's own code
-// (pages/agents.html). The shapes follow flow-agent's agentsData.ts (AgentsPageData, AgentsPageTail); they are written out here
+// (pages/agents.html). The shapes follow flow-agent's agentsData.ts (AgentsPageData, AgentsPageTail, AgentsPageTermFailed); they are written out here
 // because the site may not import that file (it reaches `vscode`).
 import type { AvatarKind } from '../../editor/extensions/flow-agent/src/desktopModel'
 import type { DemoData } from './demo'
@@ -164,7 +164,7 @@ export function mountAgentsPage(frame: HTMLIFrameElement, data: DemoData, avatar
     })
   window.addEventListener('message', e => {
     if (e.origin !== location.origin || e.source !== frame.contentWindow) return
-    const m = e.data as { source?: string; message?: { type: string; id?: string } }
+    const m = e.data as { source?: string; message?: { type: string; id?: string; requestId?: string } }
     if (m?.source !== 'insilode-agents' || !m.message) return
     if (m.message.type === 'ready') {
       ready = true
@@ -173,6 +173,9 @@ export function mountAgentsPage(frame: HTMLIFrameElement, data: DemoData, avatar
       const entries = TAILS[m.message.id]
       const now = Date.now()
       send(entries ? { type: 'tail', id: m.message.id, entries: entries.map((x, i) => ({ ...x, at: now - (entries.length - i) * MIN })) } : { type: 'tail', id: m.message.id, entries: [], note: 'This agent has no transcript on this page.' })
+    } else if (m.message.type === 'termOpen' && m.message.requestId) {
+      // No terminal behind this page: a pane that asks to start or resume a session is told so, instead of waiting for one.
+      send({ type: 'termFailed', requestId: m.message.requestId, message: 'Terminals run in the Insilode editor. This page only shows how the workspace works.' })
     }
   })
   setInterval(sendData, 5000)
