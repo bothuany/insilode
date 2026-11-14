@@ -60,6 +60,13 @@ export const WORKSPACE_CSS = String.raw`
 .tlog { height: 100%; overflow: auto; padding: 2px 10px 8px 2px; font: 12px/1.5 var(--mono); }
 .tlog .tl { white-space: pre-wrap; overflow-wrap: anywhere; }
 .tlog .tl.dim { color: var(--muted); } .tlog .tl.user { color: var(--working); } .tlog .tl.warn { color: var(--blocked); }
+.pb.tx { display: flex; flex-direction: column; }
+.pb.tx .tlog { flex: 1 1 0; height: auto; min-height: 0; }
+.tbanner { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; flex: none; margin: 0 8px 6px 0; padding: 7px 10px; border: 1px solid color-mix(in srgb, var(--working) 45%, var(--line)); border-radius: 7px; background: color-mix(in srgb, var(--working) 10%, var(--card)); font-size: 12.5px; }
+.tbanner.needs { border-color: color-mix(in srgb, var(--blocked) 55%, var(--line)); background: color-mix(in srgb, var(--blocked) 10%, var(--card)); }
+.tbanner.idle { border-color: var(--line); background: var(--card); }
+.tbanner b { font-weight: 600; }
+.tbanner .tsub { color: var(--muted); font-size: 12px; flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
 .tfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; padding: 6px 10px; border-top: 1px solid var(--line); background: var(--card); font-size: 12px; color: var(--muted); }
 .tfoot .grow { flex: 1; }
 .bcbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; padding: 8px 12px; border-top: 1px solid var(--line); background: var(--card); }
@@ -109,7 +116,7 @@ const bcBar = h('div', { class: 'bcbar hidden', role: 'group', 'aria-label': 'Br
 	h('b', null, 'Broadcast'), bcInput, bcSend,
 	h('button', { type: 'button', class: 'btn small', onclick: () => checkAll(true) }, 'Check all'),
 	h('button', { type: 'button', class: 'btn small', onclick: () => checkAll(false) }, 'Check none'), bcNote);
-add(work, stage, bcBar, toast);
+add(work, queueEl, stage, bcBar, toast);
 
 function notice(text) {
 	toast.textContent = text;
@@ -156,7 +163,7 @@ function xtermFactory(host, o) {
 		},
 	};
 }
-const CHORD = { BracketRight: 'next', BracketLeft: 'prev', Backslash: 'splitRight', Minus: 'splitDown', NumpadSubtract: 'splitDown', KeyW: 'close', KeyM: 'max', KeyB: 'broadcast', KeyS: 'sidebar', Comma: 'moveBack', Period: 'moveFwd' };
+const CHORD = { KeyN: 'needs', BracketRight: 'next', BracketLeft: 'prev', Backslash: 'splitRight', Minus: 'splitDown', NumpadSubtract: 'splitDown', KeyW: 'close', KeyM: 'max', KeyB: 'broadcast', KeyS: 'sidebar', Comma: 'moveBack', Period: 'moveFwd' };
 const chordOf = e => e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey ? CHORD[e.code] : undefined;
 if (typeof MutationObserver === 'function') {
 	// The theme (light, dark, high contrast) changes the variables the terminals draw with.
@@ -173,23 +180,35 @@ function findPane(c) {
 	return undefined;
 }
 const isOpen = c => !!findPane(c);
+// x: the session of the machine's index that a read-only pane (content.ext) shows, with whatever outside this window runs it ({ p, s }).
 function infoOf(pv) {
 	const c = pv.content;
 	const own = c.session ? rowById(c.session) : undefined;
 	const peer = !own && c.session && c.peer ? peerById(c.session) : undefined;
-	return { own, peer, s: own || (peer && peer.r) };
+	const x = !own && !peer && c.ext !== undefined && c.session ? indexed(c.agent, c.session) : undefined;
+	return { own, peer, s: own || (peer && peer.r), x };
 }
 function titleOf(pv) {
 	const i = infoOf(pv);
-	return (i.s && i.s.name) || pv.content.title || CLI_NAME[pv.content.agent] || 'Session';
+	return (i.s && i.s.name) || (i.x && i.x.s.title) || pv.content.title || CLI_NAME[pv.content.agent] || 'Session';
 }
 function dotFor(pv) {
 	const i = infoOf(pv);
 	if (i.s) { return dotOf(i.s); }
+	if (pv.content.ext !== undefined) { const l = i.x && liveOf(i.x.s); return l ? liveDot(l) : 'idle'; }
 	return pv.status === 'starting' || pv.status === 'live' ? 'working' : 'idle';
 }
+const needsYou = pv => { const i = infoOf(pv); const l = i.x && liveOf(i.x.s); return !!(i.s && needKind(i.s)) || !!(l && l.basis === 'live' && l.status === 'needs'); };
 const paneClass = pv => cls('pane', ws.layout.focus === pv.id && 'active', ws.layout.max === pv.id && 'maxed', pv.status === 'ended' && 'ended',
-	infoOf(pv).s && needKind(infoOf(pv).s) && 'needs', bcEligible(pv) && ws.bc.on && ws.bc.checked.has(pv.id) && 'target');
+	needsYou(pv) && 'needs', bcEligible(pv) && ws.bc.on && ws.bc.checked.has(pv.id) && 'target');
+// A read-only pane of a session some other program runs (or ran): it reads the conversation again while that goes on.
+const isExt = pv => pv.content.kind === 'transcript' && pv.content.ext !== undefined && !!pv.content.session && (pv.content.agent === 'claude' || pv.content.agent === 'codex') && UUID.test(pv.content.session);
+const requestTail = pv => post({ type: 'tail', id: pv.content.session, kind: pv.content.agent });
+function refreshExtPanes() { for (const pv of ws.views.values()) { if (isExt(pv)) { paintPane(pv); requestTail(pv); } } }
+setInterval(() => {
+	if (document.hidden) { return; }
+	for (const pv of ws.views.values()) { const l = isExt(pv) && infoOf(pv).x && liveOf(infoOf(pv).x.s); if (l) { requestTail(pv); } }
+}, 3000);
 
 // ---- views of the panes ----------------------------------------------------------------------------------------------------
 function makeView(leaf) {
@@ -503,6 +522,7 @@ function unmountContent(pv) {
 	if (pv.ro) { pv.ro.disconnect(); pv.ro = undefined; }
 	if (pv.term) { pv.term.dispose(); pv.term = undefined; }
 	wipe(pv.body);
+	pv.body.className = 'pb';
 	pv.cols = 0; pv.rows = 0;
 	pv.sig = undefined; pv.osig = undefined; pv.tsig = undefined;
 }
@@ -513,7 +533,7 @@ function setup(pv, start) {
 	const c = pv.content;
 	pv.status = 'idle';
 	pv.error = '';
-	if (c.kind === 'transcript') { return; }
+	if (c.kind === 'transcript') { if (isExt(pv)) { requestTail(pv); } return; }
 	if (!c.session) {
 		if (start) { return startPane(pv); }
 		pv.status = 'ended';
@@ -549,6 +569,14 @@ function startPane(pv) {
 	pv.status = 'starting';
 	pv.error = '';
 	post({ type: 'termOpen', requestId: pv.req, kind: c.agent, ...(c.resume ? { sessionId: c.resume } : {}), ...(c.cwd ? { cwd: c.cwd } : {}) });
+}
+// A read-only pane becomes the terminal of the session: the host asks the machine again and refuses a session that something still runs.
+function resumeHere(pv) {
+	const c = pv.content;
+	const next = L.replaceContent(ws.layout, pv.id, { kind: 'terminal', agent: c.agent, resume: c.resume || c.session, ...(c.cwd ? { cwd: c.cwd } : {}), ...(c.folder ? { folder: c.folder } : {}), ...(c.title ? { title: c.title } : {}) });
+	ws.autostart.add(pv.id);
+	commit(next);
+	setFocus(pv.id, true);
 }
 function scheduleFit(pv) {
 	if (!pv.term) { return; }
@@ -656,7 +684,8 @@ function paneMenuItems(pv) {
 }
 function paintPane(pv) {
 	const c = pv.content;
-	const { own, peer, s } = infoOf(pv);
+	const { own, peer, s, x } = infoOf(pv);
+	const xl = x && liveOf(x.s);
 	const dot = dotFor(pv);
 	const title = titleOf(pv);
 	const folder = (own && own.cwd ? base(own.cwd) : '') || c.folder || (c.cwd ? base(c.cwd) : '') || (peer ? peer.p.name : '');
@@ -666,13 +695,14 @@ function paintPane(pv) {
 	const multi = L.panes(ws.layout).length > 1;
 	const checked = eligible && ws.bc.on && ws.bc.checked.has(pv.id);
 	// The header is built again only when something it shows changed: a data message arrives with every hook event, and a repaint would take the focus from a button the keyboard is on.
-	const sig = JSON.stringify([title, dot, folder, branch, c.agent, c.cwd, own && own.clash && own.clash.map(x => x.text), s && [s.state, needKind(s), s.since, s.need && s.need.at], eligible, ws.bc.on && c.kind === 'terminal', checked, maxed, multi]);
+	const sig = JSON.stringify([title, dot, folder, branch, c.agent, c.cwd, own && own.clash && own.clash.map(x => x.text), s && [s.state, needKind(s), s.since, s.need && s.need.at], c.ext !== undefined && [xl && [xl.status, xl.source, xl.basis], chat.got], eligible, ws.bc.on && c.kind === 'terminal', checked, maxed, multi]);
 	if (sig !== pv.sig) {
 		pv.sig = sig;
 		pv.ticks = [];
 		const mark = c.agent === 'claude' || c.agent === 'codex' ? raw('span', 'mark', MARK[c.agent] + '') : h('span', { class: 'mark cust' }, 'custom');
 		mark.setAttribute('title', CLI_NAME[c.agent] || c.agent);
 		const state = s ? (function () { const e = h('span', { class: 'pstate s-' + (needKind(s) || s.state) }, stateText(s)); pv.ticks.push(() => { e.textContent = stateText(s); }); return e; })() : null;
+		const xstate = xl ? h('span', { class: 'pstate' + (xl.basis === 'live' && xl.status === 'needs' ? ' s-blocked' : ''), title: liveTip(xl) }, xl.basis === 'recent' ? 'Active recently' : LIVE_TEXT[xl.status]) : null;
 		const tools = [];
 		if (ws.bc.on && c.kind === 'terminal') {
 			const box = h('input', { type: 'checkbox', 'aria-label': 'Broadcast to ' + title, disabled: !eligible || null });
@@ -685,7 +715,7 @@ function paintPane(pv) {
 		menuBtn.addEventListener('click', e => { e.stopPropagation(); showMenu(menuBtn, () => paneMenuItems(pv)); });
 		fill(pv.head, [h('i', { class: 'sdot ' + dot, title: DOT_LABEL[dot], style: 'margin-top:0' }), mark,
 			h('span', { class: 'pt', title: title }, title), folder ? h('span', { class: 'pf', title: c.cwd || (own && own.cwd) || folder }, folder) : null, branch ? h('span', { class: 'pbr', title: 'Worktree branch ' + branch }, '⎇ ' + branch) : null,
-			own && own.clash && own.clash.length ? h('span', { class: 'warnic', title: own.clash.map(x => x.text).join('\n') }, '⚠') : null, state,
+			own && own.clash && own.clash.length ? h('span', { class: 'warnic', title: own.clash.map(x => x.text).join('\n') }, '⚠') : null, state, xl ? xbadge(xl) : null, xstate,
 			h('span', { class: 'pgrow' }), tools,
 			multi ? h('button', { type: 'button', class: 'ibtn', title: (maxed ? 'Restore' : 'Maximize') + ' (Alt+Shift+M)', 'aria-label': (maxed ? 'Restore ' : 'Maximize ') + title, 'aria-pressed': maxed ? 'true' : 'false', onclick: () => toggleMax(pv.id) }, raw('span', null, maxed ? ICO.restore : ICO.max)) : null,
 			menuBtn,
@@ -726,10 +756,15 @@ function paintOver(pv) {
 // The read-only pane: what the session publishes (another window's) or the conversation tail the host read, set as a terminal log.
 function paintTranscript(pv) {
 	const c = pv.content;
-	const { peer, s } = infoOf(pv);
+	const { peer, s, x } = infoOf(pv);
 	const lines = [];
 	const line = (text, k) => lines.push([text, k || '']);
-	if (!s) {
+	const ext = c.ext !== undefined && !s;
+	if (ext) {
+		const tail = tails.get(c.session);
+		for (const m of tail ? tail.entries : []) { line((m.role === 'user' ? '> ' : m.role === 'tool' ? '$ ' : '') + m.text, m.role === 'user' ? 'user' : m.role === 'tool' ? 'dim' : ''); }
+		if (!lines.length) { line(tail ? tail.note || 'Nothing to show yet.' : 'Reading the conversation…', 'dim'); }
+	} else if (!s) {
 		line('This session is not listed any more: its window may be closed.', 'dim');
 	} else {
 		if (s.prompt) { line('> ' + s.prompt, 'user'); }
@@ -743,13 +778,25 @@ function paintTranscript(pv) {
 		if (lines.length === 0) { line('Nothing to show yet.', 'dim'); }
 	}
 	const noterm = pv.status === 'noterm';
-	const sig = JSON.stringify([lines, titleOf(pv), noterm, peer && [peer.p.name, peer.p.key, peer.r.id, !!peer.r.flows]]);
+	// The banner of a read-only pane of a session another program runs: who runs it, or how to take it over once nothing does. A session that something still runs is never offered for resuming.
+	const xl = x && liveOf(x.s);
+	let banner;
+	if (ext) {
+		const resume = () => resumeHere(pv);
+		if (xl && xl.basis === 'live') { banner = { cls: xl.status === 'needs' ? 'needs' : '', title: 'Running in ' + xl.source + ' — read-only here', sub: LIVE_TEXT[xl.status] + '. Close it there to resume it here.' }; }
+		else if (xl) { banner = { cls: 'idle', title: 'Active recently in Codex — read-only here', sub: 'Its transcript changed in the last 2 minutes. That is an estimate: Codex lists no running sessions, so it may still be running.', button: ['Resume here anyway', resume] }; }
+		else if (!chat.got) { banner = { cls: 'idle', title: 'Checking whether it still runs elsewhere…' }; }
+		else { banner = { cls: 'idle', title: 'No longer running elsewhere', sub: 'Pick it up in a terminal here.', button: ['Resume here', resume] }; }
+	}
+	const sig = JSON.stringify([lines, titleOf(pv), noterm, peer && [peer.p.name, peer.p.key, peer.r.id, !!peer.r.flows], banner && [banner.cls, banner.title, banner.sub, banner.button && banner.button[0]]]);
 	if (sig === pv.tsig) { return; }
 	pv.tsig = sig;
-	const old = pv.body.firstChild;
+	const old = pv.body.querySelector ? pv.body.querySelector('.tlog') : pv.body.firstChild;
 	const atEnd = !old || old.scrollTop === undefined || old.scrollTop + old.clientHeight >= old.scrollHeight - 4;
 	const log = h('div', { class: 'tlog', tabindex: '0', role: 'log', 'aria-label': 'Transcript of ' + titleOf(pv) }, lines.map(l => h('div', { class: 'tl' + (l[1] ? ' ' + l[1] : '') }, l[0])));
-	fill(pv.body, [log]);
+	pv.body.className = 'pb tx';
+	fill(pv.body, [banner ? h('div', { class: 'tbanner ' + banner.cls, role: 'status' }, h('b', null, banner.title), banner.sub ? h('span', { class: 'tsub' }, banner.sub) : null,
+		banner.button ? h('button', { type: 'button', class: 'btn small primary', onclick: banner.button[1] }, banner.button[0]) : null) : null, log]);
 	if (log.scrollTop !== undefined && atEnd) { log.scrollTop = log.scrollHeight; }
 	if (noterm) {
 		add(pv.body, h('div', { class: 'tfoot' }, h('span', null, 'This page draws no terminal: the live one runs in the editor.'), h('span', { class: 'grow' }),
@@ -829,6 +876,7 @@ function wsKey(e) {
 	e.preventDefault();
 	const f = ws.layout.focus;
 	if (c === 'broadcast') { toggleBroadcast(); return true; }
+	if (c === 'needs') { jumpToNext(); return true; }
 	if (c === 'sidebar') { const el = rowEls.get(selKey) || side.querySelector('.srow'); if (el && el.focus) { el.focus(); } return true; }
 	setView('work');
 	if (c === 'next' || c === 'prev') { const id = L.neighbor(ws.layout, f, c === 'next' ? 1 : -1); if (id) { setFocus(id, true); } }

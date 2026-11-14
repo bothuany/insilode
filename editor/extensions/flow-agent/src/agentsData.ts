@@ -42,6 +42,8 @@ export type AgentRow = Omit<AgentSession, 'impact' | 'worktree'> & {
  */
 export interface PeerRow {
 	id: string;
+	/** The id the CLI itself gave the session (Codex's thread id), a uuid: what the machine's index lists it by, so the page does not offer it as running elsewhere. */
+	agentId?: string;
 	cli: AgentSession['cli'];
 	name: string;
 	state: AgentSession['state'];
@@ -124,12 +126,23 @@ export interface AgentsPageTail {
 
 // ---- the sidebar's earlier sessions (projectIndex.ts) -------------------------------------------------------------------------
 
-/** A past session of a project, as the host's index knows it. */
+export type LiveStatus = 'working' | 'needs' | 'idle' | 'unknown';
+
+/** What marks a session that runs outside this window (liveSessions.ts). `live`: a process that runs it was found (Claude); `recent`: only an estimate from the transcript's time (Codex has no list of running sessions). */
+export interface LiveMark {
+	status: LiveStatus;
+	/** What runs it: "Claude Code CLI", "Claude desktop", "Codex". */
+	source: string;
+	basis: 'live' | 'recent';
+}
+
+/** A past session of a project, as the host's index knows it; `live` when something outside this window runs it. */
 export interface ChatIndexSession {
 	id: string;
 	kind: 'claude' | 'codex';
 	title: string;
 	modified: number;
+	live?: LiveMark;
 }
 
 /** A folder some agent has worked in. `key` is folderKey(folder): the page sends it back, never the path. */

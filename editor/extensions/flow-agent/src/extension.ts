@@ -22,6 +22,7 @@ import { renameFromPalette, removeFromPalette, swapFromPalette } from './palette
 import { Peers } from './peers';
 import { pickAgent } from './pick';
 import { PrEvents } from './prEvents';
+import { listLive } from './liveSessions';
 import { ProjectIndex } from './projectIndex';
 import { startOrResume } from './resume';
 import { toggleBypass } from './bypass';
@@ -83,8 +84,10 @@ export async function activate(context: vscode.ExtensionContext) {
 	const peers = new Peers(agents, worktrees);
 	const dock = new AgentsDock(agents, worktrees, peers);
 	// The Agents page's sidebar of earlier sessions, its terminals and its pane layouts (none of it is VS Code's chat).
-	const projects = new ProjectIndex(() => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath, () => [...agents.sessions.values()].filter(s => s.state !== 'ended').flatMap(s => [s.id, s.agentId ?? '', path.basename(s.transcript ?? '', '.jsonl')]));
-	const term = new TermHost(agents, context);
+	const projects = new ProjectIndex(() => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath, () => [...agents.sessions.values()].filter(s => s.state !== 'ended').flatMap(s => [s.id, s.agentId ?? '', path.basename(s.transcript ?? '', '.jsonl')]),
+		() => peers.view().peers.flatMap(p => p.rows.flatMap(r => [r.id, r.agentId ?? ''])));
+	// A session another program runs must not be resumed here too: asked of the machine at the moment of the click, not of the page's last list.
+	const term = new TermHost(agents, context, async id => (await listLive()).find(l => l.id === id.toLowerCase())?.source);
 	const page = new AgentsPanel(agents, worktrees, peers, projects, term, new LayoutStore(context.workspaceState, context.globalState));
 	const router = new AskRouter(context, agents);
 	context.subscriptions.push(

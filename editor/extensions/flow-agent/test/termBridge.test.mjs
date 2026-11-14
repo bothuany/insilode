@@ -35,7 +35,7 @@ function setup() {
 	}
 	const bridge = new m.TermBridge(env)
 	const sink = () => { const got = []; return { got, data: (d, reset) => got.push(reset ? ['reset', d] : d), gone: () => got.push('gone') } }
-	return { bridge, typed, dims, ended, sink, slow: (id, ms) => { delay[id] = ms } }
+	return { bridge, typed, dims, ended, pids, sink, slow: (id, ms) => { delay[id] = ms } }
 }
 
 test('attach replays what the terminal printed, then streams the rest to the sink', T, async () => {
@@ -199,4 +199,36 @@ test('restart empties the replay and tells the panes to clear', T, async () => {
 	await sleep(40)
 	assert.deepEqual(sink.got, [['reset', ''], 'new'])
 	assert.equal(t.bridge.attach('s1', t.sink()).replay, 'new')
+})
+
+test('a resumed session\'s new terminal gets the pane\'s size, the old one gives it back, and a later detach touches only the new one', T, async () => {
+	const t = setup()
+	const sink = t.sink()
+	const a = t.bridge.attach('s1', sink)
+	assert.equal(await t.bridge.resize('s1', 100, 30), true)
+	// Agents now answers with the new terminal (process 150); the old one (100) is handed over.
+	t.pids.s1 = 150
+	t.bridge.restart('s1', { processId: Promise.resolve(100), sendText() {} })
+	await sleep(20)
+	assert.deepEqual(t.dims.slice(1).sort((x, y) => x[0] - y[0]), [[100, undefined, undefined], [150, 100, 30]])
+	a.detach()
+	await sleep(20)
+	assert.deepEqual(t.dims.at(-1), [150, undefined, undefined], 'the reset goes to the terminal that runs the session now')
+	assert.equal(t.dims.length, 4)
+})
+
+test('a restart with no pane size to move does not touch either terminal', T, async () => {
+	const t = setup()
+	t.bridge.attach('s1', t.sink())
+	t.bridge.restart('s1', { processId: Promise.resolve(100), sendText() {} })
+	await sleep(20)
+	assert.deepEqual(t.dims, [])
+	// A size that was given back on the last detach is not remembered for the next terminal either.
+	const b = t.bridge.attach('s2', t.sink())
+	await t.bridge.resize('s2', 90, 20)
+	b.detach()
+	await sleep(10)
+	t.bridge.restart('s2', { processId: Promise.resolve(200), sendText() {} })
+	await sleep(20)
+	assert.deepEqual(t.dims, [[200, 90, 20], [200, undefined, undefined]])
 })

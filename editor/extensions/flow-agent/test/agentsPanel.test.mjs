@@ -131,7 +131,8 @@ test('the page is built with the terminal when out/xterm.js and out/xterm.css si
 	writeFileSync(join(dir, 'xterm.css'), '.xterm { color: red }')
 	const Built = await bundlePanel(dir)
 	const html = setup({ Panel: Built }).view.html
-	const nonce = /script-src 'nonce-([^']+)'/.exec(html)[1]
+	// The nonce is base64: its + and / are not regex characters.
+	const nonce = /script-src 'nonce-([^']+)'/.exec(html)[1].replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 	assert.match(html, new RegExp(`<script nonce="${nonce}">/\\*insilode:xterm\\*/window.insilodeXterm = \\{\\};</script>`))
 	assert.match(html, /\.xterm \{ color: red \}/)
 	assert.match(html, /default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-[^']+';/)
@@ -245,4 +246,105 @@ test('without a terminal host the panes answer "gone" and "failed" instead of th
 	t.page({ type: 'termOpen', requestId: 'r1', kind: 'claude' })
 	await sleep(10)
 	assert.deepEqual(t.posted, [{ type: 'termGone', id: 's1' }, { type: 'termFailed', requestId: 'r1', message: 'Terminals are not available.' }])
+})
+
+// Sessions that other programs run: the page is told while it is visible, and only when something changed.
+
+/** A panel whose visibility the test drives, and whose 3-second poll the test runs by hand. */
+function withLive(projects) {
+	const timers = new Set()
+	const real = { setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval }
+	globalThis.setInterval = f => { const t = { f }; timers.add(t); return t }
+	globalThis.clearInterval = t => timers.delete(t)
+	const posted = []
+	const listeners = {}
+	const none = () => ({ dispose() {} })
+	const win = { visible: true, active: true, webview: { html: '', postMessage: async m => { posted.push(JSON.parse(JSON.stringify(m))); return true }, onDidReceiveMessage: f => { listeners.message = f; return none() } },
+		onDidChangeViewState: f => { listeners.view = f; return none() }, onDidDispose: f => { listeners.dispose = f; return none() }, reveal() {}, dispose() {} }
+	globalThis.__panel = () => win
+	// A visible page also gets the rows: an empty set of agents is enough for that.
+	const agents = { onDidChange: none, sessions: new Map(), conflicts: () => [], askSessions: () => [], keptWorktrees: [], latestLimits: undefined }
+	const panel = new AgentsPanel(agents, undefined, undefined, projects)
+	panel.open()
+	return {
+		posted, timers, panel, page: m => listeners.message(m),
+		show: visible => { win.visible = visible; listeners.view({ webviewPanel: win }) },
+		tick: async () => { for (const t of [...timers]) { await t.f() } await sleep(5) },
+		indexes: () => posted.filter(m => m.type === 'chatIndex'),
+		restore: () => { globalThis.setInterval = real.setInterval; globalThis.clearInterval = real.clearInterval },
+	}
+}
+
+test('a visible page looks for running sessions every few seconds and is sent the index only when it changed; hidden or closed, it stops', TT, async () => {
+	let sig = 'a', name = 'one'
+	const projects = { projects: async () => [{ key: KEY, name, where: '~/app', cwd: '/work/app', own: true, sessions: [] }], runningSignature: async () => sig }
+	const t = withLive(projects)
+	try {
+		assert.equal(t.timers.size, 0, 'nothing to look for before the page has said ready')
+		t.page({ type: 'ready' })
+		await sleep(10)
+		assert.equal(t.timers.size, 1)
+		assert.equal(t.indexes().length, 1)
+		await t.tick()
+		assert.equal(t.indexes().length, 1, 'the same machine: nothing sent')
+		sig = 'b'
+		await t.tick()
+		assert.equal(t.indexes().length, 1, 'a change in what runs but the same index: nothing to say')
+		name = 'two'
+		sig = 'c'
+		await t.tick()
+		assert.deepEqual(t.indexes().map(m => m.projects[0].name), ['one', 'two'])
+		// Every few looks the index is read anyway (the "active recently" estimate ages without a file changing).
+		name = 'three'
+		for (let i = 0; i < 4; i++) { await t.tick() }
+		assert.equal(t.indexes().at(-1).projects[0].name, 'three')
+		t.show(false)
+		assert.equal(t.timers.size, 0, 'a hidden page is not looked after')
+		t.show(true)
+		assert.equal(t.timers.size, 1)
+		t.panel.dispose()
+		assert.equal(t.timers.size, 0)
+	} finally {
+		t.restore()
+	}
+})
+
+test('a look that is still running is not started again, and one that fails is tried again next time', TT, async () => {
+	let calls = 0, fail = true
+	const projects = { projects: async () => [], runningSignature: async () => { calls++; await sleep(30); if (fail) { throw new Error('boom') } return 'x' } }
+	const t = withLive(projects)
+	try {
+		t.page({ type: 'ready' })
+		await sleep(10)
+		await t.tick()
+		await t.tick()
+		assert.equal(calls, 1, 'the second look found the first still going')
+		await sleep(50)
+		fail = false
+		await t.tick()
+		await sleep(50)
+		assert.equal(calls, 2, 'the failed look did not stop the next one')
+		await t.tick()
+		assert.equal(calls, 3, 'and the one that finished leaves the way free')
+	} finally {
+		t.restore()
+	}
+})
+
+test('a tail of an indexed session is read from the transcript the host lists, never from the page; an id it does not list gets a note', TT, async () => {
+	const file = join(tmp, 'live-tail.jsonl')
+	writeFileSync(file, [
+		JSON.stringify({ type: 'user', timestamp: '2026-11-14T10:00:00Z', message: { role: 'user', content: 'Fix the login redirect' } }),
+		JSON.stringify({ type: 'assistant', timestamp: '2026-11-14T10:00:05Z', message: { id: 'm1', role: 'assistant', content: [{ type: 'text', text: 'On it.' }] } }),
+	].join('\n') + '\n')
+	const asked = []
+	const projects = { transcriptOf: (kind, id) => { asked.push([kind, id]); return id === SID(1) ? file : undefined } }
+	const t = setup({ projects })
+	t.page({ type: 'tail', id: SID(1), kind: 'claude' })
+	t.page({ type: 'tail', id: SID(2), kind: 'claude' })
+	await sleep(30)
+	const tails = t.posted.filter(m => m.type === 'tail')
+	assert.deepEqual(tails.find(m => m.id === SID(1)).entries.map(e => [e.role, e.text]), [['user', 'Fix the login redirect'], ['assistant', 'On it.']])
+	assert.deepEqual(tails.find(m => m.id === SID(2)), { type: 'tail', id: SID(2), entries: [], note: 'This session is not listed any more.' })
+	assert.deepEqual(asked, [['claude', SID(1)], ['claude', SID(2)]])
 })

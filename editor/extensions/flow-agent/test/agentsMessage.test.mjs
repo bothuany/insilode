@@ -22,6 +22,12 @@ after(() => rmSync(tmp, { recursive: true, force: true }))
 
 test('the page-only messages become one action each', T, () => {
 	assert.deepEqual(a.agentsAction({ type: 'tail', id: 'a1', extra: 1 }), { type: 'tail', id: 'a1' })
+	const uuid = '0a99a3dd-7db0-4ba0-882d-a4dd922189be'
+	assert.deepEqual(a.agentsAction({ type: 'tail', id: uuid, kind: 'codex' }), { type: 'tail', id: uuid, kind: 'codex' })
+	// A session of the index is named by a uuid and its kind; never a path.
+	for (const bad of [{ id: 'a1', kind: 'claude' }, { id: '/etc/passwd', kind: 'claude' }, { id: uuid, kind: 'custom' }, { id: uuid, kind: 7 }]) {
+		assert.equal(a.agentsAction({ type: 'tail', ...bad }), undefined)
+	}
 	assert.deepEqual(a.agentsAction({ type: 'custom', index: 0, name: 'Gemini' }), { type: 'custom', index: 0, name: 'Gemini' })
 	assert.equal(a.agentsAction({ type: 'custom', index: 0 }), undefined)
 	assert.deepEqual(a.agentsAction({ type: 'kept' }), { type: 'kept' })

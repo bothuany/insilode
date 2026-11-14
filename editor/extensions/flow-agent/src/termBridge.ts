@@ -52,6 +52,8 @@ export class TermBridge {
 	private readonly sinks = new Map<string, Set<TermSink>>();
 	/** Output of a session that its sinks have not been given yet, and the timer that gives it. */
 	private readonly pending = new Map<string, { chunks: string[]; size: number; timer?: ReturnType<typeof setTimeout> }>();
+	/** The size a pane gave each session's terminal, while a pane is attached: it moves to a new terminal when the session is resumed in one. */
+	private readonly sizes = new Map<string, { cols: number; rows: number }>();
 	/** Counts the size changes of a session: a resize whose process id arrives after a newer one (or a detach) is stale. */
 	private readonly sizeSeq = new Map<string, number>();
 
@@ -96,13 +98,22 @@ export class TermBridge {
 		}
 	}
 
-	/** A new terminal now runs the session (it was resumed while the old one stayed open): what the old one printed goes. */
-	restart(id: string): void {
+	/**
+	 * A new terminal now runs the session (it was resumed while the old one stayed open): what the old one printed goes, and so does the
+	 * size the pane gave the old terminal: `previous` is given its own back and the new one (the env's terminalOf) takes the pane's.
+	 */
+	restart(id: string, previous?: TermTerminal): void {
 		this.dropPending(id);
 		this.buffers.get(id)?.clear();
 		for (const sink of [...this.sinks.get(id) ?? []]) {
 			sink.data('', true);
 		}
+		const size = this.sizes.get(id);
+		if (!size) {
+			return;
+		}
+		void Promise.resolve(previous?.processId).catch(() => undefined).then(pid => pid === undefined ? undefined : this.env.setDimensions(pid, undefined, undefined)).catch(() => undefined);
+		void this.setSize(id, size.cols, size.rows);
 	}
 
 	/** The session's terminal closed: its output is freed and every attachment is told. */
@@ -110,6 +121,7 @@ export class TermBridge {
 		this.dropPending(id);
 		this.buffers.delete(id);
 		this.sizeSeq.delete(id);
+		this.sizes.delete(id);
 		const sinks = this.sinks.get(id);
 		this.sinks.delete(id);
 		for (const sink of sinks ?? []) {
@@ -175,6 +187,11 @@ export class TermBridge {
 	private async setSize(id: string, cols: number | undefined, rows: number | undefined): Promise<boolean> {
 		const seq = (this.sizeSeq.get(id) ?? 0) + 1;
 		this.sizeSeq.set(id, seq);
+		if (cols === undefined || rows === undefined) {
+			this.sizes.delete(id);
+		} else {
+			this.sizes.set(id, { cols, rows });
+		}
 		const t = this.env.terminalOf(id);
 		const pid = t ? await Promise.resolve(t.processId).catch(() => undefined) : undefined;
 		if (pid === undefined || this.sizeSeq.get(id) !== seq) {
@@ -189,5 +206,6 @@ export class TermBridge {
 		}
 		this.buffers.clear();
 		this.sinks.clear();
+		this.sizes.clear();
 	}
 }

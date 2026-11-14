@@ -214,7 +214,7 @@ test('the drop zone: the middle is the centre, anything else the nearest edge', 
 
 test('a layout survives JSON, and validate gives back an equal one', T, () => {
 	let { layout, ids } = opened('a', 'b', 'c')
-	layout = L.splitPane(layout, ids.b, 'bottom', c('d', { agent: 'codex', cwd: '/work/app', resume: '0a99a3dd-7db0-4ba0-882d-a4dd922189b1', folder: 'app', peer: 'abc' })).layout
+	layout = L.splitPane(layout, ids.b, 'bottom', c('d', { agent: 'codex', cwd: '/work/app', resume: '0a99a3dd-7db0-4ba0-882d-a4dd922189b1', folder: 'app', peer: 'abc', ext: 'Claude desktop' })).layout
 	layout = L.maximize(layout, ids.a)
 	const back = L.validate(JSON.parse(JSON.stringify(layout)))
 	assert.deepEqual(back, layout)
@@ -255,7 +255,7 @@ test('what validation keeps: sizes normalised, strings capped, extra keys droppe
 	const raw = {
 		seq: 1, focus: 'p77', max: 'p88', evil: '<img onerror=x>',
 		root: { type: 'split', id: 's4', dir: 'col', sizes: [0.2, 0.2], extra: 1, children: [
-			{ type: 'pane', id: 'p2', content: { kind: 'transcript', agent: 'codex', title: 'T', session: 'x'.repeat(201), cwd: 'a\0b', bogus: 1 } },
+			{ type: 'pane', id: 'p2', content: { kind: 'transcript', agent: 'codex', title: 'T', session: 'x'.repeat(201), cwd: 'a\0b', ext: 'x'.repeat(81), bogus: 1 } },
 			{ type: 'pane', id: 'p3', content: { kind: 'terminal', agent: 'custom', title: 'x'.repeat(200) } },
 		] },
 	}

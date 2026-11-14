@@ -28,6 +28,8 @@ export interface PaneContent {
 	folder?: string;
 	/** For a transcript pane: the key of the other window's project the session runs in. */
 	peer?: string;
+	/** For a transcript pane of a session of the machine's index that another program runs: what runs it ("Claude desktop"). Whether it still does is the sidebar index's to say, not this field's. */
+	ext?: string;
 }
 
 export interface PaneLeaf {
@@ -77,7 +79,7 @@ export function paneLayoutModule() {
 	const KINDS = ['terminal', 'transcript'];
 	const AGENTS = ['claude', 'codex', 'custom'];
 	const ID = /^[ps][0-9]{1,6}$/;
-	const LIMITS: Record<string, number> = { session: 200, resume: 64, cwd: 1024, title: 200, folder: 200, peer: 100 };
+	const LIMITS: Record<string, number> = { session: 200, resume: 64, cwd: 1024, title: 200, folder: 200, peer: 100, ext: 80 };
 
 	type Content = PaneContent;
 	type Leaf = PaneLeaf;

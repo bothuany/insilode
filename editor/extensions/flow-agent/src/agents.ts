@@ -30,6 +30,7 @@ import { shimScript } from './shim';
 import { canExplain, explainPrompt } from './explain';
 import { claudeHookCommand, hookRunner, hookScript, type HookRunner } from './hookScript';
 import { ShellEditSweep } from './shellEdits';
+import { idInUse } from './spawnGuard';
 import { bypassAllowed } from './bypass';
 import { SKELETON_GATE, SKELETON_PROMPT_GATE } from './skeleton';
 import { canType, notReady, oneLine, slashRefusal, slashText, type AgentCli, type AgentState, type CustomCli, type SessionInfo, type SlashKind, type SlashResult } from './askTarget';
@@ -759,6 +760,11 @@ export class Agents implements vscode.Disposable {
 			return undefined;
 		}
 		const id = resume?.id ?? randomUUID();
+		// Replacing a live session's row would leave its terminal running untracked, its hook events landing on the new row.
+		if (resume && idInUse(this.sessions.get(id), this.terminals.has(id))) {
+			void vscode.window.showErrorMessage(`Insilode: ${this.sessions.get(id)?.name || 'that session'} is already running in a terminal; it was not started a second time.`);
+			return undefined;
+		}
 		const base = cli === 'claude' ? 'Claude' : cli === 'codex' ? 'Codex' : custom?.name ?? 'Agent';
 		const same = [...this.sessions.values()].filter(s => s.state !== 'ended' && (s.cli === 'custom' ? s.command === custom?.command : s.cli === cli)).length;
 		// An empty name (a moved agent whose name only said its old CLI, swap.ts) is named as a new one.

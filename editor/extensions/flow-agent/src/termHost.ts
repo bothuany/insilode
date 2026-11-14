@@ -17,7 +17,8 @@ export class TermHost implements vscode.Disposable {
 	/** Opens in flight, by what they open: a second ask for the same session waits for the first instead of starting a second terminal. */
 	private readonly opening = new Map<string, Promise<string>>();
 
-	constructor(private readonly agents: Agents, private readonly context: vscode.ExtensionContext) {
+	/** `live`: what runs a Claude session outside this window ("Claude desktop"), nothing when none does (liveSessions.ts); it asks the machine now, not the page's last list. */
+	constructor(private readonly agents: Agents, private readonly context: vscode.ExtensionContext, private readonly live?: (sessionId: string) => Promise<string | undefined>) {
 		this.bridge = new TermBridge({
 			terminalOf: id => agents.terminalOf(id),
 			typable: id => agents.sessions.get(id)?.state !== 'ended',
@@ -30,7 +31,8 @@ export class TermHost implements vscode.Disposable {
 					return;
 				}
 				if (this.owner.get(id) !== e.terminal) {
-					this.owner.has(id) && this.bridge.restart(id);
+					// The old terminal goes along: it may still hold the pane's size, and the bridge hands that to the new one.
+					this.owner.has(id) && this.bridge.restart(id, this.owner.get(id));
 					this.owner.set(id, e.terminal);
 				}
 				this.bridge.write(id, e.data);
@@ -91,9 +93,20 @@ export class TermHost implements vscode.Disposable {
 	}
 
 	private async start(kind: 'claude' | 'codex', sessionId: string | undefined, cwd: string | undefined): Promise<string> {
-		const known = sessionId ? [...this.agents.sessions.values()].find(s => s.cli === kind && (s.id === sessionId || s.agentId === sessionId)) : undefined;
+		const owners = sessionId ? [...this.agents.sessions.values()].filter(s => s.id === sessionId || s.agentId === sessionId) : [];
+		const known = owners.find(s => s.cli === kind);
+		const foreign = owners.find(s => s.cli !== kind);
+		// Spawning over another CLI's session would replace its row and leave its terminal running untracked, its events landing on this one.
+		if (!known && foreign) {
+			throw new Error(`Not started: that session id belongs to a ${foreign.cli === 'claude' ? 'Claude' : foreign.cli === 'codex' ? 'Codex' : 'custom agent'} session in this window.`);
+		}
 		if (known && known.state !== 'ended' && this.agents.terminalOf(known.id)) {
 			return known.id;
+		}
+		// Two processes on one conversation corrupt it: a session another program runs is only read here.
+		const elsewhere = kind === 'claude' && sessionId ? await this.live?.(sessionId) : undefined;
+		if (elsewhere) {
+			throw new Error(`Not started: that session is running in ${elsewhere}. Close it there first.`);
 		}
 		let folder: string | undefined;
 		if (cwd !== undefined) {

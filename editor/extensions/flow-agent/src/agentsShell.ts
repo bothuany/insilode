@@ -60,6 +60,18 @@ export const SHELL_CSS = String.raw`
 .srow:focus-visible { outline: 1.5px solid var(--focus); outline-offset: -1.5px; }
 .sdot { flex: none; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--idle); }
 .sdot.working { background: var(--working); } .sdot.needs { background: var(--blocked); } .sdot.done { background: var(--done); }
+.sdot.recent { background: transparent; border: 1.5px solid var(--working); }
+.xbadge { display: inline-block; margin-right: 4px; padding: 0 6px; border: 1px solid var(--line); border-radius: 9px; font-size: 10.5px; line-height: 15px; color: var(--muted); white-space: nowrap; }
+.xbadge.est { border-style: dashed; }
+.queue { display: flex; align-items: center; gap: 8px; flex: none; padding: 6px 10px; overflow-x: auto; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--blocked) 8%, var(--card)); }
+.qlabel { flex: none; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--blocked); }
+.qchip { display: inline-flex; align-items: center; gap: 7px; flex: none; max-width: 300px; height: 26px; padding: 0 10px; border: 1px solid color-mix(in srgb, var(--blocked) 45%, var(--line)); border-radius: 13px; background: var(--card); }
+.qchip:hover { background: var(--hover); }
+.qchip .sdot { margin-top: 0; }
+.qchip .qt { min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.qchip .qp { min-width: 0; color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (prefers-reduced-motion: no-preference) { .queue { animation: qin .16s ease-out; } }
+@keyframes qin { from { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; } to { max-height: 60px; opacity: 1; } }
 .sicon { flex: none; display: block; margin-top: 1px; }
 .sbody { display: flex; flex-direction: column; min-width: 0; }
 .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -197,7 +209,21 @@ function peerById(id) {
 }
 // The dot: the same ranking as the board's columns, for own rows and other windows' alike.
 const dotOf = s => s.state === 'ended' ? 'idle' : needKind(s) ? 'needs' : s.state === 'working' || s.state === 'starting' ? 'working' : s.state === 'done' || s.attention === 'done' ? 'done' : 'idle';
-const DOT_LABEL = { needs: 'needs you', working: 'working', done: 'done', idle: 'idle' };
+const DOT_LABEL = { needs: 'needs you', working: 'working', done: 'done', idle: 'idle', recent: 'active recently' };
+// A session some other program runs (host: liveSessions.ts): Claude's status as that program wrote it, and for Codex only an estimate from its transcript.
+const LIVE_DOT = { working: 'working', needs: 'needs', idle: 'done', unknown: 'idle' };
+const LIVE_TEXT = { working: 'Working', needs: 'Needs you', idle: 'Idle', unknown: 'Running' };
+const LIVE_STATUS = ['working', 'needs', 'idle', 'unknown'];
+const liveOf = s => s && s.live && typeof s.live === 'object' ? s.live : undefined;
+const liveDot = l => l.basis === 'recent' ? 'recent' : LIVE_DOT[l.status] || 'idle';
+const liveTip = l => l.basis === 'recent' ? 'Active recently: its Codex transcript changed in the last 2 minutes. An estimate, since Codex lists no running sessions.' : 'Running in ' + l.source + ' on this computer: ' + (LIVE_TEXT[l.status] || 'Running').toLowerCase() + '. It is read-only here.';
+// Only what a live mark may be reaches the page's state: it came from files any program can write.
+const cleanLive = l => l && typeof l === 'object' && LIVE_STATUS.indexOf(l.status) >= 0 && typeof l.source === 'string' && l.source.length <= 80 && (l.basis === 'live' || l.basis === 'recent') ? { status: l.status, source: l.source, basis: l.basis } : undefined;
+// A session of the machine's index (host: projectIndex.ts): { p: its project, s: the session }.
+function indexed(kind, id) {
+	for (const p of chat.projects) { const s = p.sessions.find(x => x.id === id && x.kind === kind); if (s) { return { p, s }; } }
+	return undefined;
+}
 // Own rows carry the need as an object, other windows' as one line.
 const actLine = s => (s.need && typeof s.need === 'object' ? s.need.text : s.need) || s.activity || s.prompt || LABEL[s.state] || '';
 // What the row waits for, as the host worked it out (attention.ts attentionKind): the page keeps no rule of its own.
@@ -243,8 +269,14 @@ function ownContent(s) {
 }
 // Another window's session cannot be owned: a read-only pane with a way to that window.
 const peerContent = (p, r) => ({ kind: 'transcript', agent: agentOf(r.cli), session: r.id, title: r.name, folder: p.name, peer: p.key });
-// An earlier session of the machine's index: started again in its folder (this window's own folder needs no path).
-function indexContent(p, kind, id, title) { return { kind: 'terminal', agent: kind, resume: id, ...(p.own ? {} : { cwd: p.cwd }), folder: p.name, title }; }
+// A session of the machine's index that another program runs: read-only here (two processes on one session would corrupt it), with a way to resume once it stops.
+const extContent = (p, kind, id, title, l) => ({ kind: 'transcript', agent: kind, session: id, resume: id, ...(p.own ? {} : { cwd: p.cwd }), folder: p.name, title, ext: l.basis === 'recent' ? 'Codex' : l.source });
+// An earlier session of the machine's index: started again in its folder (this window's own folder needs no path), unless something runs it right now.
+function indexContent(p, kind, id, title) {
+	const x = indexed(kind, id);
+	const l = x && liveOf(x.s);
+	return l ? extContent(p, kind, id, title, l) : { kind: 'terminal', agent: kind, resume: id, ...(p.own ? {} : { cwd: p.cwd }), folder: p.name, title };
+}
 
 // ---- menus: one at a time, under the button that opened it -----------------------------------------------------------------
 // items: { label, run, hint, danger, disabled } | { sep } | { note } | { form } (the layout name) | { label, run, remove: { label, run } }
@@ -392,8 +424,15 @@ function srow(s, content, key) {
 	const dot = dotOf(s);
 	return rowEl(key, content, s.name + ', ' + DOT_LABEL[dot], [h('i', { class: 'sdot ' + dot }), h('span', { class: 'sbody' }, h('span', { class: 'sname' }, s.name), h('span', { class: 'sact', title: actLine(s) }, actLine(s)))], s.state === 'ended' ? 'ended' : '');
 }
-function crow(p, s) {
-	const key = 'idx:' + s.kind + ':' + s.id;
+const xbadge = l => h('span', { class: 'xbadge' + (l.basis === 'recent' ? ' est' : ''), title: liveTip(l) }, l.basis === 'recent' ? 'active recently' : 'external · ' + l.source);
+function crow(p, s, prefix) {
+	const key = (prefix || 'idx:') + s.kind + ':' + s.id;
+	const l = liveOf(s);
+	if (l) {
+		const text = l.basis === 'recent' ? KIND_NAME[s.kind] + ' · ' + dur(Math.max(0, now() - s.modified)) + ' ago' : LIVE_TEXT[l.status];
+		return rowEl(key, () => indexContent(p, s.kind, s.id, s.title), KIND_NAME[s.kind] + ' session: ' + s.title + ', ' + (l.basis === 'recent' ? 'active recently' : 'running in ' + l.source + ', ' + LIVE_TEXT[l.status].toLowerCase()),
+			[h('i', { class: 'sdot ' + liveDot(l), title: liveTip(l) }), h('span', { class: 'sbody' }, h('span', { class: 'sname', title: s.title }, s.title), h('span', { class: 'sact' }, xbadge(l), text))], 'crow ext');
+	}
 	return rowEl(key, () => indexContent(p, s.kind, s.id, s.title), KIND_NAME[s.kind] + ' session: ' + s.title,
 		[raw('span', 'sicon', MARK[s.kind]), h('span', { class: 'sbody' }, h('span', { class: 'sname', title: s.title }, s.title), h('span', { class: 'sact' }, KIND_NAME[s.kind] + ' · ' + dur(Math.max(0, now() - s.modified)) + ' ago'))], 'crow');
 }
@@ -466,7 +505,15 @@ function paintSide() {
 	// Projects the agents have worked in that this window does not know as open or recent.
 	const known = new Set(data.peers.map(p => p.key).concat(data.recent.map(p => p.key)));
 	const others = chat.projects.filter(p => !p.own && !known.has(p.key));
-	if (others.length) { out.push(h('div', { class: 'slabel' }, 'On this machine')); }
+	// What runs outside this window right now (a terminal app, the desktop app, another editor), above the rest of the machine's projects.
+	const elsewhere = [];
+	for (const p of chat.projects) { for (const s of p.sessions) { const l = liveOf(s); if (l && l.basis === 'live') { elsewhere.push({ p, s, l }); } } }
+	elsewhere.sort((a, b) => (b.l.status === 'needs') - (a.l.status === 'needs') || b.s.modified - a.s.modified);
+	if (others.length || elsewhere.length) { out.push(h('div', { class: 'slabel' }, 'On this machine')); }
+	if (elsewhere.length) {
+		out.push(h('div', { class: 'sgroup', 'aria-label': 'Running elsewhere' }, h('div', { class: 'shead' }, h('span', { class: 'sproj', title: 'Sessions that other programs on this computer are running now' }, 'Running elsewhere'), h('span', { class: 'sact' }, String(elsewhere.length))),
+			elsewhere.map(x => crow(x.p, x.s, 'live:'))));
+	}
 	for (const p of others) {
 		out.push(h('div', { class: 'sgroup' }, h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p.where }, p.name)), chatRows(p.key)));
 	}
@@ -486,10 +533,12 @@ function paintHead() {
 		const c = column(s);
 		if (g[c] !== undefined) { g[c]++; }
 	}
+	// The count is the queue's: sessions other programs run that wait for the user are in it too.
+	g.needs += externalWaiting().length;
 	for (const s of data.rows) {
 		if (s.cost) { tokens += sum(s.cost.session.tokens); if (s.cost.session.usd !== undefined) { dollars += s.cost.session.usd; priced = true; } }
 	}
-	const count = (n, label, color) => h('span', { class: 'count' }, h('i', { style: 'background:var(' + color + ')' }), h('b', null, String(n)), label);
+	const count = (n, label, color, tip) => h('span', { class: 'count', title: tip }, h('i', { style: 'background:var(' + color + ')' }), h('b', null, String(n)), label);
 	const lim = data.limits && data.limits.windows ? data.limits.windows.map(w => {
 		const p = Math.max(0, Math.min(100, Math.round(w.usedPercent)));
 		return h('span', { class: 'lim' + (p >= 90 ? ' full' : p >= 70 ? ' warn' : ''), title: (data.limits.harness || 'Plan') + ' ' + w.label + ' limit: ' + p + '% used' },
@@ -497,7 +546,7 @@ function paintHead() {
 			w.label, h('span', { class: 'bar' }, h('i', { style: 'width:' + p + '%' })), h('span', null, p + '%'), w.resetsAt ? h('span', null, 'resets in ' + until(w.resetsAt - now())) : null);
 	}) : [];
 	fill(head, [
-		h('div', { class: 'counts' }, count(g.needs, 'Needs you', '--blocked'), count(g.working, 'Working', '--working'), count(g.done, 'Done', '--done')),
+		h('div', { class: 'counts' }, count(g.needs, 'Needs you', '--blocked', 'Sessions waiting for you, here or elsewhere on this computer (Alt+Shift+N jumps to the next)'), count(g.working, 'Working', '--working'), count(g.done, 'Done', '--done')),
 		data.rows.some(s => s.cost) ? h('span', { class: 'totals', title: 'Tokens and dollars are what the CLIs report for each session; dollars are estimates.' }, h('b', null, tok(tokens)), ' tokens' + (priced ? ' · ' : ''), priced ? h('b', null, usd(dollars)) : null, priced ? ' est.' : null) : null,
 		lim.length ? h('div', { class: 'limits' }, lim) : null,
 	]);
@@ -612,12 +661,64 @@ function paintKept() {
 		data.kept.map(k => h('div', { class: 'krow', title: k.folder }, h('span', null, k.agent), h('span', { class: 'br' }, '⎇ ' + k.branch), h('span', null, 'from ' + k.base), h('span', null, k.folder))))]);
 }
 
+// ---- the attention queue ---------------------------------------------------------------------------------------------------
+// A slim strip above the panes: the sessions that wait for the user, in this window, in the other windows and in other programs. Empty, it is not there.
+const queueEl = h('div', { class: 'queue hidden', role: 'region', 'aria-label': 'Sessions that need you' });
+let qsig = '', qcursor;
+// Claude sessions that other programs run and that say they wait for the user (Claude's "waiting" status); Codex has no such status.
+function externalWaiting() {
+	const out = [];
+	for (const p of chat.projects) { for (const s of p.sessions) { const l = liveOf(s); if (l && l.basis === 'live' && l.status === 'needs') { out.push({ p, s, l }); } } }
+	return out;
+}
+// Each item: { key, title, project, run } in the order they are worked: this window's longest-waiting first, then the other windows', then the other programs'.
+function queueItems() {
+	const items = [];
+	const since = s => (s.need && s.need.at) || s.since;
+	const open = content => { const pv = findPane(content); if (pv) { setView('work'); setFocus(pv.id, true); } else { openInPane(content); } };
+	for (const s of data.rows.filter(r => column(r) === 'needs').sort((a, b) => since(a) - since(b))) {
+		items.push({ key: 'own:' + s.id, title: s.name, project: (data.project && data.project.name) || 'This window', run: () => open(ownContent(s)) });
+	}
+	for (const p of data.peers) {
+		for (const s of p.rows.filter(r => column(r) === 'needs').sort((a, b) => since(a) - since(b))) {
+			// Another window's session cannot be owned here: the pane is its read-only copy, and the way in is that window.
+			items.push({ key: 'peer:' + s.id, title: s.name, project: p.name, run: () => { const pv = findPane(peerContent(p, s)); if (pv) { setView('work'); setFocus(pv.id, true); } else { post({ type: 'peer', action: 'ide', key: p.key, id: s.id }); } } });
+		}
+	}
+	for (const x of externalWaiting()) {
+		items.push({ key: 'ext:' + x.s.kind + ':' + x.s.id, title: x.s.title, project: x.p.name, run: () => open(indexContent(x.p, x.s.kind, x.s.id, x.s.title)) });
+	}
+	return items;
+}
+function paintQueue() {
+	const items = queueItems();
+	const sig = JSON.stringify(items.map(i => [i.key, i.title, i.project]));
+	if (sig === qsig) { return; }
+	qsig = sig;
+	// A strip that is built again would take the focus from the chip the keyboard is on.
+	const keep = document.activeElement && document.activeElement.getAttribute ? document.activeElement.getAttribute('data-q') : undefined;
+	fill(queueEl, items.length ? [h('b', { class: 'qlabel' }, 'Needs you · ' + items.length),
+		items.map(i => { const b = h('button', { type: 'button', class: 'qchip', 'data-q': i.key, title: 'Open ' + i.title + ' (' + i.project + ')', 'aria-label': i.title + ', ' + i.project + ', needs you', onclick: () => { qcursor = i.key; i.run(); } }, h('i', { class: 'sdot needs' }), h('span', { class: 'qt' }, i.title), h('span', { class: 'qp' }, i.project)); return b; })] : []);
+	queueEl.className = items.length ? 'queue' : 'queue hidden';
+	const again = keep ? Array.from(queueEl.children).find(e => e.getAttribute('data-q') === keep) : undefined;
+	if (again && again.focus) { again.focus(); }
+}
+// Alt+Shift+N: the next session that needs the user, round and round the queue.
+function jumpToNext() {
+	const items = queueItems();
+	if (!items.length) { notice('Nothing is waiting for you.'); return; }
+	const next = items[(items.findIndex(i => i.key === qcursor) + 1) % items.length];
+	qcursor = next.key;
+	next.run();
+}
+
 // ---- painting --------------------------------------------------------------------------------------------------------------
 function paint() {
 	ticks = [];
 	const mainTop = main.scrollTop;
 	paintSide();
 	paintHead();
+	paintQueue();
 	if (view !== 'work') { paintBoard(); paintKept(); }
 	work.className = cls('work', view !== 'work' && 'hidden');
 	main.className = cls('main', view === 'work' && 'hidden');
@@ -652,9 +753,13 @@ window.addEventListener('message', e => {
 	} else if (wsMessage(m)) {
 		return;
 	} else if (m.type === 'chatIndex') {
-		chat.projects = Array.isArray(m.projects) ? m.projects : [];
+		chat.projects = Array.isArray(m.projects) ? m.projects.map(p => p && Array.isArray(p.sessions) ? Object.assign({}, p, { sessions: p.sessions.map(s => { const c = Object.assign({}, s); const live = cleanLive(s && s.live); if (live) { c.live = live; } else { delete c.live; } return c; }) }) : p) : [];
 		chat.got = true;
 		paintSide();
+		paintHead();
+		paintQueue();
+		// What runs elsewhere may have changed: the read-only panes say so, and read the conversation again.
+		refreshExtPanes();
 	} else if (m.type === 'chatFound') {
 		// An answer to an earlier query, or to one that was cleared since, is not for what is typed now.
 		if (m.query !== chat.q || !Array.isArray(m.hits)) { return; }

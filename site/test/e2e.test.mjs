@@ -365,6 +365,23 @@ test('try: the dock ranks the waiting agent first, and allowing it moves it on',
 	await page.close()
 })
 
+test('try: the Agents page marks the session another program runs, and queues it with what else waits for the user', { skip }, async () => {
+	const { page, problems } = await open('try/')
+	const agents = await inside(page, 'iframe.agents-page')
+	await until(() => agents.evaluate(() => document.querySelectorAll('.qchip').length === 2), 'two chips in the attention strip')
+	assert.match(await agents.evaluate(() => document.querySelector('.queue').textContent), /Needs you · 2.*Codex.*Docs quick start/s)
+	const side = await agents.evaluate(() => document.querySelector('.side').innerText)
+	assert.match(side, /Running elsewhere/)
+	assert.match(side, /external · Claude desktop/)
+	// The chip opens it: read-only, with the banner and the conversation's last messages.
+	await agents.evaluate(() => document.querySelector('.qchip[data-q^="ext:"]').click())
+	await until(async () => /Running in Claude desktop — read-only here/.test(await textOf(agents)), 'the read-only pane of the external session')
+	await until(async () => /Shall I also move the install steps/.test(await textOf(agents)), 'its last messages')
+	assert.equal(await agents.evaluate(() => document.querySelectorAll('.tbanner button').length), 0, 'no resume while it runs')
+	assert.deepEqual(problems, [])
+	await page.close()
+})
+
 test('docs: the documents of the repository are pages of the site, linked to each other, with the rest on GitHub', { skip }, async () => {
 	const { page, problems } = await open()
 	await page.click('.nav-links a[href="./docs/"]')

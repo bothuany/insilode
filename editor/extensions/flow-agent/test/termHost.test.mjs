@@ -44,7 +44,7 @@ after(() => rmSync(tmp, { recursive: true, force: true }))
 const SID = '0a99a3dd-7db0-4ba0-882d-a4dd922189be'
 
 /** A host over a fake Agents: `terminals` is its session → terminal map, `spawns` what spawn was asked. */
-function setup() {
+function setup(live) {
 	const terminals = new Map()
 	const sessions = new Map()
 	const spawns = []
@@ -63,7 +63,7 @@ function setup() {
 	}
 	const store = {}
 	const context = { globalState: { get: (k, d) => store[k] ?? d, update: async (k, v) => { store[k] = v } } }
-	const host = new TermHost(agents, context)
+	const host = new TermHost(agents, context, live)
 	const vs = globalThis.__vs
 	vs.warnings.length = 0
 	vs.executed.length = 0
@@ -152,6 +152,46 @@ test('opening a session already running in this window spawns nothing', T, async
 	t.sessions.set('codex-record', { id: 'codex-record', cli: 'codex', state: 'idle', agentId: SID })
 	assert.equal(await t.host.open('codex', SID), 'codex-record', 'a Codex session is found by its own id too')
 	assert.deepEqual(t.spawns, [])
+})
+
+test('a session id that belongs to a session of another CLI is refused: nothing is spawned over it', T, async () => {
+	const t = setup()
+	const terminal = { processId: Promise.resolve(1), sendText() {} }
+	t.terminals.set(SID, terminal)
+	t.sessions.set(SID, { id: SID, cli: 'claude', state: 'idle', name: 'Fix login' })
+	await assert.rejects(t.host.open('codex', SID), /belongs to a Claude session/)
+	assert.deepEqual(t.spawns, [], 'no resume record was made from it')
+	assert.equal(t.terminals.get(SID), terminal, 'the Claude session keeps its terminal')
+	assert.equal(t.sessions.get(SID).cli, 'claude')
+	// The same holds for an ended one and for a Codex id that is a Claude row's agentId.
+	t.sessions.set(SID, { id: SID, cli: 'claude', state: 'ended', name: 'Fix login' })
+	await assert.rejects(t.host.open('codex', SID), /belongs to a Claude session/)
+	assert.deepEqual(t.spawns, [])
+})
+
+test('a session that is running in another program is not resumed here', T, async () => {
+	const t = setup(async id => id === SID ? 'Claude desktop' : undefined)
+	await assert.rejects(t.host.open('claude', SID), /running in Claude desktop/)
+	assert.deepEqual(t.spawns, [])
+	// Another session, and a Codex one (it has no registry to ask), are not held back.
+	await t.host.open('claude', '1b99a3dd-7db0-4ba0-882d-a4dd922189be')
+	await t.host.open('codex', SID)
+	assert.equal(t.spawns.length, 2)
+})
+
+test('the pane\'s size moves with a resumed session: the old terminal is released and the new one sized', T, async () => {
+	const t = setup()
+	const old = { processId: Promise.resolve(1), sendText() {} }
+	const fresh = { processId: Promise.resolve(2), sendText() {} }
+	t.terminals.set('a', old)
+	t.vs.write.fire({ terminal: old, data: 'old output' })
+	t.host.attach('a', sinkOf())
+	assert.equal(await t.host.resize('a', 100, 30), true)
+	t.vs.executed.length = 0
+	t.terminals.set('a', fresh)
+	t.vs.write.fire({ terminal: fresh, data: 'new output' })
+	await wait(40)
+	assert.deepEqual(t.vs.executed.map(e => e.slice(1)).sort(), [[1, undefined, undefined], [2, 100, 30]])
 })
 
 test('a new session spawns hidden in this window\'s folder, with no question', T, async () => {

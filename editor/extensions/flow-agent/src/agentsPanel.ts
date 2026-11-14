@@ -28,6 +28,9 @@ import { readTail } from './transcriptTail';
 import type { WorktreeRows } from './worktreeActions';
 
 export const OPEN_AGENTS_PAGE = 'flow.agents.openPage';
+/** How often a visible page looks for sessions that other programs run, and how many of those looks pass before the index is read again regardless (the Codex "recently active" estimate ages without any file changing). */
+const LIVE_POLL_MS = 3000;
+const INDEX_EVERY = 4;
 
 let assets: TermAssets | undefined | null;
 /**
@@ -55,6 +58,14 @@ export class AgentsPanel implements vscode.Disposable {
 	private searching: AbortController | undefined;
 	/** The terminals this page shows, by agent session: only these may be typed into or resized by the page. */
 	private readonly attached = new Map<string, TermAttachment>();
+	/** The light poll for sessions that run elsewhere: only while the page is visible and has said `ready`. */
+	private poll: NodeJS.Timeout | undefined;
+	private polling = false;
+	private ticks = 0;
+	private ready = false;
+	/** What the last look at the machine's running sessions, and the last index sent to the page, said: the page is told only when one changes. */
+	private liveSig = '';
+	private indexSig = '';
 
 	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows, private readonly peers?: Peers, private readonly projects?: ProjectIndex, private readonly term?: TermHost, private readonly layouts?: LayoutStore) {}
 
@@ -100,8 +111,16 @@ export class AgentsPanel implements vscode.Disposable {
 			...(this.worktrees ? [this.worktrees.onDidChange(repaint)] : []),
 			...(this.peers ? [this.peers.onDidChange(repaint)] : []),
 			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst') || e.affectsConfiguration('flow.agents.custom') || e.affectsConfiguration(BYPASS_SETTING)) && this.post()),
-			// A hidden page is not repainted (it keeps its state anyway): it catches up the moment it shows again.
-			panel.onDidChangeViewState(e => e.webviewPanel.visible && this.post()),
+			// A hidden page is not repainted (it keeps its state anyway): it catches up the moment it shows again, and looks for running sessions only while it shows.
+			panel.onDidChangeViewState(e => {
+				if (e.webviewPanel.visible) {
+					this.post();
+					this.startPoll();
+					void this.pollLive();
+				} else {
+					this.stopPoll();
+				}
+			}),
 			panel.onDidDispose(() => this.release(panel)),
 		];
 	}
@@ -118,6 +137,8 @@ export class AgentsPanel implements vscode.Disposable {
 			return;
 		}
 		this.panel = undefined;
+		this.stopPoll();
+		this.ready = false;
 		clearTimeout(this.timer);
 		this.searching?.abort();
 		this.attached.forEach(a => a.detach());
@@ -134,6 +155,8 @@ export class AgentsPanel implements vscode.Disposable {
 		const m = agentsAction(raw);
 		switch (m?.type) {
 			case 'ready':
+				this.ready = true;
+				this.startPoll();
 				this.post();
 				// A page that (re)loads gets the list of earlier sessions and the layout it had.
 				void this.sendIndex();
@@ -155,7 +178,7 @@ export class AgentsPanel implements vscode.Disposable {
 			case 'start': return void this.start(m.cli, m.how);
 			case 'pick': return void vscode.commands.executeCommand('flow.agents.new');
 			case 'sk': return void this.agents.setSkeletonOn(m.id, m.on);
-			case 'tail': return void this.tail(m.id);
+			case 'tail': return void this.tail(m.id, m.kind);
 			// By index into the list the host sent: the page never names a command.
 			case 'custom': {
 				const custom = savedAgents()[m.index];
@@ -229,9 +252,46 @@ export class AgentsPanel implements vscode.Disposable {
 		}
 	}
 
-	private async sendIndex() {
-		if (this.projects) {
-			this.send({ type: 'chatIndex', projects: await this.projects.projects() });
+	/** `changedOnly`: the poll's: nothing is sent when the page already has exactly this. */
+	private async sendIndex(changedOnly = false) {
+		if (!this.projects) {
+			return;
+		}
+		const projects = await this.projects.projects();
+		const sig = JSON.stringify(projects);
+		if (!changedOnly || sig !== this.indexSig) {
+			this.indexSig = sig;
+			this.send({ type: 'chatIndex', projects });
+		}
+	}
+
+	private startPoll() {
+		if (!this.poll && this.ready && this.projects && this.panel?.visible) {
+			this.poll = setInterval(() => void this.pollLive(), LIVE_POLL_MS);
+		}
+	}
+
+	private stopPoll() {
+		clearInterval(this.poll);
+		this.poll = undefined;
+	}
+
+	/** Reads the few small files of running sessions (cheap); the index is rebuilt only when they changed, or every few looks. */
+	private async pollLive() {
+		if (this.polling || !this.ready || !this.projects || !this.panel?.visible) {
+			return;
+		}
+		this.polling = true;
+		try {
+			const sig = await this.projects.runningSignature();
+			if (sig !== this.liveSig || ++this.ticks % INDEX_EVERY === 0) {
+				this.liveSig = sig;
+				await this.sendIndex(true);
+			}
+		} catch {
+			// The next look tries again.
+		} finally {
+			this.polling = false;
 		}
 	}
 
@@ -255,9 +315,15 @@ export class AgentsPanel implements vscode.Disposable {
 		return cli === 'claude' ? vscode.commands.executeCommand('flow.agents.resume') : startOrResume(this.agents, 'codex', false);
 	}
 
-	private async tail(id: string) {
+	private async tail(id: string, kind?: 'claude' | 'codex') {
 		const s = this.agents.sessions.get(id);
 		const reply = (entries: AgentsPageTail['entries'], note?: string) => this.send({ type: 'tail', id, entries, ...(note ? { note } : {}) });
+		if (!s && kind) {
+			// A session of the sidebar's index, possibly one another program runs: the host finds the file from what it lists, never from the page.
+			const file = this.projects?.transcriptOf(kind, id);
+			const entries = file ? await readTail(file, kind, 40) : [];
+			return reply(entries, entries.length ? undefined : file ? 'No conversation to show yet.' : 'This session is not listed any more.');
+		}
 		if (!s || !s.transcript || (s.cli !== 'claude' && s.cli !== 'codex')) {
 			return reply([], s?.cli === 'custom' ? 'A custom agent keeps no transcript Insilode can read.' : 'No conversation to show yet.');
 		}

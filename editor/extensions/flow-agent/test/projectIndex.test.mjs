@@ -89,3 +89,32 @@ test('a search covers the listed projects and its hits name a project by key and
 	assert.equal(hits[0].project, list[1].key)
 	assert.deepEqual((await index.search('no such words', new AbortController().signal)).hits, [])
 })
+
+const running = (m, over = {}) => ({ id: randomUUID(), cwd: m.other, pid: 1, status: 'working', source: 'Claude desktop', name: 'Elsewhere', updatedAt: Date.now(), ...over })
+
+test('sessions that run outside this window are marked on the projects, and this window\'s and the peers\' are not', T, async () => {
+	const m = machine()
+	const outside = running(m, { id: m.ids.other, status: 'needs' })
+	const peer = running(m, { cwd: m.own })
+	const mine = running(m, { cwd: m.own })
+	const stranger = running(m, { cwd: join(tmp, 'elsewhere-folder'), name: 'Spike' })
+	const list = await new mod.ProjectIndex(() => m.own, () => [mine.id], () => [peer.id], async () => [outside, peer, mine, stranger]).projects()
+	assert.deepEqual(list.map(p => p.name), ['own', 'other', 'elsewhere-folder'])
+	assert.deepEqual(list[0].sessions.map(s => [s.id, s.live]), [[m.ids.own, undefined]], 'neither this window\'s session nor a peer\'s is listed as running elsewhere')
+	assert.deepEqual(list[1].sessions.map(s => [s.id, s.live]), [[m.ids.other, { status: 'needs', source: 'Claude desktop', basis: 'live' }]])
+	assert.deepEqual(list[2].sessions.map(s => [s.title, s.live.status]), [['Spike', 'working']])
+	assert.equal(list[2].cwd, join(tmp, 'elsewhere-folder'))
+})
+
+test('a tail is read from a transcript the host lists: an indexed one, or the live one it works out; any other id has none', T, async () => {
+	const m = machine()
+	const outside = running(m, { cwd: join(tmp, 'elsewhere-folder') })
+	const index = new mod.ProjectIndex(() => m.own, () => [], () => [], async () => [outside])
+	assert.equal(index.transcriptOf('claude', m.ids.other), undefined, 'nothing is listed before the first projects()')
+	await index.projects()
+	assert.match(index.transcriptOf('claude', m.ids.other), new RegExp(m.ids.other + '\\.jsonl$'))
+	assert.match(index.transcriptOf('claude', outside.id), new RegExp(outside.id + '\\.jsonl$'))
+	assert.equal(index.transcriptOf('claude', randomUUID()), undefined)
+	assert.equal(index.transcriptOf('codex', outside.id), undefined, 'the kind must match')
+	assert.notEqual(await index.runningSignature(), await new mod.ProjectIndex(() => m.own, () => [], () => [], async () => []).runningSignature())
+})

@@ -1,7 +1,8 @@
 // The Try page's Agents page: the app's full-editor page behind the title bar's Agents button, in an iframe, told about five agents
 // on the demo project. Like the dock beside it this is a fixed moment written here; the page itself is the app's own code
 // (pages/agents.html). The shapes follow flow-agent's agentsData.ts (AgentsPageData, AgentsPageTail, AgentsPageTermFailed); they are written out here
-// because the site may not import that file (it reaches `vscode`).
+// because the site may not import that file (it reaches `vscode`). The same goes for AgentsPageChatIndex (the sidebar's earlier sessions, here with one
+// session that another program runs: ChatIndexSession.live, liveSessions.ts).
 import type { AvatarKind } from '../../editor/extensions/flow-agent/src/desktopModel'
 import type { DemoData } from './demo'
 
@@ -142,6 +143,31 @@ const TAILS: Record<string, { role: 'user' | 'assistant' | 'tool'; text: string 
   ],
 }
 
+// A session of the Claude desktop app on another project of this computer, waiting for its user: it shows in the list as running elsewhere and in the queue.
+const EXTERNAL = '5b1e7a52-3c1d-4f0b-9c55-0e2f6a7d8b91'
+TAILS[EXTERNAL] = [
+  { role: 'user', text: 'Rewrite the quick start so it starts with the Try page.' },
+  { role: 'tool', text: 'Edit docs/quick-start.md' },
+  { role: 'assistant', text: 'The quick start now opens with the Try page. Shall I also move the install steps below it?' },
+]
+const chatIndex = (now: number) => ({
+  type: 'chatIndex',
+  projects: [
+    { key: 'a1b2c3d4e5f6', name: 'shop', where: '~/shop', cwd: '/Users/dev/shop', own: true, sessions: [] },
+    {
+      key: 'b2c3d4e5f6a1',
+      name: 'harbor-docs',
+      where: '~/harbor-docs',
+      cwd: '/Users/dev/harbor-docs',
+      own: false,
+      sessions: [
+        { id: EXTERNAL, kind: 'claude', title: 'Docs quick start', modified: now - 20_000, live: { status: 'needs', source: 'Claude desktop', basis: 'live' } },
+        { id: '6c2f8b63-4d2e-4a1c-8d66-1f3a7b8e9ca2', kind: 'claude', title: 'Changelog for 0.15', modified: now - 3 * 60 * MIN },
+      ],
+    },
+  ],
+})
+
 export function mountAgentsPage(frame: HTMLIFrameElement, data: DemoData, avatar: () => AvatarKind) {
   let ready = false
   const send = (message: unknown) => frame.contentWindow?.postMessage(message, location.origin)
@@ -169,6 +195,9 @@ export function mountAgentsPage(frame: HTMLIFrameElement, data: DemoData, avatar
     if (m.message.type === 'ready') {
       ready = true
       sendData()
+      send(chatIndex(Date.now()))
+    } else if (m.message.type === 'chatList') {
+      send(chatIndex(Date.now()))
     } else if (m.message.type === 'tail' && m.message.id) {
       const entries = TAILS[m.message.id]
       const now = Date.now()
@@ -183,6 +212,7 @@ export function mountAgentsPage(frame: HTMLIFrameElement, data: DemoData, avatar
   if (frame.contentDocument?.readyState === 'complete') {
     ready = true
     sendData()
+    send(chatIndex(Date.now()))
   }
   return sendData
 }

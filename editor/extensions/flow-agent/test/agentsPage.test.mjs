@@ -81,17 +81,18 @@ function boot({ vscodeApi = true, term = true } = {}) {
 	}
 	let onMessage
 	const timers = []
+	const intervals = []
 	const win = { addEventListener: (t, f) => { if (t === 'message') { onMessage = f } }, parent: { postMessage: (m, o) => parentPosted.push([JSON.parse(JSON.stringify(m)), o]) } }
 	win.window = win
 	const stub = stubTerminals()
 	if (term) { win.insilodeTermFactory = stub.factory }
-	const ctx = { window: win, document, setInterval: () => 1, setTimeout: (f, ms) => { timers.push({ f, ms }); return timers.length }, clearTimeout: id => { if (timers[id - 1]) { timers[id - 1].f = () => {} } }, Math, Object, isFinite, Date, String, Number, Map, Set, Array, JSON, Boolean, RegExp }
+	const ctx = { window: win, document, setInterval: (f, ms) => { intervals.push({ f, ms }); return 1 }, setTimeout: (f, ms) => { timers.push({ f, ms }); return timers.length }, clearTimeout: id => { if (timers[id - 1]) { timers[id - 1].f = () => {} } }, Math, Object, isFinite, Date, String, Number, Map, Set, Array, JSON, Boolean, RegExp }
 	if (vscodeApi) { ctx.acquireVsCodeApi = () => ({ postMessage: m => posted.push(JSON.parse(JSON.stringify(m))) }) }
 	// One scope for the page's scripts, as the browser gives them (the avatar script defines window.insilodeAvatar).
 	vm.createContext(ctx)
 	for (const s of scriptsOf(html)) { vm.runInContext(s, ctx) }
 	const page = {
-		body, posted, parentPosted, timers, terms: stub.terms,
+		body, document, posted, parentPosted, timers, intervals, terms: stub.terms,
 		send: m => onMessage({ data: m }),
 		data: (rows, extra = {}) => page.send({ type: 'data', now: Date.now(), avatar: 'pixel', rows, kept: [], customs: [], ...extra }),
 		key: (key, extra = {}) => { const e = { type: 'keydown', key, target: body, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, preventDefault() { e.prevented = true }, ...extra }; for (const f of docListeners.keydown || []) { f(e) } return e },
@@ -1373,4 +1374,274 @@ test('an answer to an earlier query, or to a cleared one, is ignored', T, () => 
 	p.send({ type: 'chatFound', query: 'logout', more: false, hits: [hitFor({ title: 'Stale' })] })
 	assert.doesNotMatch(p.body.byClass('side')[0].textContent, /Stale/)
 	assert.match(p.body.byClass('side')[0].textContent, /On this machine/)
+})
+
+// ---- sessions that run outside this window ---------------------------------------------------------------------------------
+const LIVE = (over = {}) => ({ status: 'working', source: 'Claude desktop', basis: 'live', ...over })
+/** The index with one session another program runs (in a project this window does not have open), one Codex session that is only "recent", and a quiet one. */
+const outside = (live = LIVE(), extra = {}) => ({ type: 'chatIndex', projects: [
+	{ key: PROJECT, name: 'app', where: '~/app', cwd: '/work/app', own: true, sessions: [] },
+	{ key: 'ffffffffffff', name: 'other', where: '~/other', cwd: '/work/other', own: false, sessions: [
+		{ id: SESSION, kind: 'claude', title: 'Elsewhere work', modified: Date.now() - 5_000, live },
+		{ id: SESSION2, kind: 'codex', title: 'Codex work', modified: Date.now() - 30_000, live: { status: 'unknown', source: 'Codex', basis: 'recent' } },
+		{ id: '2a99a3dd-7db0-4ba0-882d-a4dd922189be', kind: 'claude', title: 'Quiet work', modified: Date.now() - 3_600_000 },
+	], ...extra },
+] })
+const tailOf = (id, text, extra = {}) => ({ type: 'tail', id, entries: [{ role: 'user', text }, { role: 'assistant', text: 'On it.' }], ...extra })
+
+test('a session another program runs shows with its status dot, a source badge and a "Running elsewhere" entry; an estimate says so', T, () => {
+	const p = boot()
+	p.data([])
+	p.send(outside())
+	const side = p.side()
+	assert.match(side.textContent, /On this machine/)
+	const group = side.byClass('sgroup').find(g => g.textContent.startsWith('Running elsewhere'))
+	assert.ok(group, 'the section is first under "On this machine"')
+	assert.match(group.textContent, /Elsewhere work/)
+	assert.match(group.textContent, /external · Claude desktop/)
+	assert.doesNotMatch(group.textContent, /Codex work/, 'an estimate is not "running elsewhere"')
+	const rowsOf = side.byClass('srow').filter(r => r.textContent.includes('Elsewhere work'))
+	assert.equal(rowsOf.length, 2, 'in its project too')
+	assert.ok(rowsOf[0].byClass('sdot')[0].className.includes('working'))
+	const codex = side.byClass('srow').find(r => r.textContent.includes('Codex work'))
+	assert.match(codex.textContent, /active recently/)
+	assert.ok(codex.byClass('sdot')[0].className.includes('recent'))
+	assert.match(codex.byClass('xbadge')[0].attrs.title, /estimate/)
+	const quiet = side.byClass('srow').find(r => r.textContent.includes('Quiet work'))
+	assert.equal(quiet.byClass('xbadge').length, 0)
+	// Within its project the live one is above the quiet one (the host sorts them; the page keeps the order).
+	const names = side.byClass('crow').map(r => r.byClass('sname')[0].textContent)
+	assert.ok(names.indexOf('Elsewhere work') < names.indexOf('Quiet work'))
+	assert.match(group.textContent, /1/)
+})
+
+test('the dot follows the status the program wrote: busy works, idle is done, waiting needs you, unknown is plain', T, () => {
+	const p = boot()
+	p.data([])
+	for (const [status, dot] of [['working', 'working'], ['needs', 'needs'], ['idle', 'done'], ['unknown', 'idle']]) {
+		p.send(outside(LIVE({ status })))
+		const r = p.side().byClass('srow').filter(x => x.textContent.includes('Elsewhere work'))[0]
+		assert.equal(r.byClass('sdot')[0].className, 'sdot ' + dot, status)
+	}
+})
+
+test('a live mark the page cannot trust (a status or source it does not know, an object that is no mark) is dropped, not drawn', T, () => {
+	const p = boot()
+	p.data([])
+	p.send(outside({ status: 'exploding', source: 'x', basis: 'live' }))
+	assert.doesNotMatch(p.side().textContent, /external ·|Running elsewhere/)
+	p.send(outside({ status: 'idle', source: '<img src=x onerror=1>'.repeat(10), basis: 'live' }))
+	assert.doesNotMatch(p.side().textContent, /external ·/)
+	p.send(outside('yes'))
+	assert.doesNotMatch(p.side().textContent, /external ·/)
+	p.send(outside({ status: 'idle', source: '<b>desk</b>', basis: 'live' }))
+	assert.match(p.side().textContent, /external · <b>desk<\/b>/, 'shown as text')
+	assert.equal(p.side().find(n => n.tagName === 'B').length, 0)
+})
+
+test('opening one makes a read-only pane with the banner, reads the conversation now and while it runs, and offers no resume', T, () => {
+	const p = boot()
+	p.data([])
+	p.send(outside())
+	p.posted.length = 0
+	p.side().byClass('srow').find(r => r.textContent.includes('Elsewhere work')).fire('click')
+	assert.equal(p.all('termOpen').length + p.all('termAttach').length, 0, 'nothing is started or attached for it')
+	assert.equal(p.terms.length, 0)
+	assert.deepEqual(p.all('tail'), [{ type: 'tail', id: SESSION, kind: 'claude' }])
+	const pane = p.panes()[0]
+	assert.match(pane.textContent, /Running in Claude desktop — read-only here/)
+	assert.match(pane.textContent, /Working\. Close it there to resume it here\./)
+	assert.match(pane.textContent, /Reading the conversation/)
+	assert.equal(pane.button('Resume here'), undefined)
+	assert.equal(pane.button('Resume here anyway'), undefined)
+	p.send(tailOf(SESSION, 'Fix the login redirect'))
+	assert.match(pane.textContent, /> Fix the login redirect/)
+	assert.match(pane.textContent, /On it\./)
+	assert.ok(pane.byClass('pt')[0].textContent === 'Elsewhere work')
+	assert.match(pane.byClass('ph')[0].textContent, /external · Claude desktop/)
+	assert.equal(pane.byClass('tlog')[0].attrs.role, 'log')
+	// The host's next answer (the index changed) reads it again.
+	p.posted.length = 0
+	p.send(outside(LIVE({ status: 'needs' })))
+	assert.deepEqual(p.all('tail'), [{ type: 'tail', id: SESSION, kind: 'claude' }])
+	assert.match(p.panes()[0].textContent, /Needs you\. Close it there/)
+	assert.ok(p.panes()[0].className.includes('needs'), 'a pane that waits for the user says so')
+})
+
+test('a session that stopped running elsewhere offers "Resume here", which starts it in this pane with its folder; one that runs never does', T, () => {
+	const p = boot()
+	p.data([])
+	p.send(outside())
+	p.side().byClass('srow').find(r => r.textContent.includes('Elsewhere work')).fire('click')
+	p.send(tailOf(SESSION, 'hello'))
+	p.posted.length = 0
+	// It stops: the next index has no mark on it.
+	const gone = JSON.parse(JSON.stringify(outside()))
+	delete gone.projects[1].sessions[0].live
+	p.send(gone)
+	const pane = p.panes()[0]
+	assert.match(pane.textContent, /No longer running elsewhere/)
+	assert.match(pane.textContent, /> hello/, 'what it said stays')
+	pane.button('Resume here').fire('click')
+	const open = p.last('termOpen')
+	assert.deepEqual({ ...open, requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'claude', sessionId: SESSION, cwd: '/work/other' })
+	assert.match(p.text(), /Starting…/)
+	assert.equal(p.panes().length, 1, 'the same pane')
+	p.send({ type: 'termOpened', id: SESSION, requestId: open.requestId })
+	assert.deepEqual(p.last('termAttach'), { type: 'termAttach', id: SESSION })
+	assert.equal(p.terms.length, 1)
+	assert.doesNotMatch(p.panes()[0].textContent, /read-only/)
+})
+
+test('the host refusing a resume (it started again meanwhile) shows its sentence with Retry', T, () => {
+	const p = boot()
+	p.data([])
+	const gone = outside()
+	delete gone.projects[1].sessions[0].live
+	p.send(gone)
+	p.side().byClass('srow').find(r => r.textContent.includes('Elsewhere work')).fire('click')
+	assert.equal(p.all('termOpen').length, 1, 'not live: an ordinary resume')
+	p.send({ type: 'termFailed', requestId: p.last('termOpen').requestId, message: 'Not started: that session is running in Claude desktop. Close it there first.' })
+	assert.match(p.text(), /running in Claude desktop\. Close it there first\./)
+})
+
+test('a restored pane does not offer a resume until the host has listed the sessions, and a Codex estimate offers it as "anyway"', T, () => {
+	const p = boot()
+	p.data([])
+	layouts(p, { current: { seq: 1, root: { type: 'pane', id: 'p1', content: { kind: 'transcript', agent: 'claude', session: SESSION, resume: SESSION, cwd: '/work/other', title: 'Elsewhere work', ext: 'Claude desktop' } }, focus: 'p1' } })
+	assert.match(p.panes()[0].textContent, /Checking whether it still runs elsewhere/)
+	assert.equal(p.panes()[0].button('Resume here'), undefined, 'live or not is not known yet')
+	assert.equal(p.all('termOpen').length, 0)
+	p.send(outside())
+	assert.match(p.panes()[0].textContent, /Running in Claude desktop — read-only here/)
+	p.side().byClass('srow').find(r => r.textContent.includes('Codex work')).fire('click')
+	const pane = p.panes()[0]
+	assert.match(pane.textContent, /Active recently in Codex — read-only here/)
+	assert.match(pane.textContent, /estimate/)
+	assert.deepEqual(p.last('tail'), { type: 'tail', id: SESSION2, kind: 'codex' })
+	pane.button('Resume here anyway').fire('click')
+	assert.deepEqual({ ...p.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'codex', sessionId: SESSION2, cwd: '/work/other' })
+})
+
+test('while it runs the pane reads the conversation every few seconds, and not when the page is hidden, when it stopped or when it only is an estimate', T, () => {
+	const p = boot()
+	p.data([])
+	p.send(outside())
+	p.side().byClass('srow').find(r => r.textContent.includes('Elsewhere work')).fire('click')
+	const poll = p.intervals.filter(i => i.ms === 3000)
+	assert.equal(poll.length, 1)
+	p.posted.length = 0
+	poll[0].f()
+	assert.deepEqual(p.all('tail'), [{ type: 'tail', id: SESSION, kind: 'claude' }])
+	p.posted.length = 0
+	p.document.hidden = true
+	poll[0].f()
+	assert.deepEqual(p.all('tail'), [], 'a page nobody sees does not read')
+	p.document.hidden = false
+	const gone = outside()
+	delete gone.projects[1].sessions[0].live
+	p.send(gone)
+	p.posted.length = 0
+	poll[0].f()
+	assert.deepEqual(p.all('tail'), [], 'it stopped: nothing more to follow')
+})
+
+test('the layout keeps what marks a pane as a read-only external one', T, () => {
+	const p = boot()
+	p.data([])
+	layouts(p)
+	p.send(outside())
+	p.side().byClass('srow').find(r => r.textContent.includes('Elsewhere work')).fire('click')
+	p.flush(500)
+	const saved = p.last('layoutSave').layout
+	assert.deepEqual(saved.root.content, { kind: 'transcript', agent: 'claude', session: SESSION, resume: SESSION, cwd: '/work/other', title: 'Elsewhere work', folder: 'other', ext: 'Claude desktop' })
+})
+
+// ---- the attention queue ---------------------------------------------------------------------------------------------------
+const queue = p => p.body.byClass('queue')[0]
+const chips = p => queue(p).byClass('qchip')
+
+test('with nothing waiting there is no strip; waiting sessions of this window, other windows and other programs are chips with their project', T, () => {
+	const p = boot()
+	p.data([row({ id: SID(2), name: 'Worker', state: 'working' })])
+	assert.equal(queue(p).className.includes('hidden'), true, 'nothing reserved')
+	assert.equal(chips(p).length, 0)
+	p.data(rows(), { project: { name: 'my-app' }, peers: peers() })
+	p.send(outside(LIVE({ status: 'needs' })))
+	assert.equal(queue(p).className.includes('hidden'), false)
+	assert.deepEqual(chips(p).map(c => [c.byClass('qt')[0].textContent, c.byClass('qp')[0].textContent]), [['Needy', 'my-app'], ['Waiting', 'other-app'], ['Elsewhere work', 'other']])
+	assert.match(queue(p).textContent, /Needs you · 3/)
+	assert.ok(chips(p)[0].byClass('sdot')[0].className.includes('needs'))
+	assert.match(chips(p)[2].attrs['aria-label'], /Elsewhere work, other, needs you/)
+	// The header counts them: this window's Needy, the peer's Waiting and the program's.
+	assert.equal(p.body.byClass('count')[0].byClass('b').length, 0)
+	assert.equal(p.body.byClass('count')[0].find(n => n.tagName === 'B')[0].textContent, '3')
+})
+
+test('an ended session, a Done one and a working or idle external session are not in the queue; Codex has no waiting status, so none is', T, () => {
+	const p = boot()
+	p.data(rows(), { peers: peers() })
+	p.send(outside(LIVE({ status: 'working' })))
+	assert.deepEqual(chips(p).map(c => c.byClass('qt')[0].textContent), ['Needy', 'Waiting'])
+	p.send(outside(LIVE({ status: 'idle' })))
+	assert.equal(chips(p).length, 2)
+	assert.doesNotMatch(queue(p).textContent, /Codex work|Gone|Finisher/)
+})
+
+test('a chip focuses its pane when it is open and otherwise opens it in the focused pane; a peer\'s goes to that window', T, () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'my-app' }, peers: peers() })
+	p.send(outside(LIVE({ status: 'needs' })))
+	openRow(p, 'Worker')
+	p.posted.length = 0
+	chips(p)[0].fire('click')
+	assert.deepEqual(p.all('termAttach'), [{ type: 'termAttach', id: SID(1) }])
+	assert.deepEqual(titles(p), ['Needy'], 'it took the place of the focused pane')
+	dropRow(p, 'Worker', p.panes()[0], ...RIGHT)
+	assert.deepEqual(titles(p), ['Needy', 'Worker'])
+	assert.ok(p.panes()[1].className.includes('active'))
+	p.posted.length = 0
+	chips(p)[0].fire('click')
+	assert.deepEqual(titles(p), ['Needy', 'Worker'], 'already open: it is focused, not opened again')
+	assert.ok(p.panes()[0].className.includes('active'))
+	assert.equal(p.all('termAttach').length, 0)
+	chips(p)[1].fire('click')
+	assert.deepEqual(p.all('peer'), [{ type: 'peer', action: 'ide', key: '0123456789ab', id: 'p2' }])
+	assert.equal(p.panes().length, 2, 'no pane for another window\'s session')
+	chips(p)[2].fire('click')
+	assert.match(p.panes().map(n => n.textContent).join('|'), /Running in Claude desktop — read-only here/)
+})
+
+test('Alt+Shift+N jumps to the next session that needs the user, round the queue, and says so when none does', T, () => {
+	const p = boot()
+	p.data([row({ id: SID(2), name: 'Worker', state: 'working' })])
+	p.chord('KeyN')
+	assert.match(p.body.byClass('toast')[0].textContent, /Nothing is waiting for you/)
+	p.data(rows(), { project: { name: 'my-app' }, peers: peers() })
+	p.send(outside(LIVE({ status: 'needs' })))
+	const e = p.chord('KeyN')
+	assert.equal(e.prevented, true)
+	assert.match(titles(p).join(), /Needy/)
+	p.posted.length = 0
+	p.chord('KeyN')
+	assert.deepEqual(p.all('peer'), [{ type: 'peer', action: 'ide', key: '0123456789ab', id: 'p2' }])
+	p.chord('KeyN')
+	assert.match(p.panes().map(n => n.textContent).join('|'), /Running in Claude desktop/)
+	p.posted.length = 0
+	p.chord('KeyN')
+	assert.deepEqual(p.all('termAttach'), [{ type: 'termAttach', id: SID(1) }], 'the fourth press is back at the first')
+	// A terminal keeps the key for itself only when it is not the workspace's chord.
+	assert.equal(p.lastTerm().o.isChord({ altKey: true, shiftKey: true, code: 'KeyN' }), true)
+})
+
+test('the strip is built again only when the queue changed, so a chip the keyboard is on keeps the focus', T, () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'my-app' } })
+	const chip = chips(p)[0]
+	chip.focus()
+	p.data(rows().map(r => ({ ...r, since: r.since + 1 })), { project: { name: 'my-app' } })
+	assert.equal(chips(p)[0], chip)
+	p.data(rows().filter(r => r.id !== SID(1)), { project: { name: 'my-app' } })
+	assert.equal(queue(p).className.includes('hidden'), true)
+	assert.equal(chips(p).length, 0)
 })

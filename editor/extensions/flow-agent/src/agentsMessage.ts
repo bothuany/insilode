@@ -19,8 +19,11 @@ const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 
 export type AgentsAction =
 	| Exclude<DockAction, { type: 'chat' }>
-	/** The last messages of an agent's conversation, for a transcript pane. */
-	| { type: 'tail'; id: string }
+	/**
+	 * The last messages of an agent's conversation, for a transcript pane. `kind` (with a uuid `id`) names a session of the sidebar's index,
+	 * including one another program runs (liveSessions.ts): the host finds its transcript itself and answers nothing for an id it does not list.
+	 */
+	| { type: 'tail'; id: string; kind?: 'claude' | 'codex' }
 	/** One of the user's own agents from the New menu, by its index in the `customs` list the host sent and its name (the list may have changed since). */
 	| { type: 'custom'; index: number; name: string }
 	/** The kept worktrees' quick pick (Agents: Kept Worktrees…). */
@@ -61,7 +64,10 @@ export function agentsAction(raw: unknown): AgentsAction | undefined {
 	const id = typeof m.id === 'string' && m.id.length > 0 && m.id.length <= 200 ? m.id : undefined;
 		switch (m.type) {
 		case 'tail':
-			return id !== undefined ? { type: 'tail', id } : undefined;
+			if (m.kind === undefined) {
+				return id !== undefined ? { type: 'tail', id } : undefined;
+			}
+			return id !== undefined && (m.kind === 'claude' || m.kind === 'codex') && SESSION_ID.test(id) ? { type: 'tail', id, kind: m.kind } : undefined;
 		case 'custom':
 			return typeof m.index === 'number' && Number.isInteger(m.index) && m.index >= 0 && m.index < 100 && typeof m.name === 'string' && m.name.length <= 200 ? { type: 'custom', index: m.index, name: m.name } : undefined;
 		case 'kept':
