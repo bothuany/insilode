@@ -166,7 +166,7 @@ export const nodeIo: LiveIo = {
 	isAlive: pid => isAliveWith(pid, (p, sig) => process.kill(p, sig)),
 	// One ps through an argument array (no shell) with a short timeout, C locale for English names. Windows has no ps: the check is skipped there.
 	startTime: pid => process.platform === 'win32' ? Promise.resolve(undefined) : new Promise(resolve => {
-		execFile('ps', ['-o', 'lstart=', '-p', String(pid)], { timeout: 1500, windowsHide: true, env: { ...process.env, LC_ALL: 'C' } }, (err, out) => resolve(err ? undefined : parsePsStart(out)));
+		execFile('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { timeout: 1500, windowsHide: true, env: { ...process.env, LC_ALL: 'C' } }, (err, out) => resolve(err ? undefined : parsePsStart(out)));
 	}),
 };
 

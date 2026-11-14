@@ -50,3 +50,12 @@ test('before any run settled the last result is the one given at the start; work
 	assert.equal(await b.run(50, async () => { throw new Error('boom') }, () => 0, n => 'ran ' + n), 'ran 0')
 	assert.equal(await b.run(50, async () => undefined, () => 1, n => 'ran ' + n), 'ran 1')
 })
+
+test('a call that arrives while a run is in flight waits for it and gets what it found, not the list from before', T, async () => {
+	const b = new m.Budgeted(['old'])
+	const slow = b.run(1000, async acc => { await new Promise(r => setTimeout(r, 80)); acc.push('new') }, () => [], sorted)
+	// The resume check lands here: answering ['old'] would miss a session the run in flight is about to report.
+	const joined = await b.run(1000, async acc => { acc.push('never') }, () => [], sorted)
+	assert.deepEqual(joined, ['new'])
+	assert.deepEqual(await slow, ['new'])
+})
