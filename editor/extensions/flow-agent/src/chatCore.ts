@@ -110,6 +110,51 @@ export function autoAnswer<O extends PermissionOption>(mode: string, toolKind: s
 	return auto ? options.find(o => o.kind === 'allow_once') ?? options.find(o => o.kind.startsWith('allow')) : undefined;
 }
 
+/**
+ * The mode the adapter itself runs in for the user's: only `plan` and `default`, so every write comes through `autoAnswer`. An
+ * elevated mode the adapter moves itself to (the plan dialog) is taken back to `default` at once, so only the moment until that
+ * reset lands is unchecked.
+ */
+export const adapterMode = (userMode: string | undefined): 'plan' | 'default' => userMode === 'plan' ? 'plan' : 'default';
+
+export const isElevated = (mode: string | undefined) => mode === 'acceptEdits' || mode === 'auto' || mode === 'bypassPermissions';
+
+/**
+ * The mode the chip should move to when the adapter reports `reported` (a mode update, or a config update that carries it), or
+ * undefined to leave it. `applied` is the mode Insilode last put the adapter in: a report equal to it is only the echo of that,
+ * and with none yet there is nothing the adapter could have moved away from. Plan and default are followed, so a plan the
+ * agent leaves is not forced back on the next prompt. An elevated mode is adopted only when it is `granted`, the mode the user's
+ * own gated answer to the plan question just asked for (`gateAnswer`); any other elevated report is the adapter acting on its
+ * own, and the chat goes to `default`. Bypass still has to be confirmed by the caller.
+ */
+export function modeAfterAdapter(reported: string | undefined, applied: string | undefined, stored: string | undefined, granted?: string): string | undefined {
+	if (!reported || applied === undefined || reported === applied) {
+		return undefined;
+	}
+	if (reported === 'plan' || reported === 'default') {
+		return reported === stored ? undefined : reported;
+	}
+	return isElevated(reported) ? (reported === granted ? reported : 'default') : undefined;
+}
+
+/**
+ * The mode the user picked in a chip, or undefined when this chip did not change: every input state of a session type gets a
+ * change event when any one of them is written (an agent leaving plan in session A), and only a chip whose own selection moved
+ * is the user's word. With nothing seen yet for the chip, what it shows is taken as the pick.
+ */
+export const pickedMode = (shown: string | undefined, seen: string | undefined): string | undefined => shown && shown !== seen ? shown : undefined;
+
+/** A path as the dialogs show it: a folder name can hold a newline or an escape that would pass for text of the dialog itself. */
+export const shown = (p: string) => p.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, '?');
+
+/** The modal that confirms an elevated mode for a chat (bypass anywhere, acceptEdits/auto outside this window's folder). */
+export function modeWarning(label: string, mode: string, cwd: string): { message: string; detail: string; yes: string } {
+	const what = mode === 'bypassPermissions'
+		? 'The agent will edit files and run commands without asking you.'
+		: 'The agent will edit files inside that folder without asking you; commands and anything else still ask.';
+	return { message: `Switch this chat to ${label}?`, detail: `Folder: ${shown(cwd)}\n\n${what}`, yes: 'Switch Mode' };
+}
+
 /** What Insilode Harness records for a question: nothing picked, a refusal, an answer it gave for the user, or the user's own. */
 export function permissionDecision(option: { kind: string } | undefined, auto: boolean): 'cancelled' | 'denied' | 'auto' | 'allowed' {
 	return !option ? 'cancelled' : !option.kind.startsWith('allow') ? 'denied' : auto ? 'auto' : 'allowed';
@@ -145,6 +190,50 @@ export function plainEditAnswer<O extends PermissionOption>(options: O[]): O | u
 /** What replaces an elevating plan answer the user did not confirm: approve the plan and stay in `default`, else the plan's own "no". */
 export function plainPlanAnswer<O extends PermissionOption>(options: O[]): O | undefined {
 	return options.find(o => o.optionId === 'exit-plan-default') ?? options.find(o => o.kind.startsWith('reject'));
+}
+
+/** Bypass (anywhere) and acceptEdits/auto (in a folder outside this window's workspace) take the agent's questions away: the user confirms them, once per session and mode. */
+export const needsConfirmation = (mode: string, own: boolean, confirmed: ReadonlySet<string>) =>
+	(mode === 'bypassPermissions' || (!own && (mode === 'acceptEdits' || mode === 'auto'))) && !confirmed.has(mode);
+
+export interface AnswerGate<O> {
+	/** The mode the answer elevates to, undefined for an answer that elevates nothing. */
+	mode?: string;
+	/** Whether the user must confirm `mode` before the adapter hears the answer. */
+	confirm: boolean;
+	/** The adapter hears this when it goes through: the plain "yes, this once" for an edit, the chosen option for a plan. */
+	send: O | undefined;
+	/** The adapter hears this on a no. */
+	decline: O | undefined;
+	/** The mode the chat takes on a no (the plain plan approval keeps `default`). */
+	declineMode?: string;
+	/** A plan answer: the adapter reports the mode itself, and the chat adopts it then. An edit answer never elevates the adapter: the chat's mode is set right away. */
+	viaAdapter: boolean;
+}
+
+/**
+ * What to do with the option the user picked for a permission question, the one decision both chats take: an `edit` question's
+ * `allow-with-updates` is replaced by the plain allow-once (the adapter would otherwise move itself to acceptEdits and stop
+ * asking), and the chat takes `acceptEdits` as its own mode, which `autoAnswer` enforces; a plan answer that elevates is
+ * confirmed first where `needsConfirmation` says so, and a no sends the plain plan approval instead.
+ */
+export function gateAnswer<O extends PermissionOption>(chosen: O, options: O[], ctx: { edit: boolean; own: boolean; confirmed: ReadonlySet<string> }): AnswerGate<O> {
+	const mode = elevatingMode(chosen, ctx.edit ? 'edit' : undefined);
+	if (!mode) {
+		return { confirm: false, send: chosen, decline: chosen, viaAdapter: false };
+	}
+	const confirm = needsConfirmation(mode, ctx.own, ctx.confirmed);
+	if (chosen.optionId === ALLOW_WITH_UPDATES) {
+		const plain = plainEditAnswer(options);
+		return { mode, confirm, send: plain, decline: plain, viaAdapter: false };
+	}
+	const plain = plainPlanAnswer(options);
+	return { mode, confirm, send: chosen, decline: plain, declineMode: plain?.kind.startsWith('allow') ? 'default' : undefined, viaAdapter: true };
+}
+
+/** The option to send and the chat's new mode (undefined: leave it) once the confirmation, if one was needed, is answered. */
+export function settleGate<O>(g: AnswerGate<O>, yes: boolean): { option: O | undefined; mode: string | undefined; viaAdapter: boolean } {
+	return yes ? { option: g.send, mode: g.send ? g.mode : undefined, viaAdapter: g.viaAdapter } : { option: g.decline, mode: g.declineMode, viaAdapter: false };
 }
 
 /** The diffs a tool call carries (an edit asking for permission), in the shape the canvas takes. */

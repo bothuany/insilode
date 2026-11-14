@@ -14,7 +14,7 @@ import type { RequestPermissionRequest, RequestPermissionResponse, SessionConfig
 import { AgentHost, explain, type AgentKind, type SessionSink } from './acp';
 import type { Agents } from './agents';
 import type { AgentsPageChatOpened, ChatEvent, ChatProject } from './agentsData';
-import { ALLOW_WITH_UPDATES, appendEvent, autoAnswer, configAccepts, configView, currentValue, diffsOf, elevatingMode, isInside, MAX_EVENTS, permissionDecision, plainEditAnswer, plainPlanAnswer, toEvents } from './chatCore';
+import { appendEvent, autoAnswer, configAccepts, configView, currentValue, diffsOf, gateAnswer, type AnswerGate, isInside, MAX_EVENTS, modeWarning, needsConfirmation, permissionDecision, settleGate, shown, toEvents } from './chatCore';
 import { agentCwd } from './env';
 import { gazeAcp, gazeTurn } from './gazeHost';
 import { SessionIndex } from './sessionIndex';
@@ -68,6 +68,8 @@ interface Chat {
 	gen: number;
 	/** The elevated mode `adoptElevated` is deciding on: a repeat of the adapter's update (it sends two per change) is not a new move. */
 	adopting?: string;
+	/** The elevated mode the user's own (gated) answer to the plan question asked for: the one report `adoptElevated` takes as theirs. Any other elevated report is the adapter acting alone. */
+	granted?: string;
 	busy: boolean;
 	dead: boolean;
 	/** When this turn's failure was shown (0: none): the adapter's exit right after it does not say it again, one long after it does. */
@@ -90,8 +92,6 @@ async function real(p: string): Promise<string> {
 		clearTimeout(timer);
 	}
 }
-/** A path as the dialogs show it: a folder name can hold a newline or an escape that would pass for text of the dialog itself. */
-const shown = (p: string) => p.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, '?');
 const tilde = (p: string) => { const home = os.homedir(); return p === home || p.startsWith(home + path.sep) ? '~' + p.slice(home.length) : p; };
 
 export class ChatSessions implements vscode.Disposable {
@@ -384,8 +384,8 @@ export class ChatSessions implements vscode.Disposable {
 
 	/**
 	 * The adapter moves itself to another mode when a plan is approved (ExitPlanMode). `answer` confirms an elevating answer before
-	 * the adapter hears it, so this is the backstop for an elevated mode that arrives any other way: it goes through the same
-	 * confirmation as the mode picker (`adoptElevated`); plan and default are taken as they are.
+	 * the adapter hears it and leaves `granted` behind; the report that follows is adopted (`adoptElevated`). An elevated mode that
+	 * arrives any other way is taken back to `default` and stays there; plan and default are taken as they are.
 	 */
 	private followAdapterMode(c: Chat, u: Parameters<SessionSink['onUpdate']>[0]['update']) {
 		const mode = u.sessionUpdate === 'current_mode_update' ? (u as { currentModeId?: string }).currentModeId
@@ -404,11 +404,15 @@ export class ChatSessions implements vscode.Disposable {
 
 	/**
 	 * Fail-safe order: the adapter is put back to `default` FIRST (in bypass it asks nothing, so every second the modal is open the
-	 * agent would run unasked), then the user is asked, and only a yes gives the chat the elevated mode. The adapter itself stays in
-	 * `default` so every write keeps coming through here (the canvas snapshot, the folder rule of `autoAnswer`).
+	 * agent would run unasked), then, for a mode the user's own answer asked for, the user is asked where the folder or the mode
+	 * calls for it, and only a yes gives the chat the elevated mode. A report nobody asked for (no `granted`) stops at the reset.
+	 * The adapter itself stays in `default` so every write keeps coming through here (the canvas snapshot, the folder rule of `autoAnswer`).
 	 */
 	private async adoptElevated(c: Chat, mode: string) {
-		// Before any await: a question arriving meanwhile is not answered by the mode, and a repeat of the update is not a new move.
+		// Before any await: a question arriving meanwhile is not answered by the mode, a repeat of the update is not a new move, and
+		// one answer vouches for one report.
+		const granted = c.granted === mode;
+		c.granted = undefined;
 		c.adopting = mode;
 		this.moved(c, 'default');
 		this.push(c, { t: 'config', config: configView(c.config, c.mode) });
@@ -420,7 +424,7 @@ export class ChatSessions implements vscode.Disposable {
 				return;
 			}
 			const gen = c.gen;
-			const yes = await this.confirmMode(c, mode).catch(() => false);
+			const yes = granted && await this.confirmMode(c, mode).catch(() => false);
 			if (yes && gen === c.gen && !c.dead) {
 				this.moved(c, mode);
 			}
@@ -460,6 +464,8 @@ export class ChatSessions implements vscode.Disposable {
 		}
 		c.busy = true;
 		c.failedAt = 0;
+		// An answer's grant lives for that turn: one the adapter never reported must not vouch for a later report.
+		c.granted = undefined;
 		if (c.title === 'New chat') {
 			c.title = text.replace(/\s+/g, ' ').trim().slice(0, 60);
 		}
@@ -489,7 +495,8 @@ export class ChatSessions implements vscode.Disposable {
 		if (!c || c.dead) {
 			return;
 		}
-		// A question nobody will answer must not hold the turn up.
+		// A question nobody will answer must not hold the turn up, and an answer given for it is void.
+		c.granted = undefined;
 		this.cancelAsks(c);
 		await (await c.host.connection()).cancel({ sessionId: c.sessionId }).catch(() => undefined);
 	}
@@ -537,19 +544,25 @@ export class ChatSessions implements vscode.Disposable {
 				decision: permissionDecision(option, auto),
 			})).catch(() => undefined);
 		}
+		if (option) {
+			// Never forwarded as picked when it elevates (chatCore.gateAnswer): an edit's "all edits" becomes this chat's own mode, which
+			// `autoAnswer` enforces, and the adapter hears the plain "yes, this once". A plan answer was confirmed by `answer` already.
+			const g = gateAnswer(option, r.options, { edit: isEdit, own: c.own, confirmed: c.confirmed });
+			const s = settleGate(g, !g.confirm);
+			option = s.option;
+			if (s.mode && !s.viaAdapter) {
+				this.moved(c, s.mode);
+				this.push(c, { t: 'config', config: configView(c.config, c.mode) });
+			} else if (s.mode) {
+				c.granted = s.mode;
+			}
+		}
 		if (!option) {
 			return { outcome: { outcome: 'cancelled' } };
 		}
 		if (option.kind.startsWith('allow') && isEdit && hooks) {
 			// Insilode's canvas keeps the pre-edit text so cards can show this change.
 			await Promise.resolve(vscode.commands.executeCommand('flow.agentWillEdit', files)).catch(() => undefined);
-		}
-		// `allow-with-updates` on an edit puts the adapter in acceptEdits without saying so, so no mode update reaches followAdapterMode.
-		// Take the same road it would (the picker and the chat follow, the adapter goes back to `default`, the folder rule answers from
-		// here on), but only once this answer is on its way: a reset sent before it would be undone by the adapter applying it.
-		const silent = isEdit ? elevatingMode(option, 'edit') : undefined;
-		if (silent && option.optionId === ALLOW_WITH_UPDATES) {
-			setTimeout(() => !c.dead && void this.adoptElevated(c, silent), 0);
 		}
 		return { outcome: { outcome: 'selected', optionId: option.optionId } };
 	}
@@ -567,19 +580,19 @@ export class ChatSessions implements vscode.Disposable {
 			return;
 		}
 		const chosen = a.options[option];
-		const mode = elevatingMode(chosen, a.edit ? 'edit' : undefined);
-		if (!mode || !this.needsConfirm(c, mode)) {
+		const g = gateAnswer(chosen, a.options, { edit: !!a.edit, own: c.own, confirmed: c.confirmed });
+		if (!g.confirm) {
 			c.asks.delete(req);
 			a.resolve(chosen);
 			return;
 		}
 		a.deciding = true;
-		void this.confirmAnswer(c, req, a, chosen, mode);
+		void this.confirmAnswer(c, req, a, chosen, g);
 	}
 
-	private async confirmAnswer(c: Chat, req: number, a: Ask, chosen: Option, mode: string) {
+	private async confirmAnswer(c: Chat, req: number, a: Ask, chosen: Option, g: AnswerGate<Option>) {
 		const gen = c.gen;
-		const yes = await this.confirmMode(c, mode).catch(() => false);
+		const yes = await this.confirmMode(c, g.mode!).catch(() => false);
 		// Cancelled (or the adapter ended) while the modal was open: that already answered it.
 		if (c.asks.get(req) !== a) {
 			return;
@@ -589,19 +602,15 @@ export class ChatSessions implements vscode.Disposable {
 			a.resolve(chosen);
 			return;
 		}
-		if (chosen.optionId === ALLOW_WITH_UPDATES) {
-			// Only this once: the mode stays as it was.
-			a.resolve(plainEditAnswer(a.options));
-			return;
-		}
-		const plain = plainPlanAnswer(a.options);
-		// Only an approval that keeps `default` moves the chat there; "keep planning" leaves the adapter, and the picker, in plan.
-		if (plain?.kind.startsWith('allow') && gen === c.gen) {
-			this.moved(c, 'default');
-			c.want = 'default';
+		// A no: the plain answer, and only an approval that keeps `default` moves the chat there; "keep planning" leaves the adapter, and the picker, in plan.
+		c.granted = undefined;
+		const s = settleGate(g, false);
+		if (s.mode && gen === c.gen) {
+			this.moved(c, s.mode);
+			c.want = s.mode;
 		}
 		this.push(c, { t: 'config', config: configView(c.config, c.mode) });
-		a.resolve(plain);
+		a.resolve(s.option);
 	}
 
 	// ---- the mode, model and the rest ---------------------------------------------------------------------------------------
@@ -624,7 +633,7 @@ export class ChatSessions implements vscode.Disposable {
 	 * them in a modal of the editor itself, naming the folder, once per session and mode. False when they decline.
 	 */
 	private needsConfirm(c: Chat, mode: string): boolean {
-		return (mode === 'bypassPermissions' || (!c.own && (mode === 'acceptEdits' || mode === 'auto'))) && !c.confirmed.has(mode);
+		return needsConfirmation(mode, c.own, c.confirmed);
 	}
 
 	private async confirmMode(c: Chat, mode: string): Promise<boolean> {
@@ -636,13 +645,10 @@ export class ChatSessions implements vscode.Disposable {
 		}
 		c.confirming = true;
 		try {
-			const yes = 'Switch Mode';
-			const what = mode === 'bypassPermissions'
-				? 'The agent will edit files and run commands without asking you.'
-				: 'The agent will edit files inside that folder without asking you; commands and anything else still ask.';
 			const label = configView(c.config, c.mode).find(o => o.id === 'mode')?.items.find(i => i.value === mode)?.name ?? mode;
-			const answer = await vscode.window.showWarningMessage(`Switch this chat to ${label}?`, { modal: true, detail: `Folder: ${shown(c.cwd)}\n\n${what}` }, yes);
-			if (answer !== yes) {
+			const w = modeWarning(label, mode, c.cwd);
+			const answer = await vscode.window.showWarningMessage(w.message, { modal: true, detail: w.detail }, w.yes);
+			if (answer !== w.yes) {
 				return false;
 			}
 			c.confirmed.add(mode);
@@ -662,7 +668,8 @@ export class ChatSessions implements vscode.Disposable {
 			if (configId === 'mode') {
 				// A "no" changes nothing, and the config event below makes the page's picker show the old mode again.
 				if (await this.confirmMode(c, value)) {
-					await this.setAdapterOption(c, 'mode', value === 'plan' ? 'plan' : 'default');
+					// Forced: the adapter may be elevated without the cache knowing, so "Default" must reach it even when the cache shows it.
+					await this.setAdapterOption(c, 'mode', value === 'plan' ? 'plan' : 'default', true);
 					this.moved(c, value);
 				}
 			} else {
