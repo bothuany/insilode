@@ -40,14 +40,14 @@ body.vscode-light, body.vscode-high-contrast-light {
 }
 * { box-sizing: border-box; }
 body { margin: 0; padding: 8px 10px 16px 8px; color: var(--text); font: 13px/1.4 var(--vscode-font-family, -apple-system, system-ui); background: transparent; }
-.new { display: flex; gap: 6px; margin-bottom: 10px; }
+.new { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .new button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 28px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; cursor: pointer; }
 .new button:hover { background: var(--hover); }
 .new button:focus-visible, .agent button:focus-visible { outline: 1.5px solid var(--vscode-focusBorder, var(--working)); outline-offset: -1.5px; }
 .new button.more { flex: 0 0 auto; padding: 0 10px; color: var(--muted); }
 /* A start button and its chevron are two buttons side by side: the chevron opens the menu of the other ways to start. */
-.new .split { flex: 1; display: flex; min-width: 0; }
-.new .split button.go { border-radius: 8px 0 0 8px; border-right: 0; min-width: 0; }
+.new .split { flex: 1; display: flex; min-width: max-content; }
+.new .split button.go { border-radius: 8px 0 0 8px; border-right: 0; }
 .new .split button.chev { flex: 0 0 auto; width: 26px; padding: 0; border-radius: 0 8px 8px 0; color: var(--muted); }
 .menu { position: absolute; z-index: 10; min-width: 190px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--vscode-menu-background, var(--vscode-sideBar-background)); color: var(--vscode-menu-foreground, var(--text)); box-shadow: 0 6px 18px rgb(0 0 0 / .35); }
 .menu[hidden] { display: none; }
