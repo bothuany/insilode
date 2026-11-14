@@ -1,5 +1,8 @@
-# What can be checked without the VS Code checkout. The extensions' type checks (`npm run typecheck`) extend
-# editor/vscode's tsconfig and typings, so they need `npm run setup` (a 10-20 minute job) and stay a local check.
+# What can be checked without the VS Code checkout. The extensions' own type checks (`npm run typecheck`, and flow-agent's
+# `tsc --noEmit`) extend editor/vscode's tsconfig and typings, so they need `npm run setup` (a 10-20 minute job) and stay a
+# local check. The `extensions-typecheck` job covers flow-view and flow-harness instead, against @types/vscode. flow-agent
+# (proposed chat and language model APIs) and flow-import (the proposed extensionsAny API) use typings only the checkout has,
+# so they are not type-checked here: their tests and bundles are. The tests run on Linux, Windows and macOS.
 name: ci
 
 on:
@@ -20,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     defaults:
       run:
         shell: bash
@@ -99,6 +102,36 @@ jobs:
         run: |
           npm ci --no-audit --no-fund
           npm run arch
+
+  # flow-view and flow-harness against @types/vscode instead of the generated VS Code checkout (cloning that is the 10-20 minute
+  # `npm run setup`). The options are the checkout's tsconfig.base.json (.github/tsconfig.extensions.json). 1.140.0 is the newest
+  # @types/vscode at or below the checkout's 1.141.0 (there is no 1.141.0 package); a flow-view or flow-harness use of a newer API shows up here as an error
+  # to fix or to leave to the local check. Installed with --no-save in this job only: no package.json or lockfile carries it, and `npm run arch` (the build job)
+  # still sees `vscode` unresolved, which its dependency rules rely on (test/arch/vscode-unresolved.test.mjs).
+  extensions-typecheck:
+    name: extensions type check (flow-view, flow-harness)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            editor/extensions/flow-view/package-lock.json
+            editor/extensions/flow-harness/package-lock.json
+
+      - name: Install
+        run: |
+          npm ci --no-audit --no-fund
+          (cd editor/extensions/flow-view && npm ci --no-audit --no-fund)
+          (cd editor/extensions/flow-harness && npm ci --no-audit --no-fund)
+          npm install --no-save --no-audit --no-fund @types/vscode@1.140.0 @types/node@24.12.4
+
+      - name: Type check
+        run: npx tsc -p .github/tsconfig.extensions.json
 
   # The website (site/), built but not deployed: a change to the canvas, the protocol types or the index that breaks
   # it shows up on the pull request. The deploy to GitHub Pages is site.yml, on pushes to main.
