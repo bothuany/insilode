@@ -1,0 +1,24 @@
+editor/extensions/flow-view/src/mcp/handlers.ts
+  s_1c1a3e293d98a8::t_70d539656fac52 350
+  s_1c1a3e293d98a8::t_11b35ac3cf222f 344-349,351-352,539-540,559,570,575,603-604
+  s_1c1a3e293d98a8::t_f2bc11e96ca46d 131,342,605
+editor/extensions/flow-view/test/changes-in-flow.test.mjs
+  s_1c1a3e293d98a8::t_70d539656fac52 246-253
+  s_1c1a3e293d98a8::t_ba04be9d8557df 203-245,254-259
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "e5234f594bbfbcb790d0f80ce92cbf94db1a1f62",
+  "prompts": {},
+  "sessions": {
+    "s_1c1a3e293d98a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a99a3dd-7db0-4ba0-882d-a4dd922189be",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}
