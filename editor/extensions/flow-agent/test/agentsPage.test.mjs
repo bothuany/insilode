@@ -620,3 +620,132 @@ test('user messages stay separate blocks unless they are chunks of one message i
 	assert.deepEqual(log(p).byClass('user').map(n => n.textContent), ['a', 'b', 'cd'])
 	assert.deepEqual(log(p).byClass('cmsg').filter(n => !n.className.includes('user')).map(n => n.textContent), ['xy', 'z'])
 })
+
+// ---- the session search ----------------------------------------------------------------------------------------------------
+const searchBox = p => p.body.byClass('sesearch')[0]
+const typeInto = (p, text) => { const box = searchBox(p); box.value = text; box.fire('input') }
+const searches = p => p.posted.filter(m => m.type === 'chatSearch')
+const hitFor = (over = {}) => ({ project: PROJECT, kind: 'claude', session: SESSION, title: 'Login work', modified: Date.now() - 120_000, snippet: '…the cookie domain broke the LOGIN redirect after…', ...over })
+
+test('the search box appears once the host has listed sessions; typing posts one chatSearch after a pause, with "searching…" meanwhile', () => {
+	const p = boot()
+	p.data([])
+	assert.equal(searchBox(p).parent.className.includes('hidden'), true, 'no host answer yet: not offered')
+	p.send(index())
+	assert.equal(searchBox(p).parent.className.includes('hidden'), false)
+	p.posted.length = 0
+	for (const text of ['lo', 'log', 'login']) { typeInto(p, text) }
+	assert.deepEqual(searches(p), [], 'nothing before the pause')
+	assert.match(p.body.byClass('side')[0].textContent, /Searching/)
+	flush(p)
+	assert.deepEqual(searches(p), [{ type: 'chatSearch', query: 'login' }], 'only the last keystroke is searched')
+})
+
+test('one character posts nothing and shows the normal list; clearing the box restores it', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	p.posted.length = 0
+	typeInto(p, 'l')
+	flush(p)
+	assert.deepEqual(searches(p), [])
+	assert.match(p.body.byClass('side')[0].textContent, /Login work/)
+	typeInto(p, 'login')
+	assert.doesNotMatch(p.body.byClass('side')[0].textContent, /On this machine/)
+	typeInto(p, '')
+	assert.match(p.body.byClass('side')[0].textContent, /On this machine/)
+})
+
+test('hits are grouped by project and drawn as text with the match marked; a snippet with markup stays text', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	typeInto(p, 'login')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'login', more: true, hits: [hitFor(), hitFor({ session: '1a99a3dd-7db0-4ba0-882d-a4dd922189be', title: 'Evil', snippet: '<img src=x onerror=alert(1)> a login <b>x</b>' })] })
+	const side = p.body.byClass('side')[0]
+	assert.match(side.textContent, /Login work/)
+	assert.match(side.textContent, /the cookie domain broke the LOGIN redirect/)
+	assert.match(side.textContent, /<img src=x onerror=alert\(1\)> a login <b>x<\/b>/, 'shown as typed')
+	assert.equal(side.find(n => n.tagName === 'IMG' || n.tagName === 'B').length, 0, 'no element came from the snippet')
+	const marks = side.find(n => n.tagName === 'MARK')
+	assert.deepEqual(marks.map(m => m.textContent), ['LOGIN', 'login'])
+	assert.equal(side.byClass('shead').length, 1, 'one project group')
+	assert.match(side.textContent, /Showing the newest matches/)
+	assert.equal(side.find(n => n.innerHTML).length, 0, 'innerHTML is never used for a hit')
+})
+
+test('the mark sits on the match after İ, ß and emoji, which a lower-cased copy shifts', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	typeInto(p, 'login')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'login', more: false, cut: false, hits: [hitFor({ snippet: 'İİİİİ ß 😀 the LOGIN redirect' })] })
+	assert.deepEqual(p.body.byClass('side')[0].find(n => n.tagName === 'MARK').map(m => m.textContent), ['LOGIN'])
+})
+
+test('the mark finds a Turkish word whichever of ı, I, i and İ either side spells it with', () => {
+	for (const [snippet, query, marked] of [['the Iğdır road', 'ığdır', 'Iğdır'], ['the IŞIK road', 'ışık', 'IŞIK'], ['the ışık road', 'IŞIK', 'ışık'], ['the İstanbul road', 'istanbul', 'İstanbul']]) {
+		const p = boot()
+		p.data([])
+		p.send(index())
+		typeInto(p, query)
+		flush(p)
+		p.send({ type: 'chatFound', query, more: false, cut: false, hits: [hitFor({ snippet })] })
+		assert.deepEqual(p.body.byClass('side')[0].find(n => n.tagName === 'MARK').map(m => m.textContent), [marked], query)
+	}
+})
+
+test('an empty answer from a cut-short search does not claim there is no match; hits from one carry a hint', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	typeInto(p, 'nothing')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'nothing', more: true, cut: true, hits: [] })
+	const side = () => p.body.byClass('side')[0].textContent
+	assert.match(side(), /No match in the sessions searched; the search stopped early/)
+	assert.doesNotMatch(side(), /No past session mentions/)
+	typeInto(p, 'login')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'login', more: true, cut: true, hits: [hitFor()] })
+	assert.match(side(), /The search stopped early/)
+	typeInto(p, 'nope')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'nope', more: false, cut: false, hits: [] })
+	assert.match(side(), /No past session mentions "nope"/)
+})
+
+test('clicking a hit posts chatOpen for its project and session; an empty answer says so', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	typeInto(p, 'login')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'login', more: false, hits: [hitFor({ kind: 'codex' })] })
+	p.posted.length = 0
+	p.body.byClass('sresult')[0].byClass('crow')[0].fire('click')
+	assert.deepEqual(p.posted.pop(), { type: 'chatOpen', project: PROJECT, kind: 'codex', session: SESSION })
+	typeInto(p, 'nothing')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'nothing', more: false, hits: [] })
+	assert.match(p.body.byClass('side')[0].textContent, /No past session mentions "nothing"/)
+})
+
+test('an answer to an earlier query, or to a cleared one, is ignored', () => {
+	const p = boot()
+	p.data([])
+	p.send(index())
+	typeInto(p, 'login')
+	flush(p)
+	typeInto(p, 'logout')
+	flush(p)
+	p.send({ type: 'chatFound', query: 'login', more: false, hits: [hitFor({ title: 'Stale' })] })
+	assert.doesNotMatch(p.body.byClass('side')[0].textContent, /Stale/)
+	assert.match(p.body.byClass('side')[0].textContent, /Searching/)
+	typeInto(p, '')
+	p.send({ type: 'chatFound', query: 'logout', more: false, hits: [hitFor({ title: 'Stale' })] })
+	assert.doesNotMatch(p.body.byClass('side')[0].textContent, /Stale/)
+	assert.match(p.body.byClass('side')[0].textContent, /On this machine/)
+})

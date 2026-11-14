@@ -17,7 +17,8 @@ import type { AgentsPageChatOpened, ChatEvent, ChatProject } from './agentsData'
 import { appendEvent, autoAnswer, configAccepts, configView, currentValue, diffsOf, gateAnswer, type AnswerGate, isInside, MAX_EVENTS, modeWarning, needsConfirmation, permissionDecision, settleGate, shown, toEvents } from './chatCore';
 import { agentCwd } from './env';
 import { gazeAcp, gazeTurn } from './gazeHost';
-import { SessionIndex } from './sessionIndex';
+import { SessionIndex, transcriptFile } from './sessionIndex';
+import { searchSessions, type SessionHit } from './sessionSearch';
 import { folderKey } from './storageKey';
 
 const LABEL: Record<AgentKind, string> = { claude: 'Claude', codex: 'Codex' };
@@ -144,6 +145,15 @@ export class ChatSessions implements vscode.Disposable {
 		this.known = known;
 		this.listed = out;
 		return out;
+	}
+
+	/**
+	 * Past sessions of the projects the page lists whose conversation contains `query`; the hits are sessions `open` accepts.
+	 * Nothing here is logged: a snippet is text from any project on the machine and goes to the page that asked.
+	 */
+	async search(query: string, signal: AbortSignal): Promise<{ hits: SessionHit[]; more: boolean; cut: boolean }> {
+		const projects = this.listed.length ? this.listed : await this.projects();
+		return searchSessions(projects, transcriptFile, query, signal);
 	}
 
 	// ---- opening ----------------------------------------------------------------------------------------------------------------

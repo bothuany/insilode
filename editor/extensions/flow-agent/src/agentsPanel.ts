@@ -36,6 +36,8 @@ export class AgentsPanel implements vscode.Disposable {
 	private openChat: string | undefined;
 	private chatQueue: ChatEvent[] = [];
 	private chatTimer: NodeJS.Timeout | undefined;
+	/** The session search in flight: a newer query aborts it, and so does closing the page. */
+	private searching: AbortController | undefined;
 	/** Counts the page's opens: when two are asked in a row the last one wins, however long each takes. */
 	private openSeq = 0;
 
@@ -106,6 +108,7 @@ export class AgentsPanel implements vscode.Disposable {
 		clearTimeout(this.chatTimer);
 		this.openChat = undefined;
 		this.chatQueue = [];
+		this.searching?.abort();
 		this.listeners.forEach(d => d.dispose());
 		this.listeners = [];
 	}
@@ -155,11 +158,26 @@ export class AgentsPanel implements vscode.Disposable {
 			case 'peer': return void this.peers?.act(m.action, m.key, m.id);
 			// The page's own chat (chatSessions.ts): every id was issued by the host, and the host re-checks it.
 			case 'chatList': return void this.sendIndex();
+			case 'chatSearch': return void this.chatSearch(m.query);
 			case 'chatOpen': return void this.chatOpen(m.project, m.kind, m.session);
 			case 'chatPrompt': return void this.chats?.prompt(m.chat, m.text);
 			case 'chatCancel': return void this.chats?.cancel(m.chat);
 			case 'chatAnswer': return this.chats?.answer(m.chat, m.req, m.option);
 			case 'chatSet': return void this.chats?.setOption(m.chat, m.config, m.value);
+		}
+	}
+
+	private async chatSearch(query: string) {
+		if (!this.chats) {
+			return;
+		}
+		this.searching?.abort();
+		const mine = this.searching = new AbortController();
+		// A search that failed is not "no match": it is cut short.
+		const { hits, more, cut } = await this.chats.search(query, mine.signal).catch(() => ({ hits: [], more: false, cut: true }));
+		// Only the newest query is answered; the page drops an answer for a query it no longer shows as well.
+		if (!mine.signal.aborted) {
+			this.send({ type: 'chatFound', query, hits, more, cut });
 		}
 	}
 

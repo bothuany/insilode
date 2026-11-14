@@ -112,3 +112,12 @@ test('chat actions with a path, a bad id, an oversize text, option 20 or an unkn
 	assert.equal(a.agentsAction({ type: 'chatSet', chat: 'c1', config: 'mode', value: 'x'.repeat(201) }), undefined)
 	assert.equal(a.agentsAction({ type: 'chatCancel' }), undefined)
 })
+
+test('chatSearch takes a text of two to two hundred characters (once trimmed) and nothing else', () => {
+	assert.deepEqual(a.agentsAction({ type: 'chatSearch', query: 'login bug' }), { type: 'chatSearch', query: 'login bug' })
+	assert.deepEqual(a.agentsAction({ type: 'chatSearch', query: 'x'.repeat(200) }), { type: 'chatSearch', query: 'x'.repeat(200) })
+	assert.deepEqual(a.agentsAction({ type: 'chatSearch', query: 'ab', project: '/etc' }), { type: 'chatSearch', query: 'ab' }, 'extra fields are not carried over')
+	for (const query of ['', 'a', '  a  ', 'x'.repeat(201), 5, null, undefined, ['ab']]) {
+		assert.equal(a.agentsAction({ type: 'chatSearch', query }), undefined, String(query))
+	}
+})

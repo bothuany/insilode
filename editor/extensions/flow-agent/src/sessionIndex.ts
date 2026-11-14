@@ -157,6 +157,9 @@ async function until(deadline: number, work: Promise<unknown>): Promise<void> {
 }
 
 interface Read { id: string; cwd: string; title: string }
+/** The transcript of each session the last scan listed, by kind and id: what the search reads. Never leaves the host (the page names sessions by id). */
+let transcripts = new Map<string, string>();
+export const transcriptFile = (kind: 'claude' | 'codex', id: string): string | undefined => transcripts.get(`${kind}|${id}`);
 /** What a file said when it had this modification time and size; a file that is read again only when it changed. */
 const cache = new Map<string, Read | null>();
 
@@ -216,7 +219,7 @@ export async function scan(budgetMs = SCAN_MS): Promise<IndexedProject[]> {
 	}));
 	const newest = files.sort((a, b) => b.mtime - a.mtime).slice(0, NEWEST_FILES);
 	const live = new Set(newest.map(f => `${f.file}|${f.mtime}|${f.size}`));
-	const read: (Read & { kind: 'claude' | 'codex'; modified: number })[] = [];
+	const read: (Read & { kind: 'claude' | 'codex'; modified: number; file: string })[] = [];
 	await until(deadline, pool(newest, deadline, async f => {
 		const key = `${f.file}|${f.mtime}|${f.size}`;
 		if (!cache.has(key)) {
@@ -224,7 +227,7 @@ export async function scan(budgetMs = SCAN_MS): Promise<IndexedProject[]> {
 		}
 		const r = cache.get(key);
 		if (r && path.isAbsolute(r.cwd)) {
-			read.push({ ...r, kind: f.kind, modified: f.mtime });
+			read.push({ ...r, kind: f.kind, modified: f.mtime, file: f.file });
 		}
 	}));
 	for (const k of [...cache.keys()]) {
@@ -252,7 +255,10 @@ export async function scan(budgetMs = SCAN_MS): Promise<IndexedProject[]> {
 		p.sessions.sort((a, b) => b.modified - a.modified);
 		p.sessions = p.sessions.slice(0, MAX_SESSIONS);
 	}
-	return projects.sort((a, b) => b.sessions[0].modified - a.sessions[0].modified).slice(0, MAX_PROJECTS);
+	const listed = projects.sort((a, b) => b.sessions[0].modified - a.sessions[0].modified).slice(0, MAX_PROJECTS);
+	const fileOf = new Map(read.map(r => [`${r.kind}|${r.id}`, r.file]));
+	transcripts = new Map(listed.flatMap(p => p.sessions).flatMap(s => fileOf.has(`${s.kind}|${s.id}`) ? [[`${s.kind}|${s.id}`, fileOf.get(`${s.kind}|${s.id}`)!] as const] : []));
+	return listed;
 }
 
 /** `scan`, at most once per 10 seconds: a page that asks again sooner gets the last answer, and asks that overlap share one scan. */

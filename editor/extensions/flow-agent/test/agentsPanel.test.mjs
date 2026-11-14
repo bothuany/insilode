@@ -115,3 +115,15 @@ test('two opens in a row: the last one wins, the older one is never shown, even 
 	assert.deepEqual(t.posted.filter(m => m.type === 'chatFailed'), [])
 	assert.equal(t.posted.filter(m => m.type === 'chatOpened').at(-1).chat, 'claude:fourth')
 })
+
+test('a newer chatSearch aborts the older one and only the newer is answered; the answer carries the page\'s own query', async () => {
+	const t = setup()
+	const signals = []
+	t.chats.search = (query, signal) => new Promise(resolve => { signals.push(signal); setTimeout(() => resolve({ hits: [{ project: KEY, kind: 'claude', session: SID(1), title: query, modified: 1, snippet: 's' }], more: false }), query === 'first' ? 30 : 5) })
+	t.page({ type: 'chatSearch', query: 'first' })
+	t.page({ type: 'chatSearch', query: 'second' })
+	t.page({ type: 'chatSearch', query: 'x' })
+	await sleep(60)
+	assert.deepEqual(signals.map(s => s.aborted), [true, false])
+	assert.deepEqual(t.posted.filter(m => m.type === 'chatFound').map(m => [m.query, m.hits[0].title]), [['second', 'second']])
+})

@@ -72,6 +72,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, .card:focus-v
 
 .split { display: flex; flex: 1; min-height: 0; }
 .side { flex: 0 0 236px; overflow: auto; border-right: 1px solid var(--line); padding: 10px 8px 24px; background: var(--col); }
+.sebox { margin: 0 4px 10px; }
+.sesearch { width: 100%; box-sizing: border-box; height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--input); }
+.sresult .sact.snip { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
+.snip mark { background: color-mix(in srgb, var(--focus) 30%, transparent); color: inherit; border-radius: 2px; }
 .sgroup { margin: 0 0 14px; }
 .shead { display: flex; align-items: center; gap: 6px; margin: 0 4px 4px; min-width: 0; }
 .sproj { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -298,7 +302,8 @@ let ticks = [];
 let cardEls = new Map();
 let openMenu = false;
 // The page's own chat (host: chatSessions.ts). projects is the host's index; open is the chat on screen: { chat, project, kind, title, busy, config }.
-const chat = { projects: [], got: false, open: undefined, loading: false, error: '', usage: undefined, more: new Set(), drafts: new Map() };
+const chat = { projects: [], got: false, open: undefined, loading: false, error: '', usage: undefined, more: new Set(), drafts: new Map(), q: '', found: undefined };
+let sseq = 0;              // counts the typing in the session search: a debounced post is sent only when no later keystroke came
 const cev = [];            // the open chat's events, as the host sent them (chunks of one kind joined, a tool card filled in by id)
 const cels = [];           // one wrapper element per event: a changed event is drawn again inside its own wrapper
 const cdirty = new Set();  // indexes of the events that need drawing again
@@ -379,6 +384,20 @@ const reveal = () => { root.hidden = false; };
 setTimeout(reveal, 2000);
 document.body.appendChild(root);
 
+// The session search (host: chatSearch / chatFound). It is shown once the host has answered chatList, so a page with no host never offers it.
+const sesearch = h('input', { class: 'sesearch', type: 'search', placeholder: 'Search past sessions', 'aria-label': 'Search past sessions', maxlength: '200' });
+const sebox = h('div', { class: 'sebox hidden' }, sesearch);
+const sideList = h('div');
+add(side, sebox, sideList);
+sesearch.addEventListener('input', () => {
+	const q = sesearch.value.trim();
+	const mine = ++sseq;
+	chat.found = undefined;
+	chat.q = q.length >= 2 ? q : '';
+	paintSide();
+	// The host also needs two characters; one that arrives while typing goes out only when the typing paused.
+	if (chat.q) { setTimeout(() => { if (mine === sseq) { post({ type: 'chatSearch', query: q }); } }, 250); }
+});
 const search = h('input', { class: 'search', type: 'search', placeholder: 'Search agents  ( / )', 'aria-label': 'Search agents' });
 search.addEventListener('input', () => { filter.q = search.value; paint(); });
 const menu = h('div', { class: 'menu', role: 'menu', hidden: true });
@@ -438,6 +457,40 @@ function chatRows(key) {
 	return [h('div', { class: 'cstart' }, start('claude', 'Claude'), start('codex', 'Codex')), list.map(s => crow(p, s)),
 		p.sessions.length > 5 ? h('button', { type: 'button', class: 'btn small cmore', onclick: () => { if (chat.more.has(key)) { chat.more.delete(key); } else { chat.more.add(key); } paintSide(); } }, chat.more.has(key) ? 'Show fewer' : 'Show ' + (p.sessions.length - 5) + ' more') : null];
 }
+// The snippet is transcript text: text nodes only, the match in a <mark> built here. Folded as the host does (sessionSearch.ts fold):
+// the same length as the text, so the index found in the folded copy cuts the original at the right place.
+const fold = s => s.replace(/[\u0130\u0131]/g, 'i').toLowerCase();
+function snippet(text, q) {
+	const needle = fold(q.replace(/\s+/g, ' '));
+	const at = fold(text).indexOf(needle);
+	return at < 0 ? h('span', { class: 'sact snip' }, text) : h('span', { class: 'sact snip' }, text.slice(0, at), h('mark', null, text.slice(at, at + needle.length)), text.slice(at + needle.length));
+}
+function searchResults() {
+	const f = chat.found;
+	if (!f) { return h('p', { class: 'note', role: 'status' }, 'Searching…'); }
+	if (!f.hits.length) { return h('p', { class: 'note', role: 'status' }, f.cut ? 'No match in the sessions searched; the search stopped early.' : 'No past session mentions "' + chat.q + '".'); }
+	const out = [];
+	const groups = new Map();
+	for (const hit of f.hits) {
+		if (!groups.has(hit.project)) { groups.set(hit.project, []); }
+		groups.get(hit.project).push(hit);
+	}
+	for (const [key, hits] of groups) {
+		const p = chat.projects.find(x => x.key === key);
+		out.push(h('div', { class: 'sgroup sresult' }, h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p ? p.where : '' }, p ? p.name : 'Project')),
+			hits.map(hit => {
+				const go = () => openChat(hit.project, hit.kind, hit.session);
+				const el = h('div', { class: 'srow crow', tabindex: '0', role: 'button', 'aria-label': 'Chat: ' + hit.title },
+					h('span', { class: 'sglyph', 'aria-hidden': 'true' }, '💬'),
+					h('span', { class: 'sbody' }, h('span', { class: 'sname', title: hit.title }, hit.title), snippet(hit.snippet, chat.q), h('span', { class: 'sact' }, KIND_NAME[hit.kind] + ' · ' + dur(Math.max(0, now() - hit.modified)) + ' ago')));
+				el.addEventListener('click', go);
+				el.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); go(); } });
+				return el;
+			})));
+	}
+	if (f.more) { out.push(h('p', { class: 'note' }, (f.cut ? 'The search stopped early, so older sessions may match too. ' : '') + 'Showing the newest matches. Type more to narrow the search.')); }
+	return out;
+}
 function paintSide() {
 	const shown = rows => rows.filter(s => filter.ended || s.state !== 'ended');
 	const mine = shown(data.rows);
@@ -472,7 +525,8 @@ function paintSide() {
 	for (const p of others) {
 		out.push(h('div', { class: 'sgroup' }, h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p.where }, p.name)), chatRows(p.key)));
 	}
-	fill(side, out);
+	sebox.className = cls('sebox', !chat.got && 'hidden');
+	fill(sideList, chat.q ? searchResults() : out);
 }
 
 // ---- header ----------------------------------------------------------------------------------------------------------------
@@ -1018,6 +1072,11 @@ window.addEventListener('message', e => {
 		chat.got = true;
 		paintSide();
 		if (!chat.open) { paintChat(); }
+	} else if (m.type === 'chatFound') {
+		// An answer to an earlier query, or to one that was cleared since, is not for what is typed now.
+		if (m.query !== chat.q || !Array.isArray(m.hits)) { return; }
+		chat.found = { hits: m.hits.filter(x => x && typeof x.project === 'string' && typeof x.session === 'string').map(x => ({ project: x.project, kind: x.kind === 'codex' ? 'codex' : 'claude', session: x.session, title: String(x.title || ''), modified: Number(x.modified) || 0, snippet: String(x.snippet || '') })), more: !!m.more, cut: !!m.cut };
+		paintSide();
 	} else if (m.type === 'chatOpened') {
 		if (!chat.open || chat.open.chat !== m.chat) { chat.usage = undefined; }
 		chat.open = { chat: m.chat, project: m.project, kind: m.kind, title: m.title, busy: !!m.busy, config: Array.isArray(m.config) ? m.config : [] };

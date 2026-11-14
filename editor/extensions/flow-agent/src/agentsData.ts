@@ -200,4 +200,13 @@ export interface AgentsPageChatFailed {
 	text: string;
 }
 
-export type AgentsPageMessage = AgentsPageData | AgentsPageTail | AgentsPageReplyFailed | AgentsPageChatIndex | AgentsPageChatOpened | AgentsPageChatEvents | AgentsPageChatFailed;
+/** The answer to a `chatSearch`: `query` is the page's own, so a late answer to an earlier one can be told apart. `more`: the search was cut short or capped. `cut`: it was cut short (sessions not searched in full), so no hits does not mean no match. */
+export interface AgentsPageChatFound {
+	type: 'chatFound';
+	query: string;
+	hits: { project: string; kind: 'claude' | 'codex'; session: string; title: string; modified: number; snippet: string }[];
+	more: boolean;
+	cut: boolean;
+}
+
+export type AgentsPageMessage = AgentsPageData | AgentsPageTail | AgentsPageReplyFailed | AgentsPageChatIndex | AgentsPageChatOpened | AgentsPageChatEvents | AgentsPageChatFailed | AgentsPageChatFound;

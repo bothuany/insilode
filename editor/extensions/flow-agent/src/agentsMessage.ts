@@ -6,6 +6,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { dockAction, PEER_KEY, type DockAction } from './dockMessage';
+import { MAX_QUERY, MIN_QUERY } from './sessionSearch';
 
 /** The longest reply the page may type into an agent's prompt. */
 export const MAX_REPLY = 8000;
@@ -29,6 +30,8 @@ export type AgentsAction =
 	 * the index of an option it sent): the page never sends a path.
 	 */
 	| { type: 'chatList' }
+	/** Past sessions whose conversation contains the text, across the projects the host lists (sessionSearch.ts). */
+	| { type: 'chatSearch'; query: string }
 	/** No `session` starts a new one in that project's folder. */
 	| { type: 'chatOpen'; project: string; kind: 'claude' | 'codex'; session?: string }
 	| { type: 'chatPrompt'; chat: string; text: string }
@@ -57,6 +60,8 @@ export function agentsAction(raw: unknown): AgentsAction | undefined {
 			return { type: 'kept' };
 		case 'chatList':
 			return { type: 'chatList' };
+		case 'chatSearch':
+			return typeof m.query === 'string' && m.query.trim().length >= MIN_QUERY && m.query.length <= MAX_QUERY ? { type: 'chatSearch', query: m.query } : undefined;
 		case 'chatOpen':
 			return typeof m.project === 'string' && PEER_KEY.test(m.project) && (m.kind === 'claude' || m.kind === 'codex') && (m.session === undefined || (typeof m.session === 'string' && SESSION_ID.test(m.session)))
 				? { type: 'chatOpen', project: m.project, kind: m.kind, ...(m.session === undefined ? {} : { session: m.session }) } : undefined;
