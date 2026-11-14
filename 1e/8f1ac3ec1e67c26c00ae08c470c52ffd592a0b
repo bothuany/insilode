@@ -1,0 +1,25 @@
+.github/tsconfig.extensions.json
+  s_1c1a3e293d98a8::t_be933a1800f55c 1-22
+.github/workflows/ci.yml
+  s_1c1a3e293d98a8::t_8db198edee4344 109-110
+  s_1c1a3e293d98a8::t_c0d23c01a787cf 108
+  s_1c1a3e293d98a8::t_80a675de84d8a0 1-5,26,106,111-133
+  s_1c1a3e293d98a8::t_be933a1800f55c 107,134
+  s_1c1a3e293d98a8::t_4edbe55c15e899 135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1e8f1ac3ec1e67c26c00ae08c470c52ffd592a0b",
+  "prompts": {},
+  "sessions": {
+    "s_1c1a3e293d98a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a99a3dd-7db0-4ba0-882d-a4dd922189be",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}
