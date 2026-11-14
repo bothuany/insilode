@@ -235,3 +235,13 @@ test('a named save the validation refuses is told apart, for the host to answer 
 		assert.equal(a.refusedSaveName(raw), undefined, JSON.stringify(raw))
 	}
 })
+
+test('a termOpen folder on a network share is refused on Windows: resolving it would reach the server before anyone is asked', { timeout: 5000 }, () => {
+	for (const share of ['\\\\srv\\share\\x', '//srv/share/x', '\\\\?\\C:\\a', '\\\\.\\pipe\\x']) {
+		assert.equal(a.isNetworkPath(share, 'win32'), true, share)
+	}
+	for (const local of ['C:\\work\\app', 'c:/work/app', '\\work']) {
+		assert.equal(a.isNetworkPath(local, 'win32'), false, local)
+	}
+	assert.equal(a.isNetworkPath('//srv/share', 'linux'), false, 'a double slash is an ordinary path elsewhere')
+})

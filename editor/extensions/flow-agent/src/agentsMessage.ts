@@ -67,6 +67,12 @@ export type AgentsAction =
 export const isPagePath = (v: unknown, platform: NodeJS.Platform = process.platform): v is string =>
 	typeof v === 'string' && v.length > 0 && v.length <= MAX_PATH && !v.includes('\0') && (platform === 'win32' ? path.win32 : path.posix).isAbsolute(v);
 
+/**
+ * Whether `v` names a network share (or a device path) on Windows. The folder of a `termOpen` is resolved and stat'ed before the user is
+ * asked about it, and on Windows that alone opens a connection to the server named: a page must not be able to cause one.
+ */
+export const isNetworkPath = (v: string, platform: NodeJS.Platform = process.platform): boolean => platform === 'win32' && /^[\\/]{2}/.test(v);
+
 /** An absolute path as the page sends one, or undefined. */
 const absolutePath = (v: unknown): string | undefined => isPagePath(v) ? v : undefined;
 
@@ -113,7 +119,7 @@ export function agentsAction(raw: unknown): AgentsAction | undefined {
 		case 'termOpen':
 			return typeof m.requestId === 'string' && m.requestId.length > 0 && m.requestId.length <= MAX_REQUEST && (m.kind === 'claude' || m.kind === 'codex')
 				&& (m.sessionId === undefined || (typeof m.sessionId === 'string' && SESSION_ID.test(m.sessionId)))
-				&& (m.cwd === undefined || isPagePath(m.cwd))
+				&& (m.cwd === undefined || (isPagePath(m.cwd) && !isNetworkPath(m.cwd)))
 				? { type: 'termOpen', requestId: m.requestId, kind: m.kind, ...(m.sessionId === undefined ? {} : { sessionId: m.sessionId }), ...(m.cwd === undefined ? {} : { cwd: m.cwd }), ...(m.force === true && m.kind === 'claude' && m.sessionId !== undefined ? { force: true as const } : {}) } : undefined;
 		case 'layoutSave': {
 			const layout = parse(m.layout);
