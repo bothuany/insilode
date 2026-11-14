@@ -1,0 +1,23 @@
+editor/extensions/flow-agent/src/budgeted.ts
+  s_c2897d6f2cc16d::t_4efd9458eab9a1 4-7,12,18-19,24-25,28-32
+editor/extensions/flow-agent/src/liveSessions.ts
+  s_c2897d6f2cc16d::t_4efd9458eab9a1 169
+editor/extensions/flow-agent/test/budgeted.test.mjs
+  s_c2897d6f2cc16d::t_f0f92d78c78023 53-61
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "beb9435839ce0b032d79b5baebc0dee70751e3a7",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
