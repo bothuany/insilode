@@ -103,6 +103,8 @@ test('an edit is answered for the user only when every file is inside the folder
 	assert.equal(inside(join(root, '.Claude', 'settings.json')), false)
 	assert.equal(inside(join(root, '.mcp.json')), false, 'the folder\'s MCP servers run code')
 	assert.equal(inside(join(root, '.MCP.json')), false)
+	// Windows drops trailing dots and spaces and reads `name:stream` as the name: a folder that does not exist yet is created as the protected one.
+	for (const name of ['.vscode.', '.claude ', '.git. .', '.mcp.json.', '.vscode::$INDEX_ALLOCATION']) { assert.equal(inside(join(root, 'src', name, 'x')), false, name) }
 	assert.equal(inside(join(root, 'src', '.mcp.jsonl')), true, 'only that name')
 	// No location, no folder, or one bad file among good ones: ask.
 	assert.equal(c.editsInside(root, []), false)
@@ -125,7 +127,7 @@ test('an edit is answered for the user only when every file is inside the folder
 })
 
 // A repository can ship a link whose target does not exist yet: a write through it creates the target wherever it points.
-test('a link that leads nowhere is never answered for the user, however it dangles', { skip: process.platform === 'win32' }, () => {
+test('a link that leads nowhere is never answered for the user, however it dangles', { skip: process.platform === 'win32' && 'a symbolic link needs a privilege a Windows runner does not have' }, () => {
 	const { base, root } = cwdOf()
 	const link = (name, target) => { symlinkSync(target, join(root, name)); return join(root, name) }
 	const inside = f => c.editsInside(root, [f])
@@ -143,6 +145,14 @@ test('a link that leads nowhere is never answered for the user, however it dangl
 	assert.equal(inside(link('ok.ts', 'src/real.ts')), true)
 	assert.equal(inside(link('esc.md', '../outside')), false)
 	assert.equal(c.autoAnswer('acceptEdits', 'edit', opts, { cwd: root, files: [join(root, 'notes.md')] }), undefined)
+})
+
+// The window's own folder is told from a transcript's cwd by this: VS Code spells a Windows drive letter in lower case, Claude Code in capitals.
+test('samePath: Windows ignores case, every other platform does not', () => {
+	assert.equal(c.samePath('c:\\Users\\me\\app', 'C:\\Users\\me\\App', 'win32'), true)
+	assert.equal(c.samePath('c:\\Users\\me\\app', 'c:\\Users\\me\\app2', 'win32'), false)
+	for (const platform of ['darwin', 'linux']) { assert.equal(c.samePath('/Users/me/app', '/users/me/app', platform), false, platform) }
+	assert.equal(c.samePath('/Users/me/app', '/Users/me/app', 'linux'), true)
 })
 
 test('the recorded decision', () => {

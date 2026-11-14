@@ -5,7 +5,8 @@ import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, resolve, win32 } from 'node:path'
+import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -112,7 +113,7 @@ test('a page that is not JSON never has its text quoted: the finding says where,
 	assert.match(r.out, /^\.claude\/settings\.local\.json:2:1 error invalid-json Invalid JSON at line 2, column \d+$/m)
 })
 
-test('a link that leads out of the repository is reported and never read', { skip: process.platform === 'win32' }, () => {
+test('a link that leads out of the repository is reported and never read', { skip: process.platform === 'win32' && 'a symbolic link needs a privilege a Windows runner does not have' }, () => {
 	const secret = repo({ 'secret.txt': 'TOKEN=ghp_abcdefghijklmnop', 'steal.md': '# Steal\n@~/nope.md\n' })
 	const dir = repo({ 'CLAUDE.md': '# Project\n' })
 	mkdirSync(join(dir, '.claude'))
@@ -184,6 +185,16 @@ test('usage and read errors exit 2, with the reason on stderr and nothing on std
 	assert.match(lint(['--bogus']).err, /Usage: harness-lint/)
 	const file = repo({ 'a.txt': 'x' })
 	assert.equal(lint(['--cwd', join(file, 'a.txt')]).code, 2, 'a file is not a folder')
+})
+
+// The CLI prints `/` on every platform; the Windows branch is run here through path.win32, whatever this machine is.
+test('a finding\'s file is relative to the folder with forward slashes, whatever the platform\'s separator and drive letter case', () => {
+	const { shownPath } = createRequire(import.meta.url)(CLI)
+	assert.equal(shownPath('C:\\repo', 'C:\\repo\\.claude\\settings.json', win32), '.claude/settings.json')
+	assert.equal(shownPath('c:\\repo', 'C:\\Repo\\packages\\app\\CLAUDE.md', win32), 'packages/app/CLAUDE.md')
+	assert.equal(shownPath('C:\\repo', 'D:\\elsewhere\\a.md', win32), 'D:\\elsewhere\\a.md', 'another drive: as it is')
+	assert.equal(shownPath('C:\\repo', 'C:\\other\\a.md', win32), 'C:\\other\\a.md', 'outside the folder: as it is')
+	assert.equal(shownPath('/r', '/r/.claude/settings.json'), '.claude/settings.json')
 })
 
 test('--help prints the usage and exits 0', () => {

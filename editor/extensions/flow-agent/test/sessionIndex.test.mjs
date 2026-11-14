@@ -42,7 +42,8 @@ function machine() {
 	const codex = (text, name = 'rollout-2026-01-01T00-00-00-x.jsonl') => writeFileSync(join(process.env.CODEX_HOME, 'sessions', '2026', '01', '01', name), text)
 	return { home, folder, claude, codex }
 }
-const fixture = (name, vars) => Object.entries(vars).reduce((t, [k, v]) => t.split(k).join(v), readFileSync(join(FIX, name), 'utf8'))
+// A value goes into JSON text: a Windows path has backslashes, which JSON needs doubled (and a quote or control character escaped).
+const fixture = (name, vars) => Object.entries(vars).reduce((t, [k, v]) => t.split(k).join(JSON.stringify(v).slice(1, -1)), readFileSync(join(FIX, name), 'utf8'))
 const user = (cwd, text) => JSON.stringify({ type: 'user', cwd, message: { role: 'user', content: text } }) + '\n'
 
 test('the folder is the cwd inside the file, not the lossy directory name; the title is /rename, else the first prompt', async () => {

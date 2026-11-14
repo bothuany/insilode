@@ -110,6 +110,7 @@ test('open_diff base "session" with no session id, or one that is not known, say
 })
 
 // base "session": only the repository the session ran in is diffed, against that session's HEAD (other repositories may not have the commit).
+// The folder asked is recorded relative to the temp folder with `/` on every platform: the product code hands over the platform's own `fsPath`.
 function sessionWorld() {
 	const main = temp('flow-session-')
 	const nested = join(main, 'nested')
@@ -123,7 +124,7 @@ function sessionWorld() {
 		status: async () => { },
 		getMergeBase: async () => undefined,
 		getCommit: async () => ({ hash: 'x' }),
-		diffWith: async hash => { asked.push([dir.slice(main.length) || '/', hash]); return [] },
+		diffWith: async hash => { asked.push([dir.slice(main.length).replaceAll('\\', '/') || '/', hash]); return [] },
 	})
 	const repos = { main: repo(main), nested: repo(nested), wt: repo(wt) }
 	globalThis.__folders = [main]

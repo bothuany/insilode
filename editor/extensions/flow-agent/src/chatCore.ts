@@ -38,6 +38,9 @@ export function isInside(parent: string, child: string): boolean {
 	return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
 }
 
+/** Whether two real paths are the same place as spelt: Windows ignores case, and a drive letter reads `c:` from VS Code but `C:` in a transcript. */
+export const samePath = (a: string, b: string, platform: NodeJS.Platform = process.platform) => platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+
 /**
  * Names an agent's own configuration or hooks live under: an edit there can change what runs next, so the user always sees it.
  * `.mcp.json` is the folder's MCP server list (the trust dialog says it runs code); other files stay out of this list on purpose.
@@ -73,9 +76,12 @@ function realOf(p: string): string | undefined {
 	}
 }
 
-/** Inside `root` and under none of the protected names (lower-cased: a case-insensitive disk spells `.GIT` too). */
+/**
+ * Inside `root` and under none of the protected names (lower-cased: a case-insensitive disk spells `.GIT` too). Windows also drops
+ * trailing dots and spaces and reads `name:stream` as the name, so a folder not there yet (`.vscode.`) would be created as `.vscode`.
+ */
 function plainInside(root: string, p: string): boolean {
-	return isInside(root, p) && !path.relative(root, p).split(/[\\/]/).some(seg => PROTECTED.has(seg.toLowerCase()));
+	return isInside(root, p) && !path.relative(root, p).split(/[\\/]/).some(seg => PROTECTED.has(seg.toLowerCase().replace(/:.*$/, '').replace(/[. ]+$/, '')));
 }
 
 /**

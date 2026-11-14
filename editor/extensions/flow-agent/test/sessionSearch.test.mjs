@@ -27,7 +27,8 @@ before(async () => {
 after(() => rmSync(tmp, { recursive: true, force: true }))
 
 const live = () => new AbortController().signal
-const fixture = (name, vars) => Object.entries(vars).reduce((t, [k, v]) => t.split(k).join(v), readFileSync(join(FIX, name), 'utf8'))
+// A value goes into JSON text: a Windows path has backslashes, which JSON needs doubled (and a quote or control character escaped).
+const fixture = (name, vars) => Object.entries(vars).reduce((t, [k, v]) => t.split(k).join(JSON.stringify(v).slice(1, -1)), readFileSync(join(FIX, name), 'utf8'))
 
 /** A few sessions on disk, each written as one transcript; `fileOf` finds them the way the index does. */
 function world() {

@@ -2,6 +2,7 @@
 // (.claude/settings*.json, hooks, permission rules, CLAUDE.md / AGENTS.md, rules, skills, subagents, .mcp.json) the way the
 // editor's harness map does, so a pull request can fail on a broken rule or hook:
 //   node out/harness-lint.js [--cwd <dir>] [--json] [--max-warnings <n>]
+// Paths are relative to --cwd and always written with `/`, on Windows too.
 // Exit 0: no errors (and no more than --max-warnings warnings); 1: findings; 2: wrong usage or a folder that cannot be read.
 // Reads only the folder (never ~/.claude, which a CI machine does not have, and no path under ~ is checked), follows no link out of
 // the folder, writes nothing, uses no network.
@@ -27,6 +28,12 @@ export interface LintLine {
  * `--max-warnings` is how to fail on those too.
  */
 const AS_ERRORS = new Set(['rule-never-applies']);
+
+/** A finding's file as printed: relative to the folder with `/` on every platform (a Windows runner prints the lines a Linux one does), as it is when it lies elsewhere. */
+export function shownPath(root: string, file: string, p: path.PlatformPath = path): string {
+	const rel = p.relative(root, file);
+	return rel.startsWith('..') || p.isAbsolute(rel) ? file : rel.split(p.sep).join('/');
+}
 
 const USAGE = 'Usage: harness-lint [--cwd <dir>] [--json] [--max-warnings <n>]\n';
 
@@ -82,12 +89,8 @@ export async function main(argv: string[], out: { stdout: (s: string) => void; s
 		}
 		const root = await fs.realpath(args.cwd);
 		const harness = await scanFolders([{ name: path.basename(root), fsPath: root }], fsScanHost([root]), { user: false });
-		const shown = (file: string) => {
-			const rel = path.relative(root, file);
-			return rel.startsWith('..') || path.isAbsolute(rel) ? file : rel.split(path.sep).join('/');
-		};
 		lines = (harness?.items ?? []).flatMap(item => item.issues.map(i => ({
-			file: shown(item.file), line: (i.line ?? 0) + 1, column: 1, severity: i.code && AS_ERRORS.has(i.code) && i.severity === 'warning' ? 'error' : i.severity, rule: i.code ?? 'harness', message: i.message.replace(/\s+/g, ' ').trim(), ...(i.fix ? { fix: i.fix } : {}),
+			file: shownPath(root, item.file), line: (i.line ?? 0) + 1, column: 1, severity: i.code && AS_ERRORS.has(i.code) && i.severity === 'warning' ? 'error' : i.severity, rule: i.code ?? 'harness', message: i.message.replace(/\s+/g, ' ').trim(), ...(i.fix ? { fix: i.fix } : {}),
 		})));
 		lines.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line);
 	} catch (e) {

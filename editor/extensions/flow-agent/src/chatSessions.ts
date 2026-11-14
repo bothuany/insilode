@@ -14,7 +14,7 @@ import type { RequestPermissionRequest, RequestPermissionResponse, SessionConfig
 import { AgentHost, explain, type AgentKind, type SessionSink } from './acp';
 import type { Agents } from './agents';
 import type { AgentsPageChatOpened, ChatEvent, ChatProject } from './agentsData';
-import { appendEvent, autoAnswer, configAccepts, configView, currentValue, diffsOf, gateAnswer, type AnswerGate, isInside, MAX_EVENTS, modeWarning, needsConfirmation, permissionDecision, settleGate, shown, toEvents } from './chatCore';
+import { appendEvent, autoAnswer, configAccepts, configView, currentValue, diffsOf, gateAnswer, type AnswerGate, isInside, MAX_EVENTS, modeWarning, needsConfirmation, permissionDecision, samePath, settleGate, shown, toEvents } from './chatCore';
 import { agentCwd } from './env';
 import { gazeAcp, gazeTurn } from './gazeHost';
 import { SessionIndex, transcriptFile } from './sessionIndex';
@@ -129,7 +129,7 @@ export class ChatSessions implements vscode.Disposable {
 		// Swapped in at the end: an open that arrives while the realpaths are read must still find its key.
 		const known = new Map<string, string>(own ? [[folderKey(own), own]] : []);
 		for (const p of await this.index.list()) {
-			const mine = ownReal !== undefined && await real(p.cwd) === ownReal;
+			const mine = ownReal !== undefined && samePath(await real(p.cwd), ownReal);
 			const into = mine ? out[0] : { key: p.key, name: p.name, where: tilde(p.cwd), own: false, sessions: [] as ChatProject['sessions'] };
 			into.sessions.push(...p.sessions.filter(s => !live.has(s.id)));
 			if (!mine) {

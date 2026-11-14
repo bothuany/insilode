@@ -151,7 +151,7 @@ test('declining the trust dialog starts nothing', T, async () => {
 	assert.equal(m.S.hosts[KIND]?.calls.length ?? 0, 0)
 })
 
-test('the folder is checked again right before the agent starts: a link pointed elsewhere after the yes is refused', { skip: process.platform === 'win32' }, T, async () => {
+test('the folder is checked again right before the agent starts: a link pointed elsewhere after the yes is refused', { ...T, skip: process.platform === 'win32' && 'a symbolic link needs a privilege a Windows runner does not have' }, async () => {
 	const m = setup()
 	const other = join(m.home, 'elsewhere')
 	mkdirSync(other)
@@ -169,7 +169,7 @@ test('the folder is checked again right before the agent starts: a link pointed 
 	assert.equal(m.S.hosts[KIND].calls.filter(c => c[0] === 'new' || c[0] === 'load').length, 0)
 })
 
-test('control characters in a folder name never reach a dialog', { skip: process.platform === 'win32' }, T, async () => {
+test('control characters in a folder name never reach a dialog', { ...T, skip: process.platform === 'win32' && 'a Windows file name cannot hold a control character' }, async () => {
 	const m = setup()
 	const odd = join(m.home, 'bad\nname\u001b[31m')
 	mkdirSync(odd)

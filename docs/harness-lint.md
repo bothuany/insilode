@@ -10,7 +10,7 @@ node editor/extensions/flow-harness/out/harness-lint.js [--cwd <dir>] [--json] [
 
 It reads the repository (`.claude/settings.json`, `.claude/settings.local.json`, hooks and the scripts they run, `CLAUDE.md` / `AGENTS.md` at any depth, `.claude/rules`, `.cursor/rules`, skills, subagents, `.mcp.json`) and writes nothing; it uses no network. The user's own files (`~/.claude`, `~/.codex`) are not read: a CI machine has none, and a finding that depends on them would differ from one developer's machine to the next. For the same reason a path under `~` (an `@~/.claude/notes.md` import, a hook script `~/bin/guard.sh` or `$HOME/bin/guard.sh`) is not checked and never reported, and a file that is a link to somewhere outside `--cwd` is not read at all: it is reported as `outside-repo` (a warning) instead. Agent worktrees (`.claude/worktrees`, `.insilode/worktrees`, `.axle/worktrees`) are skipped at any depth, as the editor's search skips them.
 
-One line per finding on stdout, `path:line:col severity rule message` (paths relative to `--cwd`), or a JSON array of `{ file, line, column, severity, rule, message, fix? }` with `--json`. A summary goes to stderr.
+One line per finding on stdout, `path:line:col severity rule message` (paths relative to `--cwd`, written with `/` on Windows too), or a JSON array of `{ file, line, column, severity, rule, message, fix? }` with `--json`. A summary goes to stderr.
 
 | Exit | Meaning |
 |---|---|
