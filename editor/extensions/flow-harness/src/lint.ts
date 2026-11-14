@@ -7,7 +7,7 @@
  *  file, the line and a fix. Pure (no vscode), so every check is tested on its own.
  *--------------------------------------------------------------------------------------------*/
 
-import { globMatch } from './effective';
+import { globIsBounded, globMatcher } from './effective';
 import { KNOWN_TOOLS, parseRule, ruleProblem, simulate, type Rule, type RuleScope } from './permmatch';
 
 export type LintSeverity = 'error' | 'warning' | 'info';
@@ -49,8 +49,10 @@ export interface LintInput {
 	rules: readonly (Rule & { line: number })[];
 	/** Project files relative to the root with `/`, bounded; undefined skips the glob check. */
 	projectFiles?: readonly string[];
-	/** True when `projectFiles` hit its bound: a glob that matches nothing may match a file not listed. */
+	/** True when `projectFiles` hit its bound: a glob that matches nothing may match a file not listed, so no glob is called dead. */
 	projectFilesTruncated?: boolean;
+	/** The files are those of a folder nobody trusted: the glob checks have a time budget and look at no long path, and a file has at most MAX_PER_CHECK findings of one check (each cut is a finding). Default false. */
+	untrusted?: boolean;
 	cwd: string;
 	home: string;
 }
@@ -65,8 +67,19 @@ interface Front {
 	closed: boolean;
 }
 
+/** What is read of a file for its frontmatter, of one line of it, and of a key's value: a block that goes on for ever is not a frontmatter. */
+const FRONT_BYTES = 256 * 1024;
+const FRONT_LINE = 4096;
+const FRONT_VALUE = 4096;
+/** The longest line of prose compared with the others, and the most globs one rule is checked for. */
+const MAX_STATEMENT = 1000;
+const MAX_GLOBS = 100;
+/** The most findings of one check in one file, for an untrusted folder only (a file full of the same mistake is one list of it, not a hundred thousand lines). */
+const MAX_PER_CHECK = 50;
+
 function frontBlock(text: string): Front | undefined {
-	const lines = text.split(/\r?\n/);
+	// Only the start of the file: a frontmatter that has not closed within it is read as one that never closes.
+	const lines = text.slice(0, FRONT_BYTES).split(/\r?\n/).map(l => l.length > FRONT_LINE ? l.slice(0, FRONT_LINE) : l);
 	if (lines[0]?.trim() !== '---') {
 		return undefined;
 	}
@@ -79,20 +92,35 @@ function frontKeys(f: Front): Map<string, { value: string; line: number; list: s
 	const keys = new Map<string, { value: string; line: number; list: string[] }>();
 	let last: { value: string; line: number; list: string[] } | undefined;
 	// `description: >` and `|`: the value is the indented lines that follow, read as one, quoted so no check mistakes it for plain YAML.
-	let block = false;
+	// The lines are collected and joined once, when the value ends: a line at a time would copy the whole value for each of them.
+	let block: string[] | undefined;
+	let size = 0;
+	const seal = () => {
+		if (last && block?.length) {
+			last.value = `"${block.join(' ').slice(0, FRONT_VALUE)}"`;
+		}
+		block = undefined;
+	};
 	f.lines.forEach((l, i) => {
 		const kv = /^([A-Za-z_][\w-]*)\s*:(.*)$/.exec(l);
 		if (kv) {
+			seal();
 			const value = kv[2].trim();
-			block = /^[>|][+-]?\d*$/.test(value);
-			last = { value: block ? '' : value, line: f.start + i, list: [] };
+			const isBlock = /^[>|][+-]?\d*$/.test(value);
+			block = isBlock ? [] : undefined;
+			size = 0;
+			last = { value: isBlock ? '' : value, line: f.start + i, list: [] };
 			keys.set(kv[1], last);
 		} else if (last && block && /^\s+\S/.test(l)) {
-			last.value = `"${[last.value.replace(/^"|"$/g, ''), l.trim()].filter(Boolean).join(' ')}"`;
-		} else if (last && /^\s+-\s+/.test(l)) {
+			if (size < FRONT_VALUE) {
+				block.push(l.trim());
+				size += l.length;
+			}
+		} else if (last && /^\s+-\s+/.test(l) && last.list.length < MAX_GLOBS * 5) {
 			last.list.push(l.replace(/^\s+-\s+/, '').trim());
 		}
 	});
+	seal();
 	return keys;
 }
 
@@ -209,21 +237,53 @@ export function ruleGlobs(f: LintFile): { glob: string; line: number }[] {
 		}
 	}
 	parts.push(cur);
-	return [...parts, ...entry.list].map(g => g.trim().replace(/^(["'])(.*)\1$/, '$2')).filter(Boolean).map(glob => ({ glob, line: entry.line }));
+	return [...parts, ...entry.list].map(g => g.trim().replace(/^(["'])(.*)\1$/, '$2')).filter(Boolean).slice(0, MAX_GLOBS).map(glob => ({ glob, line: entry.line }));
 }
 
-function lintGlobs(f: LintFile, input: LintInput, out: Finding[]) {
-	if (!input.projectFiles || (f.kind !== 'claude-rule' && f.kind !== 'cursor-rule')) {
+/** For an untrusted folder: how long all the glob checks of one lint run may take together, and the longest path they look at: rules are the text of files, and 500 rules of 100 globs against 20 000 files is a billion matches. A trusted folder has neither. */
+const GLOB_MS = 500;
+const MAX_PATH = 400;
+/** For an untrusted folder: how long the rule checks may take together (the shadowing check compares each allow rule with all the rules). */
+const RULE_MS = 300;
+
+function lintGlobs(f: LintFile, input: LintInput, out: Finding[], until: number, longPaths: boolean) {
+	// A cut listing is no ground for "matches no file": the file may be in the part not listed (the scan says the listing was cut: scanCore.ts).
+	if (!input.projectFiles || (f.kind !== 'claude-rule' && f.kind !== 'cursor-rule') || input.projectFilesTruncated) {
 		return;
 	}
+	let skipped: number | undefined;
 	for (const { glob, line } of ruleGlobs(f)) {
-		if (!input.projectFiles.some(p => globMatch(glob, p))) {
+		// No verdict, so no finding, for a glob that is too elaborate to match safely, a listing with paths too long to look at, or a check that ran out of time: said once per file below.
+		// (Past the budget a glob is not even compiled: each one would still test its first 256 paths, and 500 files hold 50 000 globs.)
+		if (!globIsBounded(glob) || longPaths || Date.now() > until) {
+			skipped ??= line;
+			continue;
+		}
+		const match = globMatcher(glob);
+		let found = false;
+		let n = 0;
+		for (const p of input.projectFiles) {
+			if (found = match(p)) {
+				break;
+			}
+			if (++n % 256 === 0 && Date.now() > until) {
+				break;
+			}
+		}
+		if (n < input.projectFiles.length && !found) {
+			skipped ??= line;
+			continue;
+		}
+		if (!found) {
 			out.push({
-				file: f.file, line, severity: input.projectFilesTruncated ? 'info' : 'warning', code: 'dead-glob',
-				message: `${glob} matches no file in the project${input.projectFilesTruncated ? ' among the files Insilode listed' : ''}: the rule never loads`,
+				file: f.file, line, severity: 'warning', code: 'dead-glob',
+				message: `${glob} matches no file in the project: the rule never loads`,
 				fix: 'Point the glob at the folder you meant (globs are relative to the project root), or delete the rule',
 			});
 		}
+	}
+	if (skipped !== undefined) {
+		out.push({ file: f.file, line: skipped, severity: 'info', code: 'scan-limited', message: 'A glob of this rule was too elaborate, or took too long, to check against the project\'s files, so it got no verdict.', fix: '' });
 	}
 }
 
@@ -265,7 +325,8 @@ function statements(f: LintFile): Statement[] {
 		if (fence || i < skipTo || /^\s*#/.test(raw) || /^\s*\|/.test(raw) || /^\s*</.test(raw)) {
 			return;
 		}
-		const text = raw.trim().replace(/^[-*+]\s+|^\d+\.\s+/, '');
+		// A line longer than a sentence is not prose to compare (and the patterns below are not meant for a line of a million characters).
+		const text = raw.slice(0, MAX_STATEMENT).trim().replace(/^[-*+]\s+|^\d+\.\s+/, '');
 		const w = words(text);
 		if (text.length < 25 || w.length < 4) {
 			return;
@@ -279,11 +340,21 @@ function statements(f: LintFile): Statement[] {
 
 const instructionKinds = new Set<InstructionKind>(['claude-md', 'agents-md', 'copilot', 'claude-rule', 'cursor-rule']);
 
+/** Adds to a group of a map in place: copying the group for every addition costs the square of its size. */
+function push<K, V>(map: Map<K, V[]>, key: K, value: V) {
+	const list = map.get(key);
+	if (list) {
+		list.push(value);
+	} else {
+		map.set(key, [value]);
+	}
+}
+
 function lintOverlap(input: LintInput, out: Finding[]) {
 	const all = input.files.filter(f => instructionKinds.has(f.kind)).flatMap(statements);
 	const byNorm = new Map<string, Statement[]>();
 	for (const s of all) {
-		byNorm.set(s.norm, [...(byNorm.get(s.norm) ?? []), s]);
+		push(byNorm, s.norm, s);
 	}
 	const pairs = new Map<string, { here: Statement; there: Statement }[]>();
 	for (const group of byNorm.values()) {
@@ -296,7 +367,7 @@ function lintOverlap(input: LintInput, out: Finding[]) {
 				out.push({ file: s.file.file, line: s.line, severity: 'warning', code: 'duplicate', message: `Said twice in ${s.file.label} (also line ${first.line + 1})`, fix: 'Delete one of them' });
 			} else {
 				const key = `${s.file.file}\n${first.file.file}`;
-				pairs.set(key, [...(pairs.get(key) ?? []), { here: s, there: first }]);
+				push(pairs, key, { here: s, there: first });
 			}
 		}
 	}
@@ -314,7 +385,7 @@ function lintOverlap(input: LintInput, out: Finding[]) {
 	}
 	const byKey = new Map<string, Statement[]>();
 	for (const s of all.filter(x => x.key.split(' ').length >= 2)) {
-		byKey.set(s.key, [...(byKey.get(s.key) ?? []), s]);
+		push(byKey, s.key, s);
 	}
 	for (const group of byKey.values()) {
 		const pos = group.find(s => !s.negative);
@@ -395,9 +466,10 @@ function lintHooks(input: LintInput, out: Finding[]) {
 /** Allow rules that hand over much more than they look like: a whole tool, a shell or interpreter, or every domain. */
 const BROAD_PROGRAMS = new Set(['bash', 'sh', 'zsh', 'pwsh', 'powershell', 'cmd', 'sudo', 'env', 'xargs', 'eval', 'node', 'python', 'python3', 'ruby', 'perl', 'npx', 'curl', 'wget', 'ssh', 'rm', 'git', 'docker', 'kubectl', 'find']);
 
-function lintRules(input: LintInput, out: Finding[]) {
+function lintRules(input: LintInput, out: Finding[], until: number) {
 	const ctx = { cwd: input.cwd, home: input.home };
 	const seen = new Map<string, Rule & { line: number }>();
+	let unchecked: (Rule & { line: number }) | undefined;
 	for (const r of input.rules) {
 		const at = { file: r.file, line: r.line };
 		const problem = ruleProblem(r);
@@ -438,12 +510,18 @@ function lintRules(input: LintInput, out: Finding[]) {
 		}
 		// An allow rule that a deny or ask rule elsewhere always overrides does nothing.
 		const sample = sampleCall(p.tool, spec);
-		if (sample) {
+		// Each check below reads every rule, so n rules cost n squared: a folder nobody trusted gets a time budget and no verdict past it.
+		if (sample && Date.now() > until) {
+			unchecked ??= r;
+		} else if (sample) {
 			const v = simulate(sample, input.rules.filter(x => x !== r), ctx);
 			if (v.rule && (v.decision === 'deny' || v.decision === 'ask') && v.rule.pattern !== r.pattern) {
 				out.push({ ...at, severity: 'warning', code: 'shadowed', message: `${r.pattern} never takes effect where ${v.rule.pattern} (${v.rule.effect}, ${v.rule.scope} settings) matches: deny and ask win over allow`, fix: `Narrow ${v.rule.pattern}, or delete this allow rule` });
 			}
 		}
+	}
+	if (unchecked) {
+		out.push({ file: unchecked.file, line: unchecked.line, severity: 'info', code: 'scan-limited', message: 'There are so many permission rules that some allow rules were not checked against the others.', fix: '' });
 	}
 }
 
@@ -457,14 +535,30 @@ function sampleCall(tool: string, spec: string | undefined) {
 }
 
 export function lint(input: LintInput): Finding[] {
-	const out: Finding[] = [];
+	const all: Finding[] = [];
+	const until = input.untrusted ? Date.now() + GLOB_MS : Infinity;
+	const longPaths = !!input.untrusted && !!input.projectFiles?.some(p => p.length > MAX_PATH);
 	for (const f of input.files) {
-		lintFrontmatter(f, out);
-		lintGlobs(f, input, out);
+		lintFrontmatter(f, all);
+		lintGlobs(f, input, all, until, longPaths);
 	}
-	lintOverlap(input, out);
-	lintHooks(input, out);
-	lintRules(input, out);
+	lintOverlap(input, all);
+	lintHooks(input, all);
+	lintRules(input, all, input.untrusted ? Date.now() + RULE_MS : Infinity);
+	let out = all;
+	if (input.untrusted) {
+		const seen = new Map<string, { file: string; code: string; count: number }>();
+		out = all.filter(x => {
+			const entry = seen.get(`${x.file}\n${x.code}`) ?? { file: x.file, code: x.code, count: 0 };
+			seen.set(`${x.file}\n${x.code}`, entry);
+			return ++entry.count <= MAX_PER_CHECK;
+		});
+		for (const { file, code, count } of seen.values()) {
+			if (count > MAX_PER_CHECK) {
+				out.push({ file, line: 0, severity: 'info', code: 'scan-limited', message: `${count - MAX_PER_CHECK} more ${code} findings in this file were not listed.`, fix: '' });
+			}
+		}
+	}
 	const rank = { error: 0, warning: 1, info: 2 };
 	return out.sort((a, b) => rank[a.severity] - rank[b.severity] || a.file.localeCompare(b.file) || a.line - b.line);
 }

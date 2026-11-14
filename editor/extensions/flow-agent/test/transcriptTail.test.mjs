@@ -2,7 +2,8 @@
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -85,4 +86,13 @@ test('readTail reads a larger window when the last line alone is longer than the
 	writeFileSync(file, user + '\n' + huge + '\n')
 	const got = await t.readTail(file, 'claude', 5)
 	assert.deepEqual(got.map(e => e.text), ['please read the log'])
+})
+
+test('a FIFO in place of a transcript is not waited for: nothing to show, at once', { timeout: 5000, skip: process.platform === 'win32' && 'no FIFOs' }, async () => {
+	const fifo = join(tmp, 'hostile.jsonl')
+	execFileSync('mkfifo', [fifo])
+	// A reader that waits for a writer never returns; the writer opened afterwards only frees the thread so the test process can end.
+	const outcome = await Promise.race([t.readTail(fifo, 'claude', 10), new Promise(r => setTimeout(() => r('blocked'), 1500))])
+	try { openSync(fifo, 'r+') } catch { /* nothing waits */ }
+	assert.deepEqual(outcome, [])
 })

@@ -20,6 +20,7 @@ import { PermissionInbox, type PermissionRequest } from './permissions';
 import { totalsBySource, unusedGap } from './gaps';
 import { scan, type Harness, type HarnessItem } from './scan';
 import { registerPreviewProvider } from './settings';
+import { harnessSummary } from './summary';
 import { HarnessTree, itemOf } from './tree';
 import { WhyView } from './why';
 import { XrayView } from './xray';
@@ -290,6 +291,8 @@ export function activate(context: vscode.ExtensionContext) {
 			}
 			return flowModel(toRequest(request), harness, live);
 		}),
+		// Called by flow-agent's Agents page: the harness of any absolute folder as a size-capped, redacted JSON summary (summary.ts). Read-only.
+		vscode.commands.registerCommand('flowHarness.summary', (folder: unknown) => harnessSummary(folder)),
 		vscode.commands.registerCommand('flowHarness.recordPermission', (r: PermissionRequest) => inbox.record(r)),
 		// Called by flow-agent with every hook event of the agents it runs: what they used, what failed, what you typed.
 		vscode.commands.registerCommand('flowHarness.recordEvent', (e: unknown) => live.record(e)),

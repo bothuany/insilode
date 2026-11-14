@@ -1223,3 +1223,384 @@ index e6c222d..33a616b 100644
  	{
  		key: 'menuBar/home',
  		id: MenuId.MenubarHomeMenu,
+diff --git a/src/vs/workbench/contrib/terminal/browser/terminal.ts b/src/vs/workbench/contrib/terminal/browser/terminal.ts
+index 156b980c..432a86fd 100644
+--- a/src/vs/workbench/contrib/terminal/browser/terminal.ts
++++ b/src/vs/workbench/contrib/terminal/browser/terminal.ts
+@@ -14,7 +14,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
+ import { IKeyMods } from '../../../../platform/quickinput/common/quickInput.js';
+ import { IMarkProperties, ITerminalCapabilityImplMap, ITerminalCapabilityStore, ITerminalCommand, TerminalCapability } from '../../../../platform/terminal/common/capabilities/capabilities.js';
+ import { IMergedEnvironmentVariableCollection } from '../../../../platform/terminal/common/environmentVariable.js';
+-import { IExtensionTerminalProfile, IReconnectionProperties, IShellIntegration, IShellLaunchConfig, ITerminalBackend, ITerminalDimensions, ITerminalLaunchError, ITerminalProfile, ITerminalTabLayoutInfoById, TerminalExitReason, TerminalIcon, TerminalLocation, TerminalShellType, TerminalType, TitleEventSource, WaitOnExitValue, type IDecorationAddon, type ShellIntegrationInjectionFailureReason } from '../../../../platform/terminal/common/terminal.js';
++import { IExtensionTerminalProfile, IReconnectionProperties, IShellIntegration, IShellLaunchConfig, ITerminalBackend, ITerminalDimensionsOverride, ITerminalLaunchError, ITerminalProfile, ITerminalTabLayoutInfoById, TerminalExitReason, TerminalIcon, TerminalLocation, TerminalShellType, TerminalType, TitleEventSource, WaitOnExitValue, type IDecorationAddon, type ShellIntegrationInjectionFailureReason } from '../../../../platform/terminal/common/terminal.js';
+ import { IColorTheme } from '../../../../platform/theme/common/themeService.js';
+ import { IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
+ import { EditorInput } from '../../../common/editor/editorInput.js';
+@@ -1324,7 +1324,7 @@ export interface ITerminalInstance extends IBaseTerminalInstance {
+ 	 * Sets the terminal instance's dimensions to the values provided via the onDidOverrideDimensions event,
+ 	 * which allows overriding the regular dimensions (fit to the size of the panel).
+ 	 */
+-	setOverrideDimensions(dimensions: ITerminalDimensions): void;
++	setOverrideDimensions(dimensions: ITerminalDimensionsOverride | undefined, immediate?: boolean): void;
+ 
+ 	/**
+ 	 * Sets the terminal instance's dimensions to the values provided via quick input.
+diff --git a/src/vs/workbench/contrib/terminal/browser/terminalCommands.ts b/src/vs/workbench/contrib/terminal/browser/terminalCommands.ts
+index 248fa9a5..8704b039 100644
+--- a/src/vs/workbench/contrib/terminal/browser/terminalCommands.ts
++++ b/src/vs/workbench/contrib/terminal/browser/terminalCommands.ts
+@@ -3,11 +3,39 @@
+  *  Licensed under the MIT License. See License.txt in the project root for license information.
+  *--------------------------------------------------------------------------------------------*/
+ 
++import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+ import { KeybindingsRegistry, KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
+-import { ITerminalGroupService } from './terminal.js';
++import { ITerminalGroupService, ITerminalService } from './terminal.js';
+ 
+ export function setupTerminalCommands(): void {
+ 	registerOpenTerminalAtIndexCommands();
++	registerInsilodeSetDimensionsCommand();
++}
++
++/**
++ * Insilode: an extension cannot resize a real terminal, and the Agents page mirrors agent terminals into panes of its own. Sets the
++ * exact size of the terminal whose shell has `processId`, or gives it back its own size when cols and rows are undefined. True when
++ * such a terminal was found.
++ */
++function registerInsilodeSetDimensionsCommand(): void {
++	CommandsRegistry.registerCommand('_insilode.terminal.setDimensions', (accessor, processId: unknown, cols: unknown, rows: unknown) => {
++		const whole = (n: unknown, min: number, max: number): n is number => typeof n === 'number' && Number.isInteger(n) && n >= min && n <= max;
++		if (!whole(processId, 1, Number.MAX_SAFE_INTEGER)) {
++			return false;
++		}
++		// An undefined argument can arrive as null across the extension host's RPC.
++		const unset = (n: unknown) => n === undefined || n === null;
++		const reset = unset(cols) && unset(rows);
++		if (!reset && !(whole(cols, 2, 500) && whole(rows, 1, 300))) {
++			return false;
++		}
++		const instance = accessor.get(ITerminalService).instances.find(i => i.processId === processId);
++		if (!instance) {
++			return false;
++		}
++		instance.setOverrideDimensions(reset ? undefined : { cols: cols as number, rows: rows as number, forceExactSize: true }, true);
++		return true;
++	});
+ }
+ 
+ function registerOpenTerminalAtIndexCommands(): void {
+diff --git a/src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts b/src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts
+index 9e5aa386..a80bfddf 100644
+--- a/src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts
++++ b/src/vs/workbench/browser/parts/editor/auxiliaryEditorPart.ts
+@@ -7,13 +7,14 @@ import { onDidChangeFullscreen } from '../../../../base/browser/browser.js';
+ import { $, getActiveWindow, hide, show } from '../../../../base/browser/dom.js';
+ import { mainWindow } from '../../../../base/browser/window.js';
+ import { Emitter, Event } from '../../../../base/common/event.js';
+-import { DisposableStore, markAsSingleton, MutableDisposable } from '../../../../base/common/lifecycle.js';
++import { DisposableStore, markAsSingleton, MutableDisposable, toDisposable } from '../../../../base/common/lifecycle.js';
+ import { isNative } from '../../../../base/common/platform.js';
++import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+ import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
+-import { ContextKeyExpr, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+-import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
++import { ContextKeyExpr, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
++import { IInstantiationService, ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
+ import { ServiceCollection } from '../../../../platform/instantiation/common/serviceCollection.js';
+-import { IStorageService } from '../../../../platform/storage/common/storage.js';
++import { IStorageService, StorageScope, StorageTarget } from '../../../../platform/storage/common/storage.js';
+ import { IThemeService } from '../../../../platform/theme/common/themeService.js';
+ import { hasCustomTitlebar } from '../../../../platform/window/common/window.js';
+ import { IEditorGroupView, IEditorPartsView } from './editor.js';
+@@ -21,7 +22,8 @@ import { EditorPart, IEditorPartUIState } from './editorPart.js';
+ import { IAuxiliaryTitlebarPart } from '../titlebar/titlebarPart.js';
+ import { WindowTitle } from '../titlebar/windowTitle.js';
+ import { IAuxiliaryWindowOpenOptions, IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
+-import { GroupDirection, GroupsOrder, IAuxiliaryEditorPart, GroupActivationReason } from '../../../services/editor/common/editorGroupsService.js';
++import { GroupDirection, GroupsOrder, IAuxiliaryEditorPart, GroupActivationReason, IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
++import { editorGroupToColumn } from '../../../services/editor/common/editorGroupColumn.js';
+ import { IEditorService } from '../../../services/editor/common/editorService.js';
+ import { IHostService } from '../../../services/host/browser/host.js';
+ import { IWorkbenchLayoutService, Parts, shouldShowCustomTitleBar } from '../../../services/layout/browser/layoutService.js';
+@@ -33,10 +35,49 @@ import { localize, localize2 } from '../../../../nls.js';
+ import { Codicon } from '../../../../base/common/codicons.js';
+ import { IsAuxiliaryWindowContext, IsAuxiliaryWindowFocusedContext, IsCompactTitleBarContext } from '../../../common/contextkeys.js';
+ import { Categories } from '../../../../platform/action/common/actionCommonCategories.js';
+-import { GroupIdentifier } from '../../../common/editor.js';
++import { GroupIdentifier, GroupModelChangeKind } from '../../../common/editor.js';
++import { EditorInput } from '../../../common/editor/editorInput.js';
+ 
+ export interface IAuxiliaryEditorPartOpenOptions extends IAuxiliaryWindowOpenOptions {
+ 	readonly state?: IEditorPartUIState;
++
++	/**
++	 * Insilode: a window that shows its one editor and nothing else, like the Agents page. It is compact for good (nothing turns compact
++	 * mode off), accepts no dropped tab, and is locked from the start, so editors opened without naming a group go to the main window.
++	 * Its one editor is the Agents page, told apart by its webview view type, not by being first; any other editor that still arrives
++	 * (an explicit group) is moved to the main window. It is not saved with the editor parts, so a restart does not bring it back empty,
++	 * and it closes itself when no page arrives.
++	 */
++	readonly exclusive?: boolean;
++}
++
++/** Insilode: the window is exclusive (see {@link IAuxiliaryEditorPartOpenOptions.exclusive}): its compact toggle is not offered. */
++export const IsExclusiveAuxiliaryWindowContext = new RawContextKey<boolean>('insilodeExclusiveWindow', false);
++
++/** Insilode: the Agents page, as the editor reports it: a webview panel of the extension, whose view type core prefixes with `mainThreadWebview-` (mainThreadWebviewPanels.ts). Compared by name because browser/ must not import contrib/. */
++const AGENTS_PAGE_EDITOR_TYPE = 'workbench.editors.webviewInput';
++const AGENTS_PAGE_VIEW_TYPE = 'mainThreadWebview-flow.agentsPage';
++/** How long an exclusive window waits for the page before it closes itself: the extension creates the page right after the command returns. */
++const AGENTS_WINDOW_WAIT_MS = 15_000;
++/** Where the Agents window's last bounds are kept, so the next one opens where the user left it. */
++const AGENTS_WINDOW_BOUNDS_KEY = 'insilode.agentsWindow.bounds';
++
++interface AgentsWindowBounds { readonly x: number; readonly y: number; readonly width: number; readonly height: number }
++
++/** The bounds saved by the last Agents window, if they are sane (a closing window reports zeros). Like a restored auxiliary window, they are trusted as to the screen they name. */
++function parseAgentsWindowBounds(raw: string | undefined): AgentsWindowBounds | undefined {
++	try {
++		const b = JSON.parse(raw ?? '') as Partial<Record<keyof AgentsWindowBounds, unknown>>;
++		const ok = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
++		return ok(b.x, -20000, 20000) && ok(b.y, -20000, 20000) && ok(b.width, 480, 10000) && ok(b.height, 320, 10000) ? { x: b.x, y: b.y, width: b.width, height: b.height } : undefined;
++	} catch {
++		return undefined;
++	}
++}
++
++/** Insilode: whether this editor part is an exclusive window (the Agents page's), which the editor parts leave out of what they save. */
++export function isExclusiveEditorPart(part: unknown): boolean {
++	return part instanceof AuxiliaryEditorPartImpl && part.exclusive;
+ }
+ 
+ export interface ICreateAuxiliaryEditorPartResult {
+@@ -73,7 +114,7 @@ registerAction2(class extends Action2 {
+ 			icon: Codicon.screenFull,
+ 			menu: {
+ 				id: MenuId.LayoutControlMenu,
+-				when: ContextKeyExpr.and(IsCompactTitleBarContext.toNegated(), IsAuxiliaryWindowContext),
++				when: ContextKeyExpr.and(IsCompactTitleBarContext.toNegated(), IsAuxiliaryWindowContext, IsExclusiveAuxiliaryWindowContext.toNegated()),
+ 				order: 0,
+ 				group: 'navigation'
+ 			}
+@@ -94,7 +135,7 @@ registerAction2(class extends Action2 {
+ 			icon: Codicon.screenNormal,
+ 			menu: {
+ 				id: MenuId.LayoutControlMenu,
+-				when: ContextKeyExpr.and(IsCompactTitleBarContext, IsAuxiliaryWindowContext),
++				when: ContextKeyExpr.and(IsCompactTitleBarContext, IsAuxiliaryWindowContext, IsExclusiveAuxiliaryWindowContext.toNegated()),
+ 				order: 0,
+ 				group: 'navigation'
+ 			}
+@@ -106,6 +147,22 @@ registerAction2(class extends Action2 {
+ 	}
+ });
+ 
++/**
++ * Insilode: opens the Agents page's window and returns the view column (as `vscode.ViewColumn` numbers them) of its group, which the
++ * extension passes to createWebviewPanel; nothing when the window could not be made. The extension host cannot ask for a window (the API
++ * has no such column), and a tab moved into one afterwards would show for a moment in the main window first. The column is an index over
++ * all windows' groups and can shift before the page is created: the window then fetches the page from wherever it opened (see `exclusive`).
++ */
++CommandsRegistry.registerCommand('_insilode.agents.openWindow', async (accessor: ServicesAccessor): Promise<number | undefined> => {
++	const editorGroupsService = accessor.get(IEditorGroupsService);
++	const bounds = parseAgentsWindowBounds(accessor.get(IStorageService).get(AGENTS_WINDOW_BOUNDS_KEY, StorageScope.APPLICATION)) ?? { width: 1280, height: 840 };
++	// A variable, not a literal: `exclusive` is read by the implementation, which takes the wider options type.
++	const options: IAuxiliaryEditorPartOpenOptions = { compact: true, exclusive: true, bounds };
++	const part = await editorGroupsService.createAuxiliaryEditorPart(options);
++	const column = editorGroupToColumn(editorGroupsService, part.activeGroup);
++	return column >= 0 ? column + 1 : undefined;
++});
++
+ export class AuxiliaryEditorPart {
+ 
+ 	private static STATUS_BAR_VISIBILITY = 'workbench.statusBar.visible';
+@@ -119,7 +176,8 @@ export class AuxiliaryEditorPart {
+ 		@IStatusbarService private readonly statusbarService: IStatusbarService,
+ 		@ITitleService private readonly titleService: ITitleService,
+ 		@IEditorService private readonly editorService: IEditorService,
+-		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService
++		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
++		@IStorageService private readonly storageService: IStorageService
+ 	) {
+ 	}
+ 
+@@ -127,7 +185,8 @@ export class AuxiliaryEditorPart {
+ 		const that = this;
+ 		const disposables = new DisposableStore();
+ 
+-		let compact = Boolean(options?.compact);
++		const exclusive = Boolean(options?.exclusive);
++		let compact = Boolean(options?.compact) || exclusive;
+ 
+ 		function computeEditorPartHeightOffset(): number {
+ 			let editorPartHeightOffset = 0;
+@@ -172,7 +231,7 @@ export class AuxiliaryEditorPart {
+ 		}
+ 
+ 		function updateCompact(newCompact: boolean): void {
+-			if (newCompact === compact) {
++			if (newCompact === compact || (exclusive && !newCompact)) {
+ 				return;
+ 			}
+ 
+@@ -196,7 +255,7 @@ export class AuxiliaryEditorPart {
+ 		editorPartContainer.style.position = 'relative';
+ 		auxiliaryWindow.container.appendChild(editorPartContainer);
+ 
+-		const editorPart = disposables.add(this.instantiationService.createInstance(AuxiliaryEditorPartImpl, auxiliaryWindow.window.vscodeWindowId, this.editorPartsView, options?.state, label));
++		const editorPart = disposables.add(this.instantiationService.createInstance(AuxiliaryEditorPartImpl, auxiliaryWindow.window.vscodeWindowId, this.editorPartsView, options?.state, label, exclusive));
+ 		editorPart.updateOptions({ compact });
+ 		disposables.add(this.editorPartsView.registerPart(editorPart));
+ 		editorPart.create(editorPartContainer);
+@@ -205,6 +264,60 @@ export class AuxiliaryEditorPart {
+ 			[IEditorService, this.editorService.createScoped(editorPart, disposables)]
+ 		)));
+ 
++		// Exclusive: the Agents page is the window's own editor; nothing else is welcome here
++		if (exclusive) {
++			const group = editorPart.activeGroup;
++			group.lock(true); // from the start: an editor opened without naming a group goes to another group, never into this one
++			let owned = false;
++			const later = (run: () => void, ms = 0) => {
++				const handle = setTimeout(() => !disposables.isDisposed && run(), ms);
++				disposables.add(toDisposable(() => clearTimeout(handle)));
++			};
++
++			disposables.add(this.editorService.onDidEditorsChange(e => {
++				const event = e.event;
++				if (event.kind !== GroupModelChangeKind.EDITOR_OPEN || !event.editor) {
++					return;
++				}
++
++				const editor = event.editor;
++				const here = e.groupId === group.id;
++				if (editor.typeId === AGENTS_PAGE_EDITOR_TYPE && (editor as EditorInput & { viewType?: string }).viewType === AGENTS_PAGE_VIEW_TYPE) {
++					if (here) {
++						owned = true;
++					} else if (!owned) {
++						// The column the extension was given shifted (a group was added or closed in another window meanwhile) and the page
++						// opened elsewhere: fetch it, after the open that brought it has finished.
++						later(() => {
++							const from = this.editorPartsView.getGroup(e.groupId);
++							if (!owned && from?.contains(editor)) {
++								owned = true;
++								from.moveEditor(editor, group);
++							}
++						});
++					}
++				} else if (here) {
++					// After the open that brought it has finished
++					later(() => group.contains(editor) && group.moveEditor(editor, this.editorPartsView.mainPart.activeGroup));
++				}
++			}));
++
++			// No page by now (the extension failed, or does not know the window): an empty window is no use
++			later(() => !owned && editorPart.close(), AGENTS_WINDOW_WAIT_MS);
++
++			// Where the window was left, for the next one (the command reads it)
++			const remember = () => {
++				const { bounds } = auxiliaryWindow.createState();
++				const saved = JSON.stringify(bounds);
++				if (parseAgentsWindowBounds(saved)) {
++					this.storageService.store(AGENTS_WINDOW_BOUNDS_KEY, saved, StorageScope.APPLICATION, StorageTarget.MACHINE);
++				}
++			};
++			disposables.add(auxiliaryWindow.onDidLayout(remember));
++			disposables.add(auxiliaryWindow.onUnload(remember));
++			disposables.add(this.storageService.onWillSaveState(remember));
++		}
++
+ 		// Titlebar
+ 		let titlebarPart: IAuxiliaryTitlebarPart | undefined = undefined;
+ 		let titlebarVisible = false;
+@@ -351,6 +464,7 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
+ 		editorPartsView: IEditorPartsView,
+ 		private readonly state: IEditorPartUIState | undefined,
+ 		groupsLabel: string,
++		readonly exclusive: boolean,
+ 		@IInstantiationService instantiationService: IInstantiationService,
+ 		@IThemeService themeService: IThemeService,
+ 		@IConfigurationService configurationService: IConfigurationService,
+@@ -366,6 +480,7 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
+ 	protected override handleContextKeys(): void {
+ 		const isAuxiliaryWindowContext = IsAuxiliaryWindowContext.bindTo(this.scopedContextKeyService);
+ 		isAuxiliaryWindowContext.set(true);
++		IsExclusiveAuxiliaryWindowContext.bindTo(this.scopedContextKeyService).set(this.exclusive);
+ 
+ 		super.handleContextKeys();
+ 	}
+@@ -378,7 +493,8 @@ class AuxiliaryEditorPartImpl extends EditorPart implements IAuxiliaryEditorPart
+ 				this.optionsDisposable.value = this.enforcePartOptions({
+ 					showTabs: 'none',
+ 					showBreadcrumbs: false,
+-					closeEmptyGroups: true
++					closeEmptyGroups: true,
++					...(this.exclusive ? { allowDropIntoGroup: false } : {})
+ 				});
+ 			}
+ 		} else {
+diff --git a/src/vs/workbench/browser/parts/editor/editorParts.ts b/src/vs/workbench/browser/parts/editor/editorParts.ts
+index 8b80b195..96c36c7f 100644
+--- a/src/vs/workbench/browser/parts/editor/editorParts.ts
++++ b/src/vs/workbench/browser/parts/editor/editorParts.ts
+@@ -13,7 +13,7 @@ import { IEditorGroupView, IEditorPartsView } from './editor.js';
+ import { InstantiationType, registerSingleton } from '../../../../platform/instantiation/common/extensions.js';
+ import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+ import { distinct } from '../../../../base/common/arrays.js';
+-import { AuxiliaryEditorPart, IAuxiliaryEditorPartOpenOptions } from './auxiliaryEditorPart.js';
++import { AuxiliaryEditorPart, IAuxiliaryEditorPartOpenOptions, isExclusiveEditorPart } from './auxiliaryEditorPart.js';
+ import { ModalEditorPart } from './modalEditorPart.js';
+ import { MultiWindowParts } from '../../part.js';
+ import { DeferredPromise } from '../../../../base/common/async.js';
+@@ -507,15 +507,18 @@ export class EditorParts extends MultiWindowParts<EditorPart, IEditorPartsMement
+ 	}
+ 
+ 	private createState(): IEditorPartsUIState {
++		// Insilode: an exclusive window (the Agents page's) is not saved: nothing in it can be restored (the page's webview is not), and
++		// what would come back is an empty window. `mru` indexes the parts that are saved, as the restore will have them.
++		const parts = this.parts.filter(part => !isExclusiveEditorPart(part));
+ 		return {
+-			auxiliary: this.parts
++			auxiliary: parts
+ 				.map(part => ({ part, auxiliaryWindow: this.auxiliaryWindowService.getWindow(part.windowId) }))
+ 				.filter(({ auxiliaryWindow }) => auxiliaryWindow !== undefined)
+ 				.map(({ part, auxiliaryWindow }) => ({
+ 					state: part.createState(),
+ 					...auxiliaryWindow!.createState()
+ 				})),
+-			mru: this.mostRecentActiveParts.map(part => this.parts.indexOf(part))
++			mru: this.mostRecentActiveParts.filter(part => parts.includes(part)).map(part => parts.indexOf(part))
+ 		};
+ 	}
+ 
+diff --git a/src/vs/workbench/electron-browser/actions/windowActions.ts b/src/vs/workbench/electron-browser/actions/windowActions.ts
+index e2659d27..5538be13 100644
+--- a/src/vs/workbench/electron-browser/actions/windowActions.ts
++++ b/src/vs/workbench/electron-browser/actions/windowActions.ts
+@@ -32,6 +32,7 @@ import { IOpenedAuxiliaryWindow, IOpenedMainWindow, isOpenedAuxiliaryWindow } fr
+ import { IsAuxiliaryWindowContext, IsAuxiliaryWindowFocusedContext, IsWindowAlwaysOnTopContext } from '../../common/contextkeys.js';
+ import { isAuxiliaryWindow, mainWindow } from '../../../base/browser/window.js';
+ import { ContextKeyExpr } from '../../../platform/contextkey/common/contextkey.js';
++import { IsExclusiveAuxiliaryWindowContext } from '../../browser/parts/editor/auxiliaryEditorPart.js';
+ 
+ export class CloseWindowAction extends Action2 {
+ 
+@@ -525,7 +526,7 @@ export class EnableWindowAlwaysOnTopAction extends Action2 {
+ 			icon: Codicon.pin,
+ 			menu: {
+ 				id: MenuId.LayoutControlMenu,
+-				when: ContextKeyExpr.and(IsWindowAlwaysOnTopContext.toNegated(), IsAuxiliaryWindowContext),
++				when: ContextKeyExpr.and(IsWindowAlwaysOnTopContext.toNegated(), IsAuxiliaryWindowContext, IsExclusiveAuxiliaryWindowContext.toNegated()),
+ 				order: 1,
+ 				group: 'navigation'
+ 			}
+@@ -555,7 +556,7 @@ export class DisableWindowAlwaysOnTopAction extends Action2 {
+ 			icon: Codicon.pinned,
+ 			menu: {
+ 				id: MenuId.LayoutControlMenu,
+-				when: ContextKeyExpr.and(IsWindowAlwaysOnTopContext, IsAuxiliaryWindowContext),
++				when: ContextKeyExpr.and(IsWindowAlwaysOnTopContext, IsAuxiliaryWindowContext, IsExclusiveAuxiliaryWindowContext.toNegated()),
+ 				order: 1,
+ 				group: 'navigation'
+ 			}

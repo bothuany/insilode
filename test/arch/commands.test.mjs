@@ -29,7 +29,11 @@ const all = files.map(f => f.text).join('\n');
 // an extension. The extensions may invoke these too; the last test checks that a patch really registers each one.
 // flow.desktop.*: the app badge and the desktop status overlay (flow-desktop.patch). They exist in the desktop app only,
 // so flow-agent (src/desktop.ts) looks them up with getCommands() before calling them.
-const CORE = ['flow.desktop.setBadge', 'flow.desktop.setOverlay'];
+// _insilode.terminal.setDimensions: the size of a real terminal, which an extension cannot set; the Agents page's terminal panes
+// call it (flow-core.patch, web and desktop alike; flow-agent src/termHost.ts).
+// _insilode.agents.openWindow: a compact auxiliary window that shows one editor only, which the Agents page is created in (flow-core.patch,
+// auxiliaryEditorPart.ts; flow-agent src/agentsPanel.ts asks on the desktop and falls back to a tab when the command is missing).
+const CORE = ['flow.desktop.setBadge', 'flow.desktop.setOverlay', '_insilode.terminal.setDimensions', '_insilode.agents.openWindow'];
 const patchDir = join(repo, 'editor', 'patches');
 const patches = readdirSync(patchDir).filter(f => f.endsWith('.patch')).map(f => readFileSync(join(patchDir, f), 'utf8')).join('\n');
 

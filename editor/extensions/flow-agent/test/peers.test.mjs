@@ -74,6 +74,26 @@ test('published rows are slimmed: no transcript, pid, path or token reaches the 
 	assert.ok(p.parseRow(JSON.parse(text)), 'what is published is what is accepted')
 })
 
+test('the id the CLI gave a session travels with its row (a uuid only), so the page can tell another window\'s Codex session from one that merely runs elsewhere', () => {
+	const id = '0a99a3dd-7db0-4ba0-882d-a4dd922189be'
+	const slim = p.slimRow(row({ cli: 'codex', agentId: id }))
+	assert.equal(slim.agentId, id)
+	assert.equal(p.parseRow(JSON.parse(JSON.stringify(slim))).agentId, id)
+	assert.equal('agentId' in p.slimRow(row({ agentId: '../../etc' })), false, 'anything but a uuid is not published')
+	assert.equal('agentId' in p.slimRow(row()), false)
+	assert.equal('agentId' in p.parseRow({ ...JSON.parse(JSON.stringify(slim)), agentId: '<script>' }), false, 'nor accepted')
+})
+
+test('a Claude row publishes the ids its conversation went on under after /clear (uuids only, at most eight), so another window\'s session is not listed again as running elsewhere', () => {
+	const ids = Array.from({ length: 10 }, (_, i) => `0a99a3dd-7db0-4ba0-882d-a4dd922189b${i}`)
+	const slim = p.slimRow(row({ cli: 'claude', aliases: [...ids, '../../etc', 7] }))
+	assert.deepEqual(slim.aliases, ids.slice(-8), 'the newest are kept')
+	assert.deepEqual(p.parseRow(JSON.parse(JSON.stringify(slim))).aliases, ids.slice(-8))
+	assert.equal('aliases' in p.slimRow(row({ aliases: [] })), false)
+	assert.equal('aliases' in p.slimRow(row()), false)
+	assert.equal('aliases' in p.parseRow({ ...JSON.parse(JSON.stringify(slim)), aliases: ['<script>'] }), false, 'nothing but a uuid is accepted')
+})
+
 function storage() {
 	const root = mkdtempSync(join(tmp, 'agents-'))
 	const dir = k => { mkdirSync(join(root, k), { recursive: true }); return join(root, k) }

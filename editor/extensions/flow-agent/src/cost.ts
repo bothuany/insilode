@@ -22,6 +22,7 @@
 
 import { promises as fs } from 'fs';
 import * as path from 'path';
+import { openRegular } from './safeFile';
 
 export interface Tokens {
 	/** Fresh input, not read from or written to the cache. */
@@ -207,7 +208,7 @@ export class TranscriptReader {
 	private async readNew(sink: (lines: string[]) => void): Promise<void> {
 		let h: fs.FileHandle;
 		try {
-			h = await fs.open(this.file, 'r');
+			h = (await openRegular(this.file)).handle;
 		} catch {
 			return; // not written yet
 		}

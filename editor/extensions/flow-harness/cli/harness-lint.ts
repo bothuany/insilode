@@ -6,34 +6,11 @@
 // Exit 0: no errors (and no more than --max-warnings warnings); 1: findings; 2: wrong usage or a folder that cannot be read.
 // Reads only the folder (never ~/.claude, which a CI machine does not have, and no path under ~ is checked), follows no link out of
 // the folder, writes nothing, uses no network.
-import { promises as fs } from 'fs';
 import * as path from 'path';
-import { scanFolders, type Severity } from '../src/scanCore';
-import { fsScanHost } from '../src/scanFsHost';
+import { lintFolder, shownPath, type LintLine } from '../src/harnessLint';
 
-export interface LintLine {
-	file: string;
-	line: number;
-	column: number;
-	severity: Severity;
-	rule: string;
-	message: string;
-	fix?: string;
-}
-
-/**
- * A permission rule that is never consulted does not do what its author wrote, and the editor shows it as a warning: a pull request
- * that adds one should fail, so the CLI counts it as an error. `shadowed` and `rule-conflict` only fire on an allow rule that a
- * stricter rule already overrides, which is nothing unsafe, so they stay warnings with `overbroad` and the instruction checks:
- * `--max-warnings` is how to fail on those too.
- */
-const AS_ERRORS = new Set(['rule-never-applies']);
-
-/** A finding's file as printed: relative to the folder with `/` on every platform (a Windows runner prints the lines a Linux one does), as it is when it lies elsewhere. */
-export function shownPath(root: string, file: string, p: path.PlatformPath = path): string {
-	const rel = p.relative(root, file);
-	return rel.startsWith('..') || p.isAbsolute(rel) ? file : rel.split(p.sep).join('/');
-}
+export { shownPath };
+export type { LintLine };
 
 const USAGE = 'Usage: harness-lint [--cwd <dir>] [--json] [--max-warnings <n>]\n';
 
@@ -84,15 +61,7 @@ export async function main(argv: string[], out: { stdout: (s: string) => void; s
 	}
 	let lines: LintLine[];
 	try {
-		if (!(await fs.stat(args.cwd)).isDirectory()) {
-			throw new Error('not a folder');
-		}
-		const root = await fs.realpath(args.cwd);
-		const harness = await scanFolders([{ name: path.basename(root), fsPath: root }], fsScanHost([root]), { user: false });
-		lines = (harness?.items ?? []).flatMap(item => item.issues.map(i => ({
-			file: shownPath(root, item.file), line: (i.line ?? 0) + 1, column: 1, severity: i.code && AS_ERRORS.has(i.code) && i.severity === 'warning' ? 'error' : i.severity, rule: i.code ?? 'harness', message: i.message.replace(/\s+/g, ' ').trim(), ...(i.fix ? { fix: i.fix } : {}),
-		})));
-		lines.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : a.line - b.line);
+		lines = (await lintFolder(args.cwd)).map(({ abs, ...line }) => line);
 	} catch (e) {
 		out.stderr(`Cannot read ${args.cwd}: ${(e as Error).message}\n`);
 		return 2;

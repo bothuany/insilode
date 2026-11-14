@@ -30,7 +30,7 @@ test('a paths glob that matches no file is dead; a matching one is fine', () => 
 	assert.match(f[0].message, /lib\/\*\* matches no file/)
 	assert.match(f[0].fix, /relative to the project root/)
 	assert.equal(run({ files: [file('.claude/rules/a.md', 'claude-rule', '---\npaths: "src/**/*.{ts,tsx}"\n---\nx\n')] }).length, 0, 'braces expand')
-	assert.equal(run({ files: [file('.claude/rules/a.md', 'claude-rule', '---\npaths: "lib/**"\n---\nx\n')], projectFilesTruncated: true })[0].severity, 'info', 'a truncated file list only hints')
+	assert.equal(run({ files: [file('.claude/rules/a.md', 'claude-rule', '---\npaths: "lib/**"\n---\nx\n')], projectFilesTruncated: true }).length, 0, 'a truncated file list gives no verdict at all (the scan says it was cut)')
 	assert.equal(run({ files: [file('.cursor/rules/a.mdc', 'cursor-rule', '---\nglobs: docs/*.md\n---\nx\n')] }).length, 0, "Cursor's globs key")
 })
 

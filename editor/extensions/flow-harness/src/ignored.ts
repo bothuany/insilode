@@ -8,9 +8,19 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { spawn } from 'child_process';
+import * as os from 'os';
 
-/** The subset of `files` (absolute paths under `cwd`) that git ignores. */
-export function gitIgnoredOf(cwd: string, files: readonly string[]): Promise<Set<string>> {
+/**
+ * What to run: git by its bare name, which Windows looks for in the working directory first, so the child starts in the user's home folder
+ * (never in the folder being looked at, where a `git.exe` may have been planted) and is told where the repository is with `-C`. fsmonitor
+ * is the setting of a repository's own config that runs a program.
+ */
+export function gitCommand(root: string): { args: string[]; cwd: string } {
+	return { args: ['-c', 'core.fsmonitor=false', '-C', root, 'check-ignore', '--stdin', '-z'], cwd: os.homedir() || os.tmpdir() };
+}
+
+/** The subset of `files` (absolute paths under `cwd`) that git ignores; `timeoutMs` is how long git may take (a scan with a deadline gives what is left of it). */
+export function gitIgnoredOf(cwd: string, files: readonly string[], timeoutMs = 10_000): Promise<Set<string>> {
 	if (!files.length) {
 		return Promise.resolve(new Set());
 	}
@@ -24,12 +34,14 @@ export function gitIgnoredOf(cwd: string, files: readonly string[]): Promise<Set
 				resolve(set);
 			}
 		};
-		const child = spawn('git', ['check-ignore', '--stdin', '-z'], { cwd, windowsHide: true });
+		// The folder may be one nobody opened (the Agents page's harness summary looks at any project): its own git config must not get to run a program, and fsmonitor is the setting that does.
+		const { args, cwd: neutral } = gitCommand(cwd);
+		const child = spawn('git', args, { cwd: neutral, windowsHide: true });
 		// A hung git must not hold the harness view: past this, nothing counts as ignored.
 		const timer = setTimeout(() => {
 			child.kill();
 			finish(new Set());
-		}, 10_000);
+		}, timeoutMs);
 		child.stdout.setEncoding('utf8');
 		child.stdout.on('data', d => out += d);
 		child.on('error', () => finish(new Set()));

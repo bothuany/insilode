@@ -1,7 +1,8 @@
 // The Try page's Agents page: the app's full-editor page behind the title bar's Agents button, in an iframe, told about five agents
 // on the demo project. Like the dock beside it this is a fixed moment written here; the page itself is the app's own code
-// (pages/agents.html). The shapes follow flow-agent's agentsData.ts (AgentsPageData, AgentsPageTail); they are written out here
-// because the site may not import that file (it reaches `vscode`).
+// (pages/agents.html). The shapes follow flow-agent's agentsData.ts (AgentsPageData, AgentsPageTail, AgentsPageTermFailed); they are written out here
+// because the site may not import that file (it reaches `vscode`). The same goes for AgentsPageChatIndex (the sidebar's earlier sessions, here with one
+// session that another program runs: ChatIndexSession.live, liveSessions.ts) and for the Harness panel's summary (harnessData.ts).
 import type { AvatarKind } from '../../editor/extensions/flow-agent/src/desktopModel'
 import type { DemoData } from './demo'
 
@@ -142,6 +143,66 @@ const TAILS: Record<string, { role: 'user' | 'assistant' | 'tool'; text: string 
   ],
 }
 
+// A session of the Claude desktop app on another project of this computer, waiting for its user: it shows in the list as running elsewhere and in the queue.
+const EXTERNAL = '5b1e7a52-3c1d-4f0b-9c55-0e2f6a7d8b91'
+TAILS[EXTERNAL] = [
+  { role: 'user', text: 'Rewrite the quick start so it starts with the Try page.' },
+  { role: 'tool', text: 'Edit docs/quick-start.md' },
+  { role: 'assistant', text: 'The quick start now opens with the Try page. Shall I also move the install steps below it?' },
+]
+const chatIndex = (now: number) => ({
+  type: 'chatIndex',
+  projects: [
+    { key: 'a1b2c3d4e5f6', name: 'shop', where: '~/shop', cwd: '/Users/dev/shop', own: true, sessions: [] },
+    {
+      key: 'b2c3d4e5f6a1',
+      name: 'harbor-docs',
+      where: '~/harbor-docs',
+      cwd: '/Users/dev/harbor-docs',
+      own: false,
+      sessions: [
+        { id: EXTERNAL, kind: 'claude', title: 'Docs quick start', modified: now - 20_000, live: { status: 'needs', source: 'Claude desktop', basis: 'live' } },
+        { id: '6c2f8b63-4d2e-4a1c-8d66-1f3a7b8e9ca2', kind: 'claude', title: 'Changelog for 0.15', modified: now - 3 * 60 * MIN },
+      ],
+    },
+  ],
+})
+
+// The Harness panel's summary of the demo project: a small canned one, in the shape of flow-agent's harnessData.ts (HarnessSummary, written out here for the same reason).
+// What flowHarness.summary answers for a real folder is the same plain JSON: names, counts, redacted command lines and the lint's findings, never file contents.
+const harnessSummary = (root: string) => {
+  const file = (where: string) => ({ where, file: `${root}/${where}` })
+  const project = 'project' as const
+  return {
+    root,
+    score: 86,
+    startupTokens: 3100,
+    instructions: [
+      { ...file('CLAUDE.md'), name: 'CLAUDE.md', kind: 'instructions', scope: project, detail: 'Loaded in every session', tokens: 1200 },
+      { ...file('.claude/rules/java.md'), name: 'java.md', kind: 'rules', scope: project, detail: 'Files matching **/*.java' },
+    ],
+    hooks: [
+      { ...file('.claude/settings.json'), event: 'PreToolUse', matcher: 'Bash', command: 'bash .claude/hooks/guard.sh', scope: project, line: 6 },
+      { ...file('.claude/settings.json'), event: 'PostToolUse', matcher: 'Edit|Write', command: 'bash .claude/hooks/format.sh', scope: project, line: 14 },
+    ],
+    permissions: {
+      mode: 'acceptEdits',
+      modeWhere: '.claude/settings.json',
+      counts: { allow: 3, ask: 1, deny: 1 },
+      allow: ['Bash(mvn test:*)', 'Bash(git diff:*)', 'Read'].map(pattern => ({ ...file('.claude/settings.json'), pattern, scope: project })),
+      ask: [{ ...file('.claude/settings.json'), pattern: 'Bash(git push:*)', scope: project }],
+      deny: [{ ...file('.claude/settings.json'), pattern: 'Read(./.env)', scope: project }],
+    },
+    mcp: [{ ...file('.mcp.json'), name: 'github', transport: 'http', scope: project, state: 'on', target: 'https://api.githubcopilot.com/mcp/' }],
+    skills: { count: 2, items: ['release-notes', 'db-migration'].map(name => ({ ...file(`.claude/skills/${name}/SKILL.md`), name, scope: project })) },
+    agents: { count: 1, items: [{ ...file('.claude/agents/reviewer.md'), name: 'reviewer', scope: project }] },
+    commands: { count: 2, items: [{ name: '/ship', scope: project }, { name: '/changelog', scope: project }] },
+    findings: [{ ...file('.claude/settings.json'), severity: 'warning', message: 'Bash(git diff:*) is already covered by a broader rule.', line: 9, code: 'shadowed' }],
+    counts: { error: 0, warning: 1, info: 0 },
+    notes: [],
+  }
+}
+
 export function mountAgentsPage(frame: HTMLIFrameElement, data: DemoData, avatar: () => AvatarKind) {
   let ready = false
   const send = (message: unknown) => frame.contentWindow?.postMessage(message, location.origin)
@@ -164,15 +225,25 @@ export function mountAgentsPage(frame: HTMLIFrameElement, data: DemoData, avatar
     })
   window.addEventListener('message', e => {
     if (e.origin !== location.origin || e.source !== frame.contentWindow) return
-    const m = e.data as { source?: string; message?: { type: string; id?: string } }
+    const m = e.data as { source?: string; message?: { type: string; id?: string; requestId?: string; cwd?: string } }
     if (m?.source !== 'insilode-agents' || !m.message) return
     if (m.message.type === 'ready') {
       ready = true
       sendData()
+      send(chatIndex(Date.now()))
+    } else if (m.message.type === 'chatList') {
+      send(chatIndex(Date.now()))
     } else if (m.message.type === 'tail' && m.message.id) {
       const entries = TAILS[m.message.id]
       const now = Date.now()
       send(entries ? { type: 'tail', id: m.message.id, entries: entries.map((x, i) => ({ ...x, at: now - (entries.length - i) * MIN })) } : { type: 'tail', id: m.message.id, entries: [], note: 'This agent has no transcript on this page.' })
+    } else if (m.message.type === 'harness') {
+      // The page matches the answer to its ask by the folder it named (none: this window's), so it is echoed.
+      const cwd = m.message.cwd
+      send({ type: 'harnessData', ...(cwd ? { cwd } : {}), summary: harnessSummary(cwd ?? '/Users/dev/shop') })
+    } else if (m.message.type === 'termOpen' && m.message.requestId) {
+      // No terminal behind this page: a pane that asks to start or resume a session is told so, instead of waiting for one.
+      send({ type: 'termFailed', requestId: m.message.requestId, message: 'Terminals run in the Insilode editor. This page only shows how the workspace works.' })
     }
   })
   setInterval(sendData, 5000)
@@ -180,6 +251,7 @@ export function mountAgentsPage(frame: HTMLIFrameElement, data: DemoData, avatar
   if (frame.contentDocument?.readyState === 'complete') {
     ready = true
     sendData()
+    send(chatIndex(Date.now()))
   }
   return sendData
 }

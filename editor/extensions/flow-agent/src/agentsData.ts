@@ -7,6 +7,9 @@
 import type { AgentSession } from './agents';
 import type { AttentionKind } from './attention';
 import type { AvatarKind } from './desktopModel';
+import type { AgentsPageHarnessData, AgentsPageHarnessFailed } from './harnessData';
+import type { HarnessPanelState, SavedLayout } from './layoutStore';
+import type { PaneLayout } from './paneLayout';
 import type { UsageLimits } from './usage';
 import type { WorktreeView } from './worktreeActions';
 
@@ -32,6 +35,8 @@ export type AgentRow = Omit<AgentSession, 'impact' | 'worktree'> & {
 	clash?: { text: string; same: boolean; files: string[] }[];
 	/** Text may be typed into its prompt from the page's reply box (agents.ts `canType`). */
 	acceptsInput: boolean;
+	/** Claude: the session ids the conversation went on under after /clear or /resume (agents.ts aliasesOf), which the machine's registry of running sessions names it by. */
+	aliases?: string[];
 };
 
 /**
@@ -40,6 +45,10 @@ export type AgentRow = Omit<AgentSession, 'impact' | 'worktree'> & {
  */
 export interface PeerRow {
 	id: string;
+	/** The id the CLI itself gave the session (Codex's thread id), a uuid: what the machine's index lists it by, so the page does not offer it as running elsewhere. */
+	agentId?: string;
+	/** Claude: the ids the conversation went on under after /clear (AgentRow.aliases), so the page does not offer it as running elsewhere under its new id. */
+	aliases?: string[];
 	cli: AgentSession['cli'];
 	name: string;
 	state: AgentSession['state'];
@@ -96,7 +105,7 @@ export interface AgentsPageData {
 	/** flow.agents.claude.allowBypassPermissions, for the Claude start menu's bypass item. */
 	bypass?: boolean;
 	/** This window's project, for the sidebar's first group. */
-	project?: { name: string };
+	project?: { name: string; /** The folder's absolute path: a pane of this window's folder keeps it, so a saved layout applied in another project resumes there. */ cwd?: string };
 	/** Other open windows' projects and sessions, and projects with no window (peers.ts). */
 	peers?: PeerProject[];
 	recent?: RecentProject[];
@@ -111,7 +120,7 @@ export interface TailEntry {
 	at?: number;
 }
 
-/** Host → page: the last messages of one agent's conversation, after the page asked for them. */
+/** Host → page: the last messages of one agent's conversation, after the page asked for them (for a transcript pane). */
 export interface AgentsPageTail {
 	type: 'tail';
 	id: string;
@@ -120,20 +129,25 @@ export interface AgentsPageTail {
 	note?: string;
 }
 
-/** Host → page: the reply box's text could not be typed in (the agent is not at its prompt, or it is gone). */
-export interface AgentsPageReplyFailed {
-	type: 'replyFailed';
-	id: string;
+// ---- the sidebar's earlier sessions (projectIndex.ts) -------------------------------------------------------------------------
+
+export type LiveStatus = 'working' | 'needs' | 'idle' | 'unknown';
+
+/** What marks a session that runs outside this window (liveSessions.ts). `live`: a process that runs it was found (Claude); `recent`: only an estimate from the transcript's time (Codex has no list of running sessions). */
+export interface LiveMark {
+	status: LiveStatus;
+	/** What runs it: "Claude Code CLI", "Claude desktop", "Codex". */
+	source: string;
+	basis: 'live' | 'recent';
 }
 
-// ---- the page's own chat (chatSessions.ts) ------------------------------------------------------------------------------------
-
-/** A past or open chat session of a project, as the host's index knows it. */
+/** A past session of a project, as the host's index knows it; `live` when something outside this window runs it. */
 export interface ChatIndexSession {
 	id: string;
 	kind: 'claude' | 'codex';
 	title: string;
 	modified: number;
+	live?: LiveMark;
 }
 
 /** A folder some agent has worked in. `key` is folderKey(folder): the page sends it back, never the path. */
@@ -142,6 +156,8 @@ export interface ChatProject {
 	name: string;
 	/** The folder with the home directory shortened, for a tooltip. */
 	where: string;
+	/** The folder itself: what a terminal that resumes one of its sessions starts in (the host asks before an agent runs outside this window's workspace). */
+	cwd: string;
 	/** This window's own folder. */
 	own: boolean;
 	sessions: ChatIndexSession[];
@@ -175,31 +191,6 @@ export interface AgentsPageChatIndex {
 	projects: ChatProject[];
 }
 
-/** A chat is open: `chat` is the host's id for it, used in every later message. */
-export interface AgentsPageChatOpened {
-	type: 'chatOpened';
-	chat: string;
-	project: string;
-	kind: 'claude' | 'codex';
-	title: string;
-	busy: boolean;
-	config: ChatConfigOption[];
-}
-
-/** `reset` replaces the transcript (a replay); otherwise the events are appended (a tool event updates its card). */
-export interface AgentsPageChatEvents {
-	type: 'chatEvents';
-	chat: string;
-	reset?: true;
-	events: ChatEvent[];
-}
-
-export interface AgentsPageChatFailed {
-	type: 'chatFailed';
-	project: string;
-	text: string;
-}
-
 /** The answer to a `chatSearch`: `query` is the page's own, so a late answer to an earlier one can be told apart. `more`: the search was cut short or capped. `cut`: it was cut short (sessions not searched in full), so no hits does not mean no match. */
 export interface AgentsPageChatFound {
 	type: 'chatFound';
@@ -209,4 +200,52 @@ export interface AgentsPageChatFound {
 	cut: boolean;
 }
 
-export type AgentsPageMessage = AgentsPageData | AgentsPageTail | AgentsPageReplyFailed | AgentsPageChatIndex | AgentsPageChatOpened | AgentsPageChatEvents | AgentsPageChatFailed | AgentsPageChatFound;
+// ---- the page's terminal panes (termBridge.ts, termHost.ts) -------------------------------------------------------------------
+
+/** Output of an agent's terminal. With `reset` it is the replay of what the terminal already printed on attach (or empty: the terminal was replaced), and replaces what the pane drew. */
+export interface AgentsPageTermData {
+	type: 'termData';
+	id: string;
+	data: string;
+	reset?: true;
+}
+
+/** The terminal is closed, or the session is not one this window has a terminal for: nothing more will come. */
+export interface AgentsPageTermGone {
+	type: 'termGone';
+	id: string;
+}
+
+/** Answer to a `termOpen`: `id` is the agent session now running in a terminal, to attach to. */
+export interface AgentsPageTermOpened {
+	type: 'termOpened';
+	id: string;
+	requestId: string;
+}
+
+export interface AgentsPageTermFailed {
+	type: 'termFailed';
+	requestId: string;
+	message: string;
+	/** The refusal is that another process runs the session: the page may offer "Resume anyway" (a `termOpen` with `force`, which the host confirms with a modal of its own). */
+	elsewhere?: true;
+}
+
+/** Host → page, once after `ready` and again when a layout is saved or deleted: the layout the page had on screen last (for the page to restore, once) and the layouts the user named. */
+export interface AgentsPageLayouts {
+	type: 'layouts';
+	current?: PaneLayout;
+	/** The Harness panel as the page left it (shown or not, how wide). */
+	harness?: HarnessPanelState;
+	saved: SavedLayout[];
+}
+
+/** Host → page: the answer to a `layoutSaveAs`, so the page says "Saved" only for a layout the host stored. `name` is the one the host read (trimmed); `reason` says why not: the 20-layout limit, or a layout or name the host's validation refused. */
+export interface AgentsPageLayoutSaved {
+	type: 'layoutSaved';
+	name: string;
+	ok: boolean;
+	reason?: 'limit' | 'invalid';
+}
+
+export type AgentsPageMessage = AgentsPageData | AgentsPageTail | AgentsPageHarnessData | AgentsPageHarnessFailed | AgentsPageChatIndex | AgentsPageChatFound | AgentsPageLayouts | AgentsPageLayoutSaved | AgentsPageTermData | AgentsPageTermGone | AgentsPageTermOpened | AgentsPageTermFailed;

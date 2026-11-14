@@ -32,7 +32,8 @@
     "chatParticipantAdditions",
     "chatParticipantPrivate",
     "defaultChatParticipant",
-    "chatProvider"
+    "chatProvider",
+    "terminalDataWriteEvent"
   ],
   "contributes": {
     "chatSessions": [
@@ -132,7 +133,7 @@
         {
           "id": "flowAgents",
           "title": "Agents",
-          "icon": "$(sparkle)"
+          "icon": "media/agents.svg"
         }
       ]
     },
@@ -142,7 +143,7 @@
           "type": "webview",
           "id": "flow.agents",
           "name": "Agents",
-          "icon": "$(sparkle)"
+          "icon": "media/agents.svg"
         }
       ]
     },
@@ -238,7 +239,10 @@
         "command": "flow.agents.openPage",
         "title": "Open Agents Page",
         "category": "Insilode",
-        "icon": "$(sparkle)"
+        "icon": {
+          "light": "media/agents-light.svg",
+          "dark": "media/agents-dark.svg"
+        }
       },
       {
         "command": "flow.agents.forgetTrustedFolders",
@@ -274,11 +278,11 @@
             "tab"
           ],
           "enumDescriptions": [
-            "The Agents page opens in a window of its own, with a sidebar of your projects and their sessions.",
+            "The Agents page opens in a window of its own that shows only the page (no editor tabs, breadcrumbs or status bar): a sidebar of your projects and their sessions, and the agents' terminals. Files and other editors always open in the main window.",
             "The Agents page opens as an editor tab, like any other."
           ],
           "default": "window",
-          "description": "Where the Agents page opens on the desktop. In the web UI it is always an editor tab."
+          "description": "Where the Agents page opens on the desktop: a window of its own that shows only the page (closing it closes the page; the agents keep running), or an editor tab. In the web UI, which has no second window, it is always an editor tab."
         },
         "flow.agents.claude.allowBypassPermissions": {
           "type": "boolean",
@@ -721,6 +725,8 @@
     "@agentclientprotocol/sdk": "1.7.0"
   },
   "devDependencies": {
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "esbuild": "0.28.1"
   }
 }

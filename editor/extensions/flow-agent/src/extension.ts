@@ -3,13 +3,15 @@
  *  Agents dock shows their status. The chat-panel session types stay available behind a setting.
  *--------------------------------------------------------------------------------------------*/
 
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { AgentHost, type AgentKind } from './acp';
 import { agentLook } from './agentLook';
 import { installAgentExtensions } from './agentExtensions';
 import { Agents } from './agents';
 import { AgentsPanel, OPEN_AGENTS_PAGE } from './agentsPanel';
-import { ChatSessions, forgetTrustedFolders } from './chatSessions';
+import { forgetTrustedFolders } from './folderTrust';
+import { LayoutStore } from './layoutStore';
 import { AskRouter } from './ask';
 import { DesktopStatus } from './desktop';
 import { AgentsDock } from './dock';
@@ -20,9 +22,12 @@ import { renameFromPalette, removeFromPalette, swapFromPalette } from './palette
 import { Peers } from './peers';
 import { pickAgent } from './pick';
 import { PrEvents } from './prEvents';
+import { runningElsewhere } from './liveSessions';
+import { ProjectIndex } from './projectIndex';
 import { startOrResume } from './resume';
 import { toggleBypass } from './bypass';
 import { sweepLeftoverCopies } from './swap';
+import { TermHost } from './termHost';
 import { settingMoves } from './legacySettings';
 import { AgentSessionType } from './sessionType';
 import { WorktreeRows } from './worktreeActions';
@@ -73,14 +78,17 @@ export async function activate(context: vscode.ExtensionContext) {
 	// The gaze: turning flow.agents.gaze off stops it at once and clears what the canvas kept.
 	context.subscriptions.push(watchGazeSetting());
 
-	const agents = new Agents(context, log);
+	const agents = new Agents(context, log, ids => runningElsewhere(ids));
 	agents.start().catch(e => log.error(`Agents: start failed: ${(e as Error).message}`));
 	const worktrees = new WorktreeRows(agents);
 	const peers = new Peers(agents, worktrees);
 	const dock = new AgentsDock(agents, worktrees, peers);
-	// The Agents page's own chat (not VS Code's chat: it works with or without flow.agents.showChat), with agent processes of its own.
-	const chats = new ChatSessions(context, agents, log);
-	const page = new AgentsPanel(agents, worktrees, peers, chats);
+	// The Agents page's sidebar of earlier sessions, its terminals and its pane layouts (none of it is VS Code's chat).
+	const projects = new ProjectIndex(() => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath, () => [...agents.sessions.values()].filter(s => s.state !== 'ended').flatMap(s => [s.id, s.agentId ?? '', path.basename(s.transcript ?? '', '.jsonl'), ...agents.aliasesOf(s.id)]),
+		() => peers.view().peers.flatMap(p => p.rows.flatMap(r => [r.id, r.agentId ?? '', ...(r.aliases ?? [])])));
+	// A session another program runs must not be resumed here too: asked of the machine at the moment of the click, not of the page's last list.
+	const term = new TermHost(agents, context, async id => (await runningElsewhere([id]))?.source);
+	const page = new AgentsPanel(agents, worktrees, peers, projects, term, new LayoutStore(context.workspaceState, context.globalState));
 	const router = new AskRouter(context, agents);
 	context.subscriptions.push(
 		agents,
@@ -88,7 +96,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		worktrees,
 		peers,
 		dock,
-		chats,
+		term,
 		page,
 		vscode.commands.registerCommand(OPEN_AGENTS_PAGE, () => page.open()),
 		vscode.commands.registerCommand('flow.agents.forgetTrustedFolders', () => forgetTrustedFolders(context)),

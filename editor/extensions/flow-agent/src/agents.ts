@@ -30,6 +30,9 @@ import { shimScript } from './shim';
 import { canExplain, explainPrompt } from './explain';
 import { claudeHookCommand, hookRunner, hookScript, type HookRunner } from './hookScript';
 import { ShellEditSweep } from './shellEdits';
+import { openRegular } from './safeFile';
+import { confirmResumeAnyway } from './resumeAnyway';
+import { idInUse } from './spawnGuard';
 import { bypassAllowed } from './bypass';
 import { SKELETON_GATE, SKELETON_PROMPT_GATE } from './skeleton';
 import { canType, notReady, oneLine, slashRefusal, slashText, type AgentCli, type AgentState, type CustomCli, type SessionInfo, type SlashKind, type SlashResult } from './askTarget';
@@ -331,6 +334,12 @@ export class Agents implements vscode.Disposable {
 	private orphanTimer: NodeJS.Timeout | undefined;
 	/** Claude session ids that continue a Insilode agent after /clear or /resume gave the conversation a new one. */
 	private readonly aliases = new Map<string, string>();
+
+	/** The ids a session's conversation went on under after /clear or /resume (not its own): the registry of running Claude sessions names the conversation by the new one. */
+	aliasesOf(id: string): string[] {
+		return [...this.aliases].filter(([, owner]) => owner === id).map(([alias]) => alias);
+	}
+
 	/** Set once start() has run: spawn waits on it so an agent never starts before the hook settings exist. */
 	private ready: Promise<void> | undefined;
 	private settingsOk = false;
@@ -355,7 +364,11 @@ export class Agents implements vscode.Disposable {
 	/** Everything a session has edited since it started (files, and the methods and flows once a turn's impact is known), for conflicts.ts. */
 	private readonly edits = new Map<string, SessionEdits>();
 
-	constructor(private readonly context: vscode.ExtensionContext, private readonly log: vscode.LogOutputChannel) {
+	/**
+	 * `elsewhere`: the live Claude session, if any, that has one of these ids (liveSessions.ts runningElsewhere, passed in by extension.ts: that
+	 * module imports this one's types, so it cannot be imported here). Every resume goes through spawn, which asks it.
+	 */
+	constructor(private readonly context: vscode.ExtensionContext, private readonly log: vscode.LogOutputChannel, private readonly elsewhere?: (ids: (string | undefined)[]) => Promise<{ source: string; pid: number } | undefined>) {
 		this.disposables.push(
 			vscode.window.onDidCloseTerminal(t => this.closed(t)),
 			vscode.window.onDidChangeActiveTerminal(t => this.seen(t)),
@@ -742,9 +755,11 @@ export class Agents implements vscode.Disposable {
 	/**
 	 * Starts a CLI in a new terminal. Claude gets a session id we chose, so every hook maps to its terminal. `place` puts a new
 	 * agent in a git worktree of its own or in this checkout; left out, the flow.agents.worktree setting decides. A resumed
-	 * agent goes back to where it ran.
+	 * agent goes back to where it ran. `opts.cwd` runs it in that folder instead of this window's (the caller has asked the user about
+	 * a folder outside the workspace: folderTrust.ts), with no worktree of its own; `opts.quiet` leaves the terminal hidden and
+	 * the focus where it is, for a terminal that a page shows itself. `opts.confirmed`: the user was already asked about a session another process runs.
 	 */
-	async spawn(cli: AgentCli, resume?: AgentSession, custom?: CustomAgent, place?: 'worktree' | 'here'): Promise<AgentSession | undefined> {
+	async spawn(cli: AgentCli, resume?: AgentSession, custom?: CustomAgent, place?: 'worktree' | 'here', opts?: { cwd?: string; quiet?: boolean; confirmed?: boolean }): Promise<AgentSession | undefined> {
 		if (!vscode.workspace.isTrusted) {
 			void vscode.window.showWarningMessage('Agents run commands in your workspace: trust this folder to start one.', 'Manage Workspace Trust')
 				.then(c => c && vscode.commands.executeCommand('workbench.trust.manage'));
@@ -757,6 +772,20 @@ export class Agents implements vscode.Disposable {
 			return undefined;
 		}
 		const id = resume?.id ?? randomUUID();
+		// Replacing a live session's row would leave its terminal running untracked, its hook events landing on the new row.
+		if (resume && idInUse(this.sessions.get(id), this.terminals.has(id))) {
+			void vscode.window.showErrorMessage(`Insilode: ${this.sessions.get(id)?.name || 'that session'} is already running in a terminal; it was not started a second time.`);
+			return undefined;
+		}
+		// Every way to resume (the palette, the page, a click on an ended row) ends here, so the check is here: a Claude session that the
+		// registry says another live process runs is not resumed unless the user, asked in a modal, says so (a stale entry looks the same).
+		// Asked of the registry now, under every id the conversation has had. `opts.confirmed`: the caller has just asked (termHost.ts).
+		if (cli === 'claude' && resume && !opts?.confirmed) {
+			const where = await this.elsewhere?.([id, resume.agentId, ...this.aliasesOf(id)]).catch(() => undefined);
+			if (where && !await confirmResumeAnyway(resume.name, where)) {
+				return undefined;
+			}
+		}
 		const base = cli === 'claude' ? 'Claude' : cli === 'codex' ? 'Codex' : custom?.name ?? 'Agent';
 		const same = [...this.sessions.values()].filter(s => s.state !== 'ended' && (s.cli === 'custom' ? s.command === custom?.command : s.cli === cli)).length;
 		// An empty name (a moved agent whose name only said its old CLI, swap.ts) is named as a new one.
@@ -767,7 +796,7 @@ export class Agents implements vscode.Disposable {
 			void vscode.window.showErrorMessage(`Insilode: the worktree of ${resume.name} (${resume.worktree.path}) is gone; it cannot be resumed there.`);
 			return undefined;
 		}
-		if (!resume && folder && (place ?? (vscode.workspace.getConfiguration('flow.agents').get<boolean>('worktree', false) ? 'worktree' : 'here')) === 'worktree') {
+		if (!resume && !opts?.cwd && folder && (place ?? (vscode.workspace.getConfiguration('flow.agents').get<boolean>('worktree', false) ? 'worktree' : 'here')) === 'worktree') {
 			try {
 				const slug = worktreeSlug(cli === 'custom' ? custom?.name ?? 'agent' : cli, randomBytes(2).toString('hex'));
 				const startFrom = vscode.workspace.getConfiguration('flow.agents').get<string>('worktreeBase', 'current') === 'origin-default' ? 'origin-default' : 'current';
@@ -779,7 +808,7 @@ export class Agents implements vscode.Disposable {
 				return undefined;
 			}
 		}
-		const cwd = agentCwd(worktree?.path ?? folder);
+		const cwd = agentCwd(worktree?.path ?? opts?.cwd ?? folder);
 		// Taken before the agent runs, so nothing it does is in it. A resumed session keeps its original start; one with none
 		// saved (it came from a transcript, not from Insilode) starts here.
 		const start = resume?.start ?? await sessionStart(cwd);
@@ -805,7 +834,9 @@ export class Agents implements vscode.Disposable {
 			// The id is typed into the shell: one that is not a uuid (from a hook, or Codex's importer) is never typed; Codex's picker opens instead.
 			: cli === 'codex' ? (resume ? `codex resume${profile}${resume.agentId && UUID.test(resume.agentId) ? ` ${resume.agentId}` : ''}` : `codex${profile}`)
 			: resume?.command ?? custom?.command ?? '';
-		terminal.show();
+		if (!opts?.quiet) {
+			terminal.show();
+		}
 		terminal.sendText(command);
 		const session: AgentSession = {
 			id, cli, name, state: cli === 'claude' ? 'starting' : 'unknown', since: Date.now(), todos: [], unread: false,
@@ -847,6 +878,21 @@ export class Agents implements vscode.Disposable {
 		this.save();
 		this.changed.fire();
 		return session;
+	}
+
+	/** The terminal an agent runs in; nothing once it is closed. */
+	terminalOf(id: string): vscode.Terminal | undefined {
+		return this.terminals.get(id);
+	}
+
+	/** The agent that runs in this terminal (termHost.ts mirrors its output to the Agents page). */
+	sessionOf(t: vscode.Terminal): string | undefined {
+		for (const [id, term] of this.terminals) {
+			if (term === t) {
+				return id;
+			}
+		}
+		return undefined;
 	}
 
 	/** The sessions as the ask picker sees them (askTarget.ts): which have reported from a hook, which still have a terminal. */
@@ -1677,7 +1723,7 @@ export class Agents implements vscode.Disposable {
 	}
 
 	private async head(file: string, bytes: number) {
-		const h = await fs.open(file, 'r');
+		const { handle: h } = await openRegular(file);
 		try {
 			const buf = Buffer.alloc(bytes);
 			const { bytesRead } = await h.read(buf, 0, bytes, 0);
@@ -1689,9 +1735,8 @@ export class Agents implements vscode.Disposable {
 	}
 
 	private async tail(file: string, bytes = 65536) {
-		const h = await fs.open(file, 'r');
+		const { handle: h, size } = await openRegular(file);
 		try {
-			const { size } = await h.stat();
 			const start = Math.max(0, size - bytes);
 			const buf = Buffer.alloc(size - start);
 			await h.read(buf, 0, buf.length, start);
