@@ -127,3 +127,114 @@ test('a newer chatSearch aborts the older one and only the newer is answered; th
 	assert.deepEqual(signals.map(s => s.aborted), [true, false])
 	assert.deepEqual(t.posted.filter(m => m.type === 'chatFound').map(m => [m.query, m.hits[0].title]), [['second', 'second']])
 })
+
+// The page's terminal panes: the bridge (termBridge.ts) is tested on its own; here is how the panel uses it.
+const TT = { timeout: 5000 }
+
+/** A panel over a fake terminal host: attach records the sink, so a test can print into the pane. */
+function withTerm() {
+	const calls = { input: [], resize: [], detach: [], open: [] }
+	const sinks = {}
+	const term = {
+		attach: (id, sink) => id === 'gone' ? undefined : (sinks[id] = sink, { replay: 'replay:' + id, detach: () => calls.detach.push(id) }),
+		input: (id, data) => calls.input.push([id, data]),
+		resize: (id, cols, rows) => calls.resize.push([id, cols, rows]),
+		open: async (kind, sessionId, cwd) => { calls.open.push([kind, sessionId, cwd]); if (cwd === '/nope') throw new Error('not a folder'); return sessionId ?? 'new-session' },
+	}
+	const none = () => ({ dispose() {} })
+	const posted = []
+	const listeners = {}
+	globalThis.__panel = () => ({
+		visible: false, active: true, webview: { html: '', postMessage: async m => { posted.push(JSON.parse(JSON.stringify(m))); return true }, onDidReceiveMessage: f => { listeners.message = f; return none() } },
+		onDidChangeViewState: none, onDidDispose: none, reveal() {}, dispose() {},
+	})
+	const panel = new AgentsPanel({ onDidChange: none, sessions: new Map() }, undefined, undefined, undefined, term)
+	panel.open()
+	return { posted, calls, sinks, page: m => listeners.message(m), dispose: () => panel.dispose() }
+}
+
+test('attach sends the replay as a reset, then live chunks; an unknown session is told it is gone', TT, async () => {
+	const t = withTerm()
+	t.page({ type: 'termAttach', id: 's1' })
+	t.sinks.s1.data('live ')
+	t.sinks.s1.data('', true)
+	t.page({ type: 'termAttach', id: 'gone' })
+	await sleep(10)
+	assert.deepEqual(t.posted, [
+		{ type: 'termData', id: 's1', data: 'replay:s1', reset: true },
+		{ type: 'termData', id: 's1', data: 'live ' },
+		{ type: 'termData', id: 's1', data: '', reset: true },
+		{ type: 'termGone', id: 'gone' },
+	])
+})
+
+test('the page may type into and resize only a terminal it attached, and not after it detached', TT, async () => {
+	const t = withTerm()
+	t.page({ type: 'termInput', id: 's1', data: 'before' })
+	t.page({ type: 'termResize', id: 's1', cols: 80, rows: 24 })
+	t.page({ type: 'termAttach', id: 's1' })
+	t.page({ type: 'termInput', id: 's1', data: 'a' })
+	t.page({ type: 'termResize', id: 's1', cols: 100, rows: 30 })
+	t.page({ type: 'termInput', id: 's2', data: 'other' })
+	t.page({ type: 'termDetach', id: 's1' })
+	t.page({ type: 'termInput', id: 's1', data: 'after' })
+	t.page({ type: 'termResize', id: 's1', cols: 90, rows: 20 })
+	await sleep(10)
+	assert.deepEqual(t.calls.input, [['s1', 'a']])
+	assert.deepEqual(t.calls.resize, [['s1', 100, 30]])
+	assert.deepEqual(t.calls.detach, ['s1'])
+	// A message the page got wrong is dropped before it gets here.
+	t.page({ type: 'termInput', id: 's1', data: 'x'.repeat(64 * 1024 + 1) })
+	t.page({ type: 'termResize', id: 's1', cols: 1, rows: 1 })
+	assert.equal(t.calls.input.length, 1)
+})
+
+test('attaching again keeps one attachment: the new one is made before the old one leaves', TT, async () => {
+	const t = withTerm()
+	t.page({ type: 'termAttach', id: 's1' })
+	t.page({ type: 'termAttach', id: 's1' })
+	assert.deepEqual(t.calls.detach, ['s1'], 'only the first is let go')
+	t.page({ type: 'termInput', id: 's1', data: 'a' })
+	assert.equal(t.calls.input.length, 1)
+})
+
+test('a closed terminal is reported once and forgotten', TT, async () => {
+	const t = withTerm()
+	t.page({ type: 'termAttach', id: 's1' })
+	t.sinks.s1.gone()
+	t.page({ type: 'termInput', id: 's1', data: 'late' })
+	await sleep(10)
+	assert.deepEqual(t.posted.filter(m => m.type === 'termGone'), [{ type: 'termGone', id: 's1' }])
+	assert.equal(t.calls.input.length, 0)
+})
+
+test('closing the page lets every attachment go', TT, async () => {
+	const t = withTerm()
+	t.page({ type: 'termAttach', id: 's1' })
+	t.page({ type: 'termAttach', id: 's2' })
+	t.dispose()
+	assert.deepEqual(t.calls.detach.sort(), ['s1', 's2'])
+})
+
+test('termOpen answers with the session or the sentence, tagged with the page\'s request id', TT, async () => {
+	const t = withTerm()
+	t.page({ type: 'termOpen', requestId: 'r1', kind: 'claude', sessionId: SID(1) })
+	t.page({ type: 'termOpen', requestId: 'r2', kind: 'codex', cwd: '/nope' })
+	t.page({ type: 'termOpen', requestId: 'r3', kind: 'claude' })
+	await sleep(20)
+	assert.deepEqual(t.calls.open, [['claude', SID(1), undefined], ['codex', undefined, '/nope'], ['claude', undefined, undefined]])
+	assert.deepEqual(t.posted.filter(m => m.type === 'termOpened' || m.type === 'termFailed'), [
+		{ type: 'termOpened', id: SID(1), requestId: 'r1' },
+		{ type: 'termFailed', requestId: 'r2', message: 'not a folder' },
+		{ type: 'termOpened', id: 'new-session', requestId: 'r3' },
+	])
+})
+
+test('without a terminal host the panes answer "gone" and "failed" instead of throwing', TT, async () => {
+	const t = setup()
+	t.page({ type: 'termAttach', id: 's1' })
+	t.page({ type: 'termInput', id: 's1', data: 'x' })
+	t.page({ type: 'termOpen', requestId: 'r1', kind: 'claude' })
+	await sleep(10)
+	assert.deepEqual(t.posted, [{ type: 'termGone', id: 's1' }, { type: 'termFailed', requestId: 'r1', message: 'Terminals are not available.' }])
+})

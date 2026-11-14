@@ -21,6 +21,8 @@ import type { Peers } from './peers';
 import { renameFromPalette } from './paletteActions';
 import { savedAgents } from './pick';
 import { startOrResume } from './resume';
+import type { TermAttachment } from './termBridge';
+import type { TermHost } from './termHost';
 import { readTail } from './transcriptTail';
 import type { WorktreeRows } from './worktreeActions';
 
@@ -40,8 +42,10 @@ export class AgentsPanel implements vscode.Disposable {
 	private searching: AbortController | undefined;
 	/** Counts the page's opens: when two are asked in a row the last one wins, however long each takes. */
 	private openSeq = 0;
+	/** The terminals this page shows, by agent session: only these may be typed into or resized by the page. */
+	private readonly attached = new Map<string, TermAttachment>();
 
-	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows, private readonly peers?: Peers, private readonly chats?: ChatSessions) {}
+	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows, private readonly peers?: Peers, private readonly chats?: ChatSessions, private readonly term?: TermHost) {}
 
 	/**
 	 * Opens the page, or brings the open one to the front. On the desktop it opens in a window of its own (flow.agents.page.location,
@@ -109,6 +113,8 @@ export class AgentsPanel implements vscode.Disposable {
 		this.openChat = undefined;
 		this.chatQueue = [];
 		this.searching?.abort();
+		this.attached.forEach(a => a.detach());
+		this.attached.clear();
 		this.listeners.forEach(d => d.dispose());
 		this.listeners = [];
 	}
@@ -164,6 +170,46 @@ export class AgentsPanel implements vscode.Disposable {
 			case 'chatCancel': return void this.chats?.cancel(m.chat);
 			case 'chatAnswer': return this.chats?.answer(m.chat, m.req, m.option);
 			case 'chatSet': return void this.chats?.setOption(m.chat, m.config, m.value);
+			// The terminal panes (termHost.ts): the page may only touch a terminal it attached to.
+			case 'termAttach': return this.termAttach(m.id);
+			case 'termDetach': return this.termDetach(m.id);
+			case 'termInput': return void (this.attached.has(m.id) && this.term?.input(m.id, m.data));
+			case 'termResize': return void (this.attached.has(m.id) && this.term?.resize(m.id, m.cols, m.rows));
+			case 'termOpen': return void this.termOpen(m.requestId, m.kind, m.sessionId, m.cwd);
+		}
+	}
+
+	/** The replay first, then live chunks (the bridge batches them). Attaching again replaces the pane's attachment without ever leaving the terminal unattached, so its size is kept. */
+	private termAttach(id: string) {
+		const attachment = this.term?.attach(id, {
+			data: (data, reset) => this.send({ type: 'termData', id, data, ...(reset ? { reset: true as const } : {}) }),
+			gone: () => {
+				this.attached.delete(id);
+				this.send({ type: 'termGone', id });
+			},
+		});
+		if (!attachment) {
+			return this.send({ type: 'termGone', id });
+		}
+		const old = this.attached.get(id);
+		this.attached.set(id, attachment);
+		this.send({ type: 'termData', id, data: attachment.replay, reset: true });
+		old?.detach();
+	}
+
+	private termDetach(id: string) {
+		this.attached.get(id)?.detach();
+		this.attached.delete(id);
+	}
+
+	private async termOpen(requestId: string, kind: 'claude' | 'codex', sessionId: string | undefined, cwd: string | undefined) {
+		try {
+			if (!this.term) {
+				throw new Error('Terminals are not available.');
+			}
+			this.send({ type: 'termOpened', id: await this.term.open(kind, sessionId, cwd), requestId });
+		} catch (e) {
+			this.send({ type: 'termFailed', requestId, message: (e as Error).message });
 		}
 	}
 

@@ -6,7 +6,6 @@
  *  folder comes from the index, and a folder outside this window's workspace is asked about once before an agent runs in it.
  *--------------------------------------------------------------------------------------------*/
 
-import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
@@ -14,24 +13,17 @@ import type { RequestPermissionRequest, RequestPermissionResponse, SessionConfig
 import { AgentHost, explain, type AgentKind, type SessionSink } from './acp';
 import type { Agents } from './agents';
 import type { AgentsPageChatOpened, ChatEvent, ChatProject } from './agentsData';
-import { appendEvent, autoAnswer, configAccepts, configView, currentValue, diffsOf, gateAnswer, type AnswerGate, isInside, MAX_EVENTS, modeWarning, needsConfirmation, permissionDecision, samePath, settleGate, shown, toEvents } from './chatCore';
+import { appendEvent, autoAnswer, configAccepts, configView, currentValue, diffsOf, gateAnswer, type AnswerGate, isInside, MAX_EVENTS, modeWarning, needsConfirmation, permissionDecision, samePath, settleGate, toEvents } from './chatCore';
 import { agentCwd } from './env';
+import { forgetTrustedFolders, real, TRUSTED_FOLDERS, trustFolder } from './folderTrust';
 import { gazeAcp, gazeTurn } from './gazeHost';
 import { SessionIndex, transcriptFile } from './sessionIndex';
 import { searchSessions, type SessionHit } from './sessionSearch';
 import { folderKey } from './storageKey';
 
 const LABEL: Record<AgentKind, string> = { claude: 'Claude', codex: 'Codex' };
-/** Folders the user agreed to run agents in (their real paths), kept across windows and restarts. */
-export const TRUSTED_FOLDERS = 'flow.agents.trustedFolders';
-const MAX_TRUSTED = 200;
-
-/** Takes back every folder the user agreed to run agents in (the palette command "Forget Folders Trusted for Agents"). */
-export async function forgetTrustedFolders(context: vscode.ExtensionContext): Promise<void> {
-	const n = context.globalState.get<string[]>(TRUSTED_FOLDERS, []).length;
-	await context.globalState.update(TRUSTED_FOLDERS, undefined);
-	void vscode.window.showInformationMessage(n ? `Insilode: forgot ${n} folder${n === 1 ? '' : 's'} trusted for agents. The next chat in one asks again.` : 'Insilode: no folder was trusted for agents.');
-}
+// Moved to folderTrust.ts, which the page's terminals use too; kept here for the code that already imports them from this file.
+export { forgetTrustedFolders, TRUSTED_FOLDERS };
 /** Chats kept in memory; the oldest idle one goes when a new one would be the ninth. */
 const MAX_CHATS = 8;
 /** An adapter exit this soon after a failed turn is that turn's own cause (the closed connection), not a second event. */
@@ -83,16 +75,6 @@ interface Chat {
 	tools: Map<string, { kind?: string; files: string[] }>;
 }
 
-/** A path realpath cannot resolve in a second (a dead network mount) is taken as written: the caller then compares it with other paths as written. */
-async function real(p: string): Promise<string> {
-	let timer: NodeJS.Timeout | undefined;
-	const slow = new Promise<string>(resolve => timer = setTimeout(() => resolve(path.resolve(p)), 1500));
-	try {
-		return await Promise.race([fs.realpath(p).catch(() => path.resolve(p)), slow]);
-	} finally {
-		clearTimeout(timer);
-	}
-}
 const tilde = (p: string) => { const home = os.homedir(); return p === home || p.startsWith(home + path.sep) ? '~' + p.slice(home.length) : p; };
 
 export class ChatSessions implements vscode.Disposable {
@@ -201,37 +183,9 @@ export class ChatSessions implements vscode.Disposable {
 		return own && folderKey(own) === project ? agentCwd(own) ?? own : found;
 	}
 
-	/**
-	 * A cwd inside this (trusted) window's workspace passes; any other folder needs the user's yes, once, kept by its real path.
-	 * Returns that real path (what the user saw and confirmed) and whether the folder is inside the workspace.
-	 */
-	private async trust(cwd: string): Promise<{ where: string; inside: boolean }> {
-		if (!vscode.workspace.isTrusted) {
-			throw new Error('Trust this workspace to run agents.');
-		}
-		const where = await real(cwd);
-		if (!(await fs.stat(where).then(s => s.isDirectory(), () => false))) {
-			throw new Error(`${shown(cwd)} is not a folder any more.`);
-		}
-		for (const f of vscode.workspace.workspaceFolders ?? []) {
-			if (isInside(await real(f.uri.fsPath), where)) {
-				return { where, inside: true };
-			}
-		}
-		const trusted = this.context.globalState.get<string[]>(TRUSTED_FOLDERS, []);
-		if (trusted.includes(where)) {
-			return { where, inside: false };
-		}
-		const yes = 'Run Agent Here';
-		const answer = await vscode.window.showWarningMessage(`Run an agent in ${shown(where)}?`, {
-			modal: true,
-			detail: 'This folder is outside the project open in this window. The agent can read, edit and run commands there, and the folder\'s own Claude settings (hooks, permission rules) and its .mcp.json servers load too: a repository you do not trust can make them run code. You can take these folders back with "Insilode: Forget Folders Trusted for Agents".',
-		}, yes);
-		if (answer !== yes) {
-			throw new Error('Not started: the agent was not allowed to run in that folder.');
-		}
-		await this.context.globalState.update(TRUSTED_FOLDERS, [...trusted, where].slice(-MAX_TRUSTED));
-		return { where, inside: false };
+	/** See folderTrust.ts: inside the workspace passes, any other folder is asked about once. */
+	private trust(cwd: string): Promise<{ where: string; inside: boolean }> {
+		return trustFolder(this.context, cwd);
 	}
 
 	/** Opens a session of a project (an earlier one, or a new one with no `session`) and returns its chat. Throws the sentence the page shows. */

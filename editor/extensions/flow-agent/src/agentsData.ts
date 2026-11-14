@@ -209,4 +209,33 @@ export interface AgentsPageChatFound {
 	cut: boolean;
 }
 
-export type AgentsPageMessage = AgentsPageData | AgentsPageTail | AgentsPageReplyFailed | AgentsPageChatIndex | AgentsPageChatOpened | AgentsPageChatEvents | AgentsPageChatFailed | AgentsPageChatFound;
+// ---- the page's terminal panes (termBridge.ts, termHost.ts) -------------------------------------------------------------------
+
+/** Output of an agent's terminal. With `reset` it is the replay of what the terminal already printed on attach (or empty: the terminal was replaced), and replaces what the pane drew. */
+export interface AgentsPageTermData {
+	type: 'termData';
+	id: string;
+	data: string;
+	reset?: true;
+}
+
+/** The terminal is closed, or the session is not one this window has a terminal for: nothing more will come. */
+export interface AgentsPageTermGone {
+	type: 'termGone';
+	id: string;
+}
+
+/** Answer to a `termOpen`: `id` is the agent session now running in a terminal, to attach to. */
+export interface AgentsPageTermOpened {
+	type: 'termOpened';
+	id: string;
+	requestId: string;
+}
+
+export interface AgentsPageTermFailed {
+	type: 'termFailed';
+	requestId: string;
+	message: string;
+}
+
+export type AgentsPageMessage = AgentsPageData | AgentsPageTail | AgentsPageReplyFailed | AgentsPageChatIndex | AgentsPageChatOpened | AgentsPageChatEvents | AgentsPageChatFailed | AgentsPageChatFound | AgentsPageTermData | AgentsPageTermGone | AgentsPageTermOpened | AgentsPageTermFailed;

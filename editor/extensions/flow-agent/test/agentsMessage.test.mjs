@@ -121,3 +121,54 @@ test('chatSearch takes a text of two to two hundred characters (once trimmed) an
 		assert.equal(a.agentsAction({ type: 'chatSearch', query }), undefined, String(query))
 	}
 })
+
+// The page's terminal panes: ids are agent session ids from the rows; sizes and input are bounded; a termOpen path is absolute.
+const TT = { timeout: 5000 }
+
+test('the four pane messages are accepted and carry only their own fields', TT, () => {
+	assert.deepEqual(a.agentsAction({ type: 'termAttach', id: 's1', x: 1 }), { type: 'termAttach', id: 's1' })
+	assert.deepEqual(a.agentsAction({ type: 'termDetach', id: 's1' }), { type: 'termDetach', id: 's1' })
+	assert.deepEqual(a.agentsAction({ type: 'termInput', id: 's1', data: '\x1b[A' }), { type: 'termInput', id: 's1', data: '\x1b[A' })
+	assert.deepEqual(a.agentsAction({ type: 'termInput', id: 's1', data: 'x'.repeat(64 * 1024) }).type, 'termInput')
+	assert.deepEqual(a.agentsAction({ type: 'termResize', id: 's1', cols: 2, rows: 1 }), { type: 'termResize', id: 's1', cols: 2, rows: 1 })
+	assert.deepEqual(a.agentsAction({ type: 'termResize', id: 's1', cols: 500, rows: 300 }), { type: 'termResize', id: 's1', cols: 500, rows: 300 })
+})
+
+test('pane messages without an id, with oversize input or with a size out of range are dropped', TT, () => {
+	for (const type of ['termAttach', 'termDetach', 'termInput', 'termResize']) {
+		assert.equal(a.agentsAction({ type, data: 'x', cols: 80, rows: 24 }), undefined, type + ' without id')
+		assert.equal(a.agentsAction({ type, id: '', data: 'x', cols: 80, rows: 24 }), undefined, type + ' empty id')
+		assert.equal(a.agentsAction({ type, id: 'x'.repeat(201), data: 'x', cols: 80, rows: 24 }), undefined, type + ' long id')
+	}
+	for (const data of ['', 'x'.repeat(64 * 1024 + 1), 5, null, undefined, ['a']]) {
+		assert.equal(a.agentsAction({ type: 'termInput', id: 's1', data }), undefined, String(data).slice(0, 10))
+	}
+	for (const [cols, rows] of [[1, 24], [501, 24], [80, 0], [80, 301], [80.5, 24], [80, 24.5], [NaN, 24], [80, Infinity], ['80', 24], [80, '24'], [undefined, 24], [80, undefined], [-80, 24]]) {
+		assert.equal(a.agentsAction({ type: 'termResize', id: 's1', cols, rows }), undefined, `${cols}x${rows}`)
+	}
+})
+
+test('termOpen names a CLI, optionally a session by uuid and an absolute folder, and always a request id', TT, () => {
+	const cwd = process.platform === 'win32' ? 'C:\\work\\app' : '/work/app'
+	assert.deepEqual(a.agentsAction({ type: 'termOpen', requestId: 'r1', kind: 'claude' }), { type: 'termOpen', requestId: 'r1', kind: 'claude' })
+	assert.deepEqual(a.agentsAction({ type: 'termOpen', requestId: 'r1', kind: 'codex', sessionId: SESSION, cwd, extra: 1 }), { type: 'termOpen', requestId: 'r1', kind: 'codex', sessionId: SESSION, cwd })
+	for (const bad of [
+		{ kind: 'claude' }, // no request id
+		{ requestId: '', kind: 'claude' },
+		{ requestId: 'x'.repeat(101), kind: 'claude' },
+		{ requestId: 5, kind: 'claude' },
+		{ requestId: 'r1', kind: 'custom' },
+		{ requestId: 'r1', kind: 'claude', sessionId: 'not-a-uuid' },
+		{ requestId: 'r1', kind: 'claude', sessionId: '../../etc/passwd' },
+		{ requestId: 'r1', kind: 'claude', sessionId: null },
+		{ requestId: 'r1', kind: 'claude', cwd: 'relative/dir' },
+		{ requestId: 'r1', kind: 'claude', cwd: '../up' },
+		{ requestId: 'r1', kind: 'claude', cwd: '' },
+		{ requestId: 'r1', kind: 'claude', cwd: 5 },
+		{ requestId: 'r1', kind: 'claude', cwd: null },
+		{ requestId: 'r1', kind: 'claude', cwd: '/a/\0/b' },
+		{ requestId: 'r1', kind: 'claude', cwd: '/' + 'x'.repeat(1024) },
+	]) {
+		assert.equal(a.agentsAction({ type: 'termOpen', ...bad }), undefined, JSON.stringify(bad).slice(0, 80))
+	}
+})

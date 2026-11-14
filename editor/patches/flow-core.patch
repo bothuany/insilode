@@ -1223,3 +1223,70 @@ index e6c222d..33a616b 100644
  	{
  		key: 'menuBar/home',
  		id: MenuId.MenubarHomeMenu,
+diff --git a/src/vs/workbench/contrib/terminal/browser/terminal.ts b/src/vs/workbench/contrib/terminal/browser/terminal.ts
+index 156b980c..432a86fd 100644
+--- a/src/vs/workbench/contrib/terminal/browser/terminal.ts
++++ b/src/vs/workbench/contrib/terminal/browser/terminal.ts
+@@ -14,7 +14,7 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
+ import { IKeyMods } from '../../../../platform/quickinput/common/quickInput.js';
+ import { IMarkProperties, ITerminalCapabilityImplMap, ITerminalCapabilityStore, ITerminalCommand, TerminalCapability } from '../../../../platform/terminal/common/capabilities/capabilities.js';
+ import { IMergedEnvironmentVariableCollection } from '../../../../platform/terminal/common/environmentVariable.js';
+-import { IExtensionTerminalProfile, IReconnectionProperties, IShellIntegration, IShellLaunchConfig, ITerminalBackend, ITerminalDimensions, ITerminalLaunchError, ITerminalProfile, ITerminalTabLayoutInfoById, TerminalExitReason, TerminalIcon, TerminalLocation, TerminalShellType, TerminalType, TitleEventSource, WaitOnExitValue, type IDecorationAddon, type ShellIntegrationInjectionFailureReason } from '../../../../platform/terminal/common/terminal.js';
++import { IExtensionTerminalProfile, IReconnectionProperties, IShellIntegration, IShellLaunchConfig, ITerminalBackend, ITerminalDimensionsOverride, ITerminalLaunchError, ITerminalProfile, ITerminalTabLayoutInfoById, TerminalExitReason, TerminalIcon, TerminalLocation, TerminalShellType, TerminalType, TitleEventSource, WaitOnExitValue, type IDecorationAddon, type ShellIntegrationInjectionFailureReason } from '../../../../platform/terminal/common/terminal.js';
+ import { IColorTheme } from '../../../../platform/theme/common/themeService.js';
+ import { IWorkspaceFolder } from '../../../../platform/workspace/common/workspace.js';
+ import { EditorInput } from '../../../common/editor/editorInput.js';
+@@ -1324,7 +1324,7 @@ export interface ITerminalInstance extends IBaseTerminalInstance {
+ 	 * Sets the terminal instance's dimensions to the values provided via the onDidOverrideDimensions event,
+ 	 * which allows overriding the regular dimensions (fit to the size of the panel).
+ 	 */
+-	setOverrideDimensions(dimensions: ITerminalDimensions): void;
++	setOverrideDimensions(dimensions: ITerminalDimensionsOverride | undefined, immediate?: boolean): void;
+ 
+ 	/**
+ 	 * Sets the terminal instance's dimensions to the values provided via quick input.
+diff --git a/src/vs/workbench/contrib/terminal/browser/terminalCommands.ts b/src/vs/workbench/contrib/terminal/browser/terminalCommands.ts
+index 248fa9a5..8704b039 100644
+--- a/src/vs/workbench/contrib/terminal/browser/terminalCommands.ts
++++ b/src/vs/workbench/contrib/terminal/browser/terminalCommands.ts
+@@ -3,11 +3,39 @@
+  *  Licensed under the MIT License. See License.txt in the project root for license information.
+  *--------------------------------------------------------------------------------------------*/
+ 
++import { CommandsRegistry } from '../../../../platform/commands/common/commands.js';
+ import { KeybindingsRegistry, KeybindingWeight } from '../../../../platform/keybinding/common/keybindingsRegistry.js';
+-import { ITerminalGroupService } from './terminal.js';
++import { ITerminalGroupService, ITerminalService } from './terminal.js';
+ 
+ export function setupTerminalCommands(): void {
+ 	registerOpenTerminalAtIndexCommands();
++	registerInsilodeSetDimensionsCommand();
++}
++
++/**
++ * Insilode: an extension cannot resize a real terminal, and the Agents page mirrors agent terminals into panes of its own. Sets the
++ * exact size of the terminal whose shell has `processId`, or gives it back its own size when cols and rows are undefined. True when
++ * such a terminal was found.
++ */
++function registerInsilodeSetDimensionsCommand(): void {
++	CommandsRegistry.registerCommand('_insilode.terminal.setDimensions', (accessor, processId: unknown, cols: unknown, rows: unknown) => {
++		const whole = (n: unknown, min: number, max: number): n is number => typeof n === 'number' && Number.isInteger(n) && n >= min && n <= max;
++		if (!whole(processId, 1, Number.MAX_SAFE_INTEGER)) {
++			return false;
++		}
++		// An undefined argument can arrive as null across the extension host's RPC.
++		const unset = (n: unknown) => n === undefined || n === null;
++		const reset = unset(cols) && unset(rows);
++		if (!reset && !(whole(cols, 2, 500) && whole(rows, 1, 300))) {
++			return false;
++		}
++		const instance = accessor.get(ITerminalService).instances.find(i => i.processId === processId);
++		if (!instance) {
++			return false;
++		}
++		instance.setOverrideDimensions(reset ? undefined : { cols: cols as number, rows: rows as number, forceExactSize: true }, true);
++		return true;
++	});
+ }
+ 
+ function registerOpenTerminalAtIndexCommands(): void {

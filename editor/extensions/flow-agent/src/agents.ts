@@ -742,9 +742,11 @@ export class Agents implements vscode.Disposable {
 	/**
 	 * Starts a CLI in a new terminal. Claude gets a session id we chose, so every hook maps to its terminal. `place` puts a new
 	 * agent in a git worktree of its own or in this checkout; left out, the flow.agents.worktree setting decides. A resumed
-	 * agent goes back to where it ran.
+	 * agent goes back to where it ran. `opts.cwd` runs it in that folder instead of this window's (the caller has asked the user about
+	 * a folder outside the workspace: folderTrust.ts), with no worktree of its own; `opts.quiet` leaves the terminal hidden and
+	 * the focus where it is, for a terminal that a page shows itself.
 	 */
-	async spawn(cli: AgentCli, resume?: AgentSession, custom?: CustomAgent, place?: 'worktree' | 'here'): Promise<AgentSession | undefined> {
+	async spawn(cli: AgentCli, resume?: AgentSession, custom?: CustomAgent, place?: 'worktree' | 'here', opts?: { cwd?: string; quiet?: boolean }): Promise<AgentSession | undefined> {
 		if (!vscode.workspace.isTrusted) {
 			void vscode.window.showWarningMessage('Agents run commands in your workspace: trust this folder to start one.', 'Manage Workspace Trust')
 				.then(c => c && vscode.commands.executeCommand('workbench.trust.manage'));
@@ -767,7 +769,7 @@ export class Agents implements vscode.Disposable {
 			void vscode.window.showErrorMessage(`Insilode: the worktree of ${resume.name} (${resume.worktree.path}) is gone; it cannot be resumed there.`);
 			return undefined;
 		}
-		if (!resume && folder && (place ?? (vscode.workspace.getConfiguration('flow.agents').get<boolean>('worktree', false) ? 'worktree' : 'here')) === 'worktree') {
+		if (!resume && !opts?.cwd && folder && (place ?? (vscode.workspace.getConfiguration('flow.agents').get<boolean>('worktree', false) ? 'worktree' : 'here')) === 'worktree') {
 			try {
 				const slug = worktreeSlug(cli === 'custom' ? custom?.name ?? 'agent' : cli, randomBytes(2).toString('hex'));
 				const startFrom = vscode.workspace.getConfiguration('flow.agents').get<string>('worktreeBase', 'current') === 'origin-default' ? 'origin-default' : 'current';
@@ -779,7 +781,7 @@ export class Agents implements vscode.Disposable {
 				return undefined;
 			}
 		}
-		const cwd = agentCwd(worktree?.path ?? folder);
+		const cwd = agentCwd(worktree?.path ?? opts?.cwd ?? folder);
 		// Taken before the agent runs, so nothing it does is in it. A resumed session keeps its original start; one with none
 		// saved (it came from a transcript, not from Insilode) starts here.
 		const start = resume?.start ?? await sessionStart(cwd);
@@ -805,7 +807,9 @@ export class Agents implements vscode.Disposable {
 			// The id is typed into the shell: one that is not a uuid (from a hook, or Codex's importer) is never typed; Codex's picker opens instead.
 			: cli === 'codex' ? (resume ? `codex resume${profile}${resume.agentId && UUID.test(resume.agentId) ? ` ${resume.agentId}` : ''}` : `codex${profile}`)
 			: resume?.command ?? custom?.command ?? '';
-		terminal.show();
+		if (!opts?.quiet) {
+			terminal.show();
+		}
 		terminal.sendText(command);
 		const session: AgentSession = {
 			id, cli, name, state: cli === 'claude' ? 'starting' : 'unknown', since: Date.now(), todos: [], unread: false,
@@ -847,6 +851,21 @@ export class Agents implements vscode.Disposable {
 		this.save();
 		this.changed.fire();
 		return session;
+	}
+
+	/** The terminal an agent runs in; nothing once it is closed. */
+	terminalOf(id: string): vscode.Terminal | undefined {
+		return this.terminals.get(id);
+	}
+
+	/** The agent that runs in this terminal (termHost.ts mirrors its output to the Agents page). */
+	sessionOf(t: vscode.Terminal): string | undefined {
+		for (const [id, term] of this.terminals) {
+			if (term === t) {
+				return id;
+			}
+		}
+		return undefined;
 	}
 
 	/** The sessions as the ask picker sees them (askTarget.ts): which have reported from a hook, which still have a terminal. */

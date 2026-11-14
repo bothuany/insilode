@@ -5,14 +5,20 @@
  *  tested on its own (test/agentsMessage.test.mjs); agentsPanel.ts carries the actions out.
  *--------------------------------------------------------------------------------------------*/
 
+import * as path from 'path';
 import { dockAction, PEER_KEY, type DockAction } from './dockMessage';
 import { MAX_QUERY, MIN_QUERY } from './sessionSearch';
+import { MAX_COLS, MAX_ROWS, MIN_COLS, MIN_ROWS } from './termBridge';
 
 /** The longest reply the page may type into an agent's prompt. */
 export const MAX_REPLY = 8000;
 
 /** The longest chat id, config id and config value the page may name; the host re-checks them against the session. */
 const MAX_CHAT = 200;
+/** The most keystrokes (or pasted text) one termInput carries, and the longest folder or request id a termOpen names. */
+export const MAX_TERM_INPUT = 64 * 1024;
+const MAX_PATH = 1024;
+const MAX_REQUEST = 100;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type AgentsAction =
@@ -37,10 +43,26 @@ export type AgentsAction =
 	| { type: 'chatPrompt'; chat: string; text: string }
 	| { type: 'chatCancel'; chat: string }
 	| { type: 'chatAnswer'; chat: string; req: number; option: number }
-	| { type: 'chatSet'; chat: string; config: string; value: string };
+	| { type: 'chatSet'; chat: string; config: string; value: string }
+	/**
+	 * The page's terminal panes (termBridge.ts). `id` is an agent session id from the rows. Attach: replay the terminal's output and stream the
+	 * rest; input: raw keystrokes; resize: the pane's size in cells.
+	 */
+	| { type: 'termAttach'; id: string }
+	| { type: 'termDetach'; id: string }
+	| { type: 'termInput'; id: string; data: string }
+	| { type: 'termResize'; id: string; cols: number; rows: number }
+	/**
+	 * Open an agent in a terminal pane (termHost.ts): `sessionId` resumes that session, none starts a new one; in `cwd` (an absolute path; one
+	 * outside this window's workspace is asked about once) or this window's folder. `requestId` is the page's, echoed in the answer.
+	 */
+	| { type: 'termOpen'; requestId: string; kind: 'claude' | 'codex'; sessionId?: string; cwd?: string };
 
 /** An integer in [0, below). */
 const isIndex = (n: unknown, below: number): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 0 && n < below;
+
+/** An integer in [min, max]. */
+const isRange = (n: unknown, min: number, max: number): n is number => typeof n === 'number' && Number.isInteger(n) && n >= min && n <= max;
 
 export function agentsAction(raw: unknown): AgentsAction | undefined {
 	const m = raw as Record<string, unknown> | null;
@@ -73,6 +95,19 @@ export function agentsAction(raw: unknown): AgentsAction | undefined {
 			return chat !== undefined && isIndex(m.req, 1e9) && isIndex(m.option, 20) ? { type: 'chatAnswer', chat, req: m.req, option: m.option } : undefined;
 		case 'chatSet':
 			return chat !== undefined && typeof m.config === 'string' && m.config.length > 0 && m.config.length <= 64 && typeof m.value === 'string' && m.value.length <= MAX_CHAT ? { type: 'chatSet', chat, config: m.config, value: m.value } : undefined;
+		case 'termAttach':
+			return id !== undefined ? { type: 'termAttach', id } : undefined;
+		case 'termDetach':
+			return id !== undefined ? { type: 'termDetach', id } : undefined;
+		case 'termInput':
+			return id !== undefined && typeof m.data === 'string' && m.data.length > 0 && m.data.length <= MAX_TERM_INPUT ? { type: 'termInput', id, data: m.data } : undefined;
+		case 'termResize':
+			return id !== undefined && isRange(m.cols, MIN_COLS, MAX_COLS) && isRange(m.rows, MIN_ROWS, MAX_ROWS) ? { type: 'termResize', id, cols: m.cols, rows: m.rows } : undefined;
+		case 'termOpen':
+			return typeof m.requestId === 'string' && m.requestId.length > 0 && m.requestId.length <= MAX_REQUEST && (m.kind === 'claude' || m.kind === 'codex')
+				&& (m.sessionId === undefined || (typeof m.sessionId === 'string' && SESSION_ID.test(m.sessionId)))
+				&& (m.cwd === undefined || (typeof m.cwd === 'string' && m.cwd.length <= MAX_PATH && !m.cwd.includes('\0') && path.isAbsolute(m.cwd)))
+				? { type: 'termOpen', requestId: m.requestId, kind: m.kind, ...(m.sessionId === undefined ? {} : { sessionId: m.sessionId }), ...(m.cwd === undefined ? {} : { cwd: m.cwd }) } : undefined;
 		// The chat settings link belongs to the dock only.
 		case 'chat':
 			return undefined;
