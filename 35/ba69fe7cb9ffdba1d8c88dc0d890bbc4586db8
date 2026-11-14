@@ -1,0 +1,115 @@
+editor/extensions/flow-agent/src/agentsShell.ts
+  s_c2897d6f2cc16d::t_34ea116ce6b67b 721-723
+docs/agent-tools.md
+  s_c2897d6f2cc16d::t_ac1b4403ed9fef 60-61
+  s_c2897d6f2cc16d::t_c9bfb5e8397639 63
+test/e2e-desktop/probes/agents-window.mjs
+  s_c2897d6f2cc16d::t_d906eeffe34133 75-76,78-79,84-89
+  s_c2897d6f2cc16d::t_301fa59bfb5ec2 1-74,77,80-83,90-110
+editor/extensions/flow-agent/test/liveSessions.test.mjs
+  s_c2897d6f2cc16d::t_e7ffe8f4cfc2e9 7-8
+  s_c2897d6f2cc16d::t_422c780c9f7ee3 60,66,105,114-162
+editor/extensions/flow-agent/src/agentsPanel.ts
+  s_c2897d6f2cc16d::t_d906eeffe34133 88,92-93
+  s_c2897d6f2cc16d::t_a73c281086a4f3 85-87,97-99,101-104,108-116,118,121-122,124-126
+  s_c2897d6f2cc16d::t_4f4103b7ff69ed 322-323
+  s_c2897d6f2cc16d::t_1bf57cc48d9116 382-384,386-397
+editor/extensions/flow-agent/src/extension.ts
+  s_c2897d6f2cc16d::t_ea3cc385bbb628 25
+  s_c2897d6f2cc16d::t_7227cb964f9995 81
+  s_c2897d6f2cc16d::t_5b0a75bd252d0a 87-88,90
+editor/extensions/flow-agent/test/peers.test.mjs
+  s_c2897d6f2cc16d::t_c94daad3431e2d 87-96
+editor/extensions/flow-agent/test/projectIndex.test.mjs
+  s_c2897d6f2cc16d::t_823eb698213411 121-138,159
+  s_c2897d6f2cc16d::t_963ba47943c3fb 6,139-157
+  s_c2897d6f2cc16d::t_f7709443d48bd2 158
+editor/extensions/flow-agent/test/sessionIndex.test.mjs
+  s_c2897d6f2cc16d::t_823eb698213411 134-135,138-140
+editor/extensions/flow-agent/src/termHost.ts
+  s_c2897d6f2cc16d::t_76774dfde925e7 107-113,123-124
+editor/extensions/flow-agent/src/projectIndex.ts
+  s_c2897d6f2cc16d::t_f7709443d48bd2 46,76-77
+  s_c2897d6f2cc16d::t_963ba47943c3fb 7,14,18-21,45,75,78-94
+  s_c2897d6f2cc16d::t_4f4103b7ff69ed 30,38-42,47-51,53-54,95-103,106-108
+editor/extensions/flow-agent/test/spawnGuard.test.mjs
+  s_c2897d6f2cc16d::t_7227cb964f9995 41-47
+  s_c2897d6f2cc16d::t_fc0a3158ba1f12 5,33-40,48
+editor/extensions/flow-agent/test/termHost.test.mjs
+  s_c2897d6f2cc16d::t_0d773b6f179a6e 264-274
+editor/extensions/flow-agent/src/safeFile.ts
+  s_c2897d6f2cc16d::t_d30671b0691992 1-31
+editor/extensions/flow-agent/media/agents-light.svg
+  s_c2897d6f2cc16d::t_b16d97dd376ae4 1
+editor/extensions/flow-agent/test/agentIcon.test.mjs
+  s_c2897d6f2cc16d::t_6f9da5ceb27d4c 1-38
+editor/extensions/flow-agent/src/liveSessions.ts
+  s_c2897d6f2cc16d::t_b5035502f3c2f1 19,37-38,45,47-50,111-114,119-120,122-123,126,133-134,139-161,163-167,169-171,175-184
+editor/extensions/flow-agent/package.json
+  s_c2897d6f2cc16d::t_47ac0142b3a50f 136,146,242-245
+  s_c2897d6f2cc16d::t_690768b0dd84c3 281,285
+editor/extensions/flow-agent/src/cost.ts
+  s_c2897d6f2cc16d::t_2deb5539ffc74b 25
+  s_c2897d6f2cc16d::t_b5035502f3c2f1 211
+editor/extensions/flow-agent/test/safeFile.test.mjs
+  s_c2897d6f2cc16d::t_e7ffe8f4cfc2e9 1-44
+editor/extensions/flow-agent/src/agents.ts
+  s_c2897d6f2cc16d::t_b5035502f3c2f1 1725,1737
+  s_c2897d6f2cc16d::t_7227cb964f9995 366-370,782
+  s_c2897d6f2cc16d::t_89ebff3ed9ae32 341
+  s_c2897d6f2cc16d::t_ee95aebb4a3275 33-34,336-340,779-781,783-786
+  s_c2897d6f2cc16d::t_083e559b21dd97 787
+editor/patches/flow-core.patch
+  s_c2897d6f2cc16d::t_b546df0564fa06 1476-1505
+  s_c2897d6f2cc16d::t_f477753bb4e278 1293-1475
+editor/extensions/flow-agent/test/transcriptTail.test.mjs
+  s_c2897d6f2cc16d::t_e7ffe8f4cfc2e9 5-6,90-97
+  s_c2897d6f2cc16d::t_7867597648a269 98
+test/arch/commands.test.mjs
+  s_c2897d6f2cc16d::t_4241572c106fc2 34-36
+editor/extensions/flow-agent/test/agentsPanel.test.mjs
+  s_c2897d6f2cc16d::t_95242393a1c58e 383-384,405-406,458-468
+  s_c2897d6f2cc16d::t_284515631d5522 23,27-28,290-321,323-328,336-338,342-352,469
+  s_c2897d6f2cc16d::t_d906eeffe34133 322
+  s_c2897d6f2cc16d::t_cf0c45a892f038 329,333,339-341
+  s_c2897d6f2cc16d::t_e84e21fcd338ed 330-332,334-335
+  s_c2897d6f2cc16d::t_abcc1584520c81 353,470
+editor/extensions/flow-agent/media/agents-dark.svg
+  s_c2897d6f2cc16d::t_b16d97dd376ae4 1
+editor/extensions/flow-agent/src/spawnGuard.ts
+  s_c2897d6f2cc16d::t_ee95aebb4a3275 13-17
+editor/extensions/flow-agent/src/sessionIndex.ts
+  s_c2897d6f2cc16d::t_b5035502f3c2f1 11,18
+  s_c2897d6f2cc16d::t_4f4103b7ff69ed 269-271
+editor/extensions/flow-agent/src/agentRows.ts
+  s_c2897d6f2cc16d::t_5b0a75bd252d0a 46-47
+editor/extensions/flow-agent/media/agents.svg
+  s_c2897d6f2cc16d::t_b16d97dd376ae4 1
+editor/extensions/flow-agent/src/swap.ts
+  s_c2897d6f2cc16d::t_5702e3f5885030 18,245-246
+  s_c2897d6f2cc16d::t_a93070f035eb50 159-171,174
+editor/extensions/flow-agent/src/transcriptTail.ts
+  s_c2897d6f2cc16d::t_b5035502f3c2f1 8,187-190
+editor/extensions/flow-agent/src/peersCore.ts
+  s_c2897d6f2cc16d::t_5b0a75bd252d0a 39-45,51,85
+editor/extensions/flow-agent/test/agentsPage.test.mjs
+  s_c2897d6f2cc16d::t_6a895937809d2e 1808-1816
+editor/extensions/flow-agent/src/agentsData.ts
+  s_c2897d6f2cc16d::t_5b0a75bd252d0a 38-39,50-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "35ba69fe7cb9ffdba1d8c88dc0d890bbc4586db8",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
