@@ -150,7 +150,12 @@ function xtermFactory(host, o) {
 	const fit = new X.FitAddon();
 	term.loadAddon(fit);
 	term.open(host);
-	term.onData(o.onData);
+	// The pane is a second screen of a terminal that already has one in the editor, and that one answers the program's questions (device
+	// attributes, cursor position, mode and colour reports). An answer from this screen too would reach the program twice, or land in the
+	// shell as typed text once the program has gone; replaying old output on attach would answer questions asked long ago. So what xterm
+	// emits is dropped when it is nothing but such reports. A modified F3 (CSI 1;nR) looks like a cursor report and is let through.
+	const REPORTS = /^(?:\x1b\[[?>]?[\d;]*(?:c|n|\$y|t)|\x1b\[\??(?!1;[2-8]R)\d+;\d+R|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1bP[^\x1b]*\x1b\\)+$/;
+	term.onData(d => { if (!REPORTS.test(d)) { o.onData(d); } });
 	// A workspace shortcut is the page's, not the agent's: xterm leaves it alone and it bubbles to the page's own key handler.
 	term.attachCustomKeyEventHandler(e => !o.isChord(e));
 	return {
