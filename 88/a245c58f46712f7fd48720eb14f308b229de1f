@@ -1,0 +1,53 @@
+editor/extensions/flow-view/src/mcp/tools.ts
+  s_1c1a3e293d98a8::t_4a9783aacd7545 349
+  s_1c1a3e293d98a8::t_43a173b3b93ab0 350
+  s_1c1a3e293d98a8::t_00e5178cb0da9c 525-526
+editor/extensions/flow-view/src/mcp/handlers.ts
+  s_1c1a3e293d98a8::t_242bbbef3a6416 340-341,364-369,374,383-384,386,405-406,429-438,440-446,450-476,479
+  s_1c1a3e293d98a8::t_7b129fc591e803 73-74,113-122,168,331,363,370-373,375-382,385,485-486,488,505-513,518,545-547,588-590,1106,1108,1147
+  s_1c1a3e293d98a8::t_913710bf73ba22 337-339,439
+  s_1c1a3e293d98a8::t_9d35c48fc25daf 447-449
+editor/extensions/flow-agent/src/agents.ts
+  s_1c1a3e293d98a8::t_970e34e85459ee 37,83-87,112,219-225,236,249-254,698,782-784
+  s_1c1a3e293d98a8::t_bc649c94c21717 812
+docs/agent-tools.md
+  s_1c1a3e293d98a8::t_58443cf5c0b8dc 10
+  s_1c1a3e293d98a8::t_50e7b11237b348 47
+  s_1c1a3e293d98a8::t_5cc87f063a84af 48
+docs/design/guided-tours.md
+  s_1c1a3e293d98a8::t_50e7b11237b348 62-63
+editor/extensions/flow-view/test/tour-resolve.test.mjs
+  s_1c1a3e293d98a8::t_c12c68d15fc7a8 194-197
+editor/extensions/flow-view/src/mcp/bridge.ts
+  s_1c1a3e293d98a8::t_7b129fc591e803 31,34
+editor/extensions/flow-view/src/tour/validate.ts
+  s_1c1a3e293d98a8::t_7b129fc591e803 35-37,81,84,129,138
+  s_1c1a3e293d98a8::t_43a173b3b93ab0 130-137,139-141
+editor/extensions/flow-agent/src/agentRows.ts
+  s_1c1a3e293d98a8::t_19e788b8f17d34 40
+editor/extensions/flow-view/src/extension.ts
+  s_1c1a3e293d98a8::t_00e5178cb0da9c 457-460,570-572,577-578,583-598
+  s_1c1a3e293d98a8::t_970e34e85459ee 33
+editor/extensions/flow-view/test/changes-in-flow.test.mjs
+  s_1c1a3e293d98a8::t_ae999c4f125090 63,172-200,202
+  s_1c1a3e293d98a8::t_c12c68d15fc7a8 4,110-171,201
+  s_1c1a3e293d98a8::t_ca8441ffb4ef04 18,24,27,56-62,64-109
+editor/extensions/flow-agent/src/extension.ts
+  s_1c1a3e293d98a8::t_70d92d941b32f1 101-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "88a245c58f46712f7fd48720eb14f308b229de1f",
+  "prompts": {},
+  "sessions": {
+    "s_1c1a3e293d98a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a99a3dd-7db0-4ba0-882d-a4dd922189be",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}
