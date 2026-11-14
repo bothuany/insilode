@@ -1,0 +1,24 @@
+.nvmrc
+  s_1c1a3e293d98a8::t_933fda4e652950 1
+.npmrc
+  s_1c1a3e293d98a8::t_7cad84b32c83b0 1
+docs/building.md
+  s_1c1a3e293d98a8::t_933fda4e652950 98
+  s_1c1a3e293d98a8::t_dedcc6b28ad4f5 99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "de9551e4eb12c397c8380aa2aa421df30ececb66",
+  "prompts": {},
+  "sessions": {
+    "s_1c1a3e293d98a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a99a3dd-7db0-4ba0-882d-a4dd922189be",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}
