@@ -163,8 +163,6 @@ function xtermFactory(host, o) {
 		},
 	};
 }
-const CHORD = { KeyN: 'needs', BracketRight: 'next', BracketLeft: 'prev', Backslash: 'splitRight', Minus: 'splitDown', NumpadSubtract: 'splitDown', KeyW: 'close', KeyM: 'max', KeyB: 'broadcast', KeyS: 'sidebar', Comma: 'moveBack', Period: 'moveFwd' };
-const chordOf = e => e.altKey && e.shiftKey && !e.ctrlKey && !e.metaKey ? CHORD[e.code] : undefined;
 if (typeof MutationObserver === 'function') {
 	// The theme (light, dark, high contrast) changes the variables the terminals draw with.
 	new MutationObserver(() => { for (const pv of ws.views.values()) { if (pv.term && pv.term.setTheme) { pv.term.setTheme(); } } }).observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] });
@@ -272,7 +270,7 @@ function paintEmpty() {
 	fill(emptyEl, [h('b', null, 'Drag a session here, or start a new one'),
 		h('p', null, 'Every pane is a live terminal. Drop a session from the list on the left to open it, on the middle of a pane to put it there, or on an edge to split the pane.'),
 		h('div', { class: 'row' }, startBtn('claude', 'New Claude'), startBtn('codex', 'New Codex')),
-		h('p', null, h('span', { class: 'kbd' }, 'Alt+Shift+\\'), ' splits with the selected session, ', h('span', { class: 'kbd' }, 'Alt+Shift+]'), ' moves between panes.')]);
+		h('p', null, h('span', { class: 'kbd' }, MOD + 'R'), ' splits with the selected session, ', h('span', { class: 'kbd' }, MOD + 'Arrow keys'), ' move between panes.')]);
 }
 function startBtn(cli, label) {
 	return h('button', { type: 'button', class: 'btn primary', title: 'Start ' + CLI_NAME[cli] + ' in a new pane', onclick: () => startNew(cli) }, raw('span', 'mk', MARK[cli]), label);
@@ -318,9 +316,10 @@ function render() {
 		add(stage, root);
 	}
 	paintActive();
+	harnessDock();
 	for (const pv of ws.views.values()) { scheduleFit(pv); }
 }
-function paintActive() { for (const pv of ws.views.values()) { pv.el.className = paneClass(pv); } }
+function paintActive() { for (const pv of ws.views.values()) { pv.el.className = paneClass(pv); } harnessSync(); }
 
 // A border between two children of a split: drag it, or focus it and use the arrow keys.
 function gutter(n, index, wrap) {
@@ -388,8 +387,10 @@ function findSplitNode(n, id) {
 // ---- changing the layout ---------------------------------------------------------------------------------------------------
 function stageFits(layout) {
 	const r = stage.getBoundingClientRect ? stage.getBoundingClientRect() : { width: 0, height: 0 };
+	// The Harness panel beside the panes is not in their way: when they would not fit next to it, it lies over them instead (agentsHarnessPanel.ts).
+	const room = r.width + (hp.open && !hp.over ? hp.width : 0);
 	// A workspace that is not on screen (another view) has no size to check against.
-	return !r.width || !r.height || L.fits(layout, r.width - 2 * STAGE_PAD, r.height - 2 * STAGE_PAD, PANE_W, PANE_H);
+	return !r.width || !r.height || L.fits(layout, room - 2 * STAGE_PAD, r.height - 2 * STAGE_PAD, PANE_W, PANE_H);
 }
 const sameSource = (a, b) => a.kind === b.kind && a.session === b.session && a.resume === b.resume && a.cwd === b.cwd;
 function commit(next, load) {
@@ -422,7 +423,7 @@ function layoutChanged() { paintBroadcast(); scheduleSave(); }
 function scheduleSave() {
 	if (!ws.got) { return; }
 	clearTimeout(ws.saveTimer);
-	ws.saveTimer = setTimeout(() => post({ type: 'layoutSave', layout: ws.layout }), 500);
+	ws.saveTimer = setTimeout(() => post({ type: 'layoutSave', layout: ws.layout, harness: { open: hp.open, width: hp.width } }), 500);
 }
 // A change to what a pane says about its own session (the id it got, its title): saved, but the pane is not rebuilt and the focus stays where it is.
 function patchContent(pv, patch) {
@@ -497,7 +498,9 @@ function openBeside(content, edge) { setView('work'); openContent(content, { bes
 // A new session of its own pane, in this window's folder or another project's.
 function startNew(cli, cwd, folder) {
 	setView('work');
-	openContent({ kind: 'terminal', agent: cli, ...(cwd ? { cwd } : {}), ...(folder ? { folder } : {}), title: 'New ' + CLI_NAME[cli] }, { beside: 'right' });
+	// With no folder named it is this window's, which the host reports: a pane keeps the folder it belongs to, wherever its layout is applied later.
+	const where = cwd || (data.project && data.project.cwd);
+	openContent({ kind: 'terminal', agent: cli, ...(where ? { cwd: where } : {}), ...(folder ? { folder } : {}), title: 'New ' + CLI_NAME[cli] }, { beside: 'right' });
 }
 function closeView(id) {
 	if (!ws.views.has(id)) { return; }
@@ -628,10 +631,15 @@ function wsMessage(m) {
 	} else if (m.type === 'tail') {
 		tails.set(m.id, { entries: Array.isArray(m.entries) ? m.entries : [], note: m.note });
 		for (const pv of ws.views.values()) { if ((pv.content.kind === 'transcript' || pv.status === 'noterm') && pv.content.session === m.id) { paintPane(pv); } }
+	} else if (harnessMessage(m)) {
+		return true;
+	} else if (m.type === 'layoutSaved') {
+		savedAnswer(m);
 	} else if (m.type === 'layouts') {
 		ws.saved = Array.isArray(m.saved) ? m.saved.filter(x => x && typeof x.name === 'string' && L.parse(x.layout)) : [];
 		if (!ws.got) {
 			ws.got = true;
+			restoreHarness(m.harness);
 			const cur = m.current ? L.parse(m.current) : undefined;
 			// Only a workspace nobody touched is restored; a pane whose session still runs attaches again, any other waits for "Resume".
 			if (cur && cur.root && !ws.touched && !ws.layout.root) { loadLayout(cur); }
@@ -717,9 +725,9 @@ function paintPane(pv) {
 			h('span', { class: 'pt', title: title }, title), folder ? h('span', { class: 'pf', title: c.cwd || (own && own.cwd) || folder }, folder) : null, branch ? h('span', { class: 'pbr', title: 'Worktree branch ' + branch }, '⎇ ' + branch) : null,
 			own && own.clash && own.clash.length ? h('span', { class: 'warnic', title: own.clash.map(x => x.text).join('\n') }, '⚠') : null, state, xl ? xbadge(xl) : null, xstate,
 			h('span', { class: 'pgrow' }), tools,
-			multi ? h('button', { type: 'button', class: 'ibtn', title: (maxed ? 'Restore' : 'Maximize') + ' (Alt+Shift+M)', 'aria-label': (maxed ? 'Restore ' : 'Maximize ') + title, 'aria-pressed': maxed ? 'true' : 'false', onclick: () => toggleMax(pv.id) }, raw('span', null, maxed ? ICO.restore : ICO.max)) : null,
+			multi ? h('button', { type: 'button', class: 'ibtn', title: (maxed ? 'Restore' : 'Maximize') + ' (' + MOD + 'M)', 'aria-label': (maxed ? 'Restore ' : 'Maximize ') + title, 'aria-pressed': maxed ? 'true' : 'false', onclick: () => toggleMax(pv.id) }, raw('span', null, maxed ? ICO.restore : ICO.max)) : null,
 			menuBtn,
-			h('button', { type: 'button', class: 'ibtn', title: 'Close pane; the session keeps running (Alt+Shift+W)', 'aria-label': 'Close pane ' + title, onclick: () => closeView(pv.id) }, raw('span', null, ICO.close))]);
+			h('button', { type: 'button', class: 'ibtn', title: 'Close pane; the session keeps running (' + MOD + 'W)', 'aria-label': 'Close pane ' + title, onclick: () => closeView(pv.id) }, raw('span', null, ICO.close))]);
 		pv.el.setAttribute('aria-label', title + ', ' + CLI_NAME[c.agent] + ', ' + DOT_LABEL[dot]);
 	}
 	pv.el.className = paneClass(pv);
@@ -854,22 +862,45 @@ function layoutItems() {
 	items.push({ form: true });
 	return items;
 }
+// A saved layout names the folder of every pane (an absolute path), so applying it in another project resumes each session where it was. A pane
+// of this window's own folder may have none written down (a workspace remembered by an older version): the row of its session, or the window's folder, says.
+function withFolders(layout) {
+	let next = layout;
+	for (const leaf of L.panes(layout)) {
+		const c = leaf.content;
+		if (c.cwd || c.peer) { continue; }
+		const own = c.session ? rowById(c.session) : undefined;
+		const cwd = (own && own.cwd) || (data.project && data.project.cwd);
+		if (cwd) { next = L.replaceContent(next, leaf.id, Object.assign({}, c, { cwd })); }
+	}
+	// replaceContent moves the focus to the pane it changed: the saved layout keeps the one the user had.
+	if (layout.focus === undefined) { next = Object.assign({}, next); delete next.focus; } else { next = Object.assign({}, next, { focus: layout.focus }); }
+	return next;
+}
+// What a named save is waiting on: the host answers with layoutSaved, and only that answer says whether it was kept.
+const pendingSaves = new Set();
 function saveLayoutAs(name) {
 	const clean = String(name || '').trim();
 	if (!clean || clean.length > 60 || !L.panes(ws.layout).length) { return false; }
 	if (ws.saved.length >= 20 && !ws.saved.some(s => s.name === clean)) { notice('At most 20 saved layouts. Delete one first.'); return false; }
-	post({ type: 'layoutSaveAs', name: clean, layout: ws.layout });
-	notice('Saved layout "' + clean + '".');
+	pendingSaves.add(clean);
+	post({ type: 'layoutSaveAs', name: clean, layout: withFolders(ws.layout) });
 	return true;
+}
+function savedAnswer(m) {
+	if (typeof m.name !== 'string' || !pendingSaves.delete(m.name)) { return; }
+	if (m.ok === true) { notice('Saved layout "' + m.name + '".'); }
+	else { notice('Layout "' + m.name + '" was not saved' + (m.reason === 'limit' ? ': at most 20 saved layouts. Delete one first.' : ': the editor did not accept it.')); }
 }
 
 // ---- drag sources in the sidebar and the keyboard ---------------------------------------------------------------------------
-// A row draggable by mouse; the same content opens from the keyboard (Enter, Alt+Shift+\ and Alt+Shift+-).
+// A row draggable by mouse; the same content opens from the keyboard (Enter, and the split shortcuts R and D).
 function dragRow(el, contentFn) {
 	el.setAttribute('draggable', 'true');
 	el.addEventListener('dragstart', e => beginDrag({ content: contentFn }, e));
 	el.addEventListener('dragend', () => endDrag());
 }
+const DIRECTIONS = ['left', 'right', 'up', 'down'];
 function wsKey(e) {
 	const c = chordOf(e);
 	if (!c) { return false; }
@@ -877,12 +908,23 @@ function wsKey(e) {
 	const f = ws.layout.focus;
 	if (c === 'broadcast') { toggleBroadcast(); return true; }
 	if (c === 'needs') { jumpToNext(); return true; }
+	if (c === 'harness') { toggleHarness(); return true; }
 	if (c === 'sidebar') { const el = rowEls.get(selKey) || side.querySelector('.srow'); if (el && el.focus) { el.focus(); } return true; }
 	setView('work');
-	if (c === 'next' || c === 'prev') { const id = L.neighbor(ws.layout, f, c === 'next' ? 1 : -1); if (id) { setFocus(id, true); } }
+	if (DIRECTIONS.indexOf(c) >= 0) {
+		// Where the panes sit decides, not their order; with none focused the first one takes the focus.
+		if (!f) { const first = focusTarget(); if (first) { setFocus(first, true); } return true; }
+		const r = stage.getBoundingClientRect ? stage.getBoundingClientRect() : { width: 0, height: 0 };
+		const to = L.towards(ws.layout, f, c, r.width - 2 * STAGE_PAD, r.height - 2 * STAGE_PAD);
+		if (to) {
+			// A maximized pane hides the others: the arrow carries the maximize to the neighbour instead of focusing something that cannot be seen.
+			if (ws.layout.max) { commit(L.maximize(ws.layout, to)); }
+			setFocus(to, true);
+		}
+	}
 	else if (c === 'splitRight' || c === 'splitDown') {
 		const content = selContent && selContent();
-		if (!content) { notice('Select a session in the list first (Alt+Shift+S), then split with it.'); }
+		if (!content) { notice('Select a session in the list first (' + MOD + 'S), then split with it.'); }
 		else { openContent(content, { beside: c === 'splitRight' ? 'right' : 'bottom' }); }
 	}
 	else if (c === 'close') { if (f) { closeView(f); } }

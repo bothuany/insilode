@@ -7,6 +7,7 @@
 
 import * as path from 'path';
 import { dockAction, type DockAction } from './dockMessage';
+import { panelState, type HarnessPanelState } from './layoutStore';
 import { layoutName, parse, type PaneLayout } from './paneLayout';
 import { MAX_QUERY, MIN_QUERY } from './sessionSearch';
 import { MAX_COLS, MAX_ROWS, MIN_COLS, MIN_ROWS } from './termBridge';
@@ -49,12 +50,32 @@ export type AgentsAction =
 	 * The page's pane layout (paneLayout.ts, layoutStore.ts). `layoutSave` is the layout on screen, for the page to come back to; `layoutSaveAs` and
 	 * `layoutDelete` keep the layouts the user names. The layouts are validated here, so what reaches storage is always sound.
 	 */
-	| { type: 'layoutSave'; layout: PaneLayout }
+	| { type: 'layoutSave'; layout: PaneLayout; harness?: HarnessPanelState }
 	| { type: 'layoutSaveAs'; name: string; layout: PaneLayout }
-	| { type: 'layoutDelete'; name: string };
+	| { type: 'layoutDelete'; name: string }
+	/**
+	 * The Harness panel (harnessBridge.ts). `harness`: the summary of the project at `cwd` (an absolute path; none means this window's folder), which
+	 * the host only gives for a folder the page was given. `harnessOpen`: open a file of the summary last sent for `cwd` (any other path is refused).
+	 * `harnessGo`: one of the harness extension's own views, by name: the page never names a command.
+	 */
+	| { type: 'harness'; cwd?: string }
+	| { type: 'harnessOpen'; cwd?: string; file: string; line?: number }
+	| { type: 'harnessGo'; target: 'map' | 'hook' };
+
+/** An absolute path as the page sends one, or undefined. */
+const absolutePath = (v: unknown): string | undefined => typeof v === 'string' && v.length > 0 && v.length <= MAX_PATH && !v.includes('\0') && path.isAbsolute(v) ? v : undefined;
 
 /** An integer in [min, max]. */
 const isRange = (n: unknown, min: number, max: number): n is number => typeof n === 'number' && Number.isInteger(n) && n >= min && n <= max;
+
+/** The name of a `layoutSaveAs` that `agentsAction` refused, for the host to answer it; undefined for anything else (or a name that is not text). */
+export function refusedSaveName(raw: unknown): string | undefined {
+	const m = raw as Record<string, unknown> | null;
+	if (!m || typeof m !== 'object' || m.type !== 'layoutSaveAs' || typeof m.name !== 'string') {
+		return undefined;
+	}
+	return layoutName(m.name) ?? m.name.slice(0, 60);
+}
 
 export function agentsAction(raw: unknown): AgentsAction | undefined {
 	const m = raw as Record<string, unknown> | null;
@@ -91,8 +112,21 @@ export function agentsAction(raw: unknown): AgentsAction | undefined {
 				? { type: 'termOpen', requestId: m.requestId, kind: m.kind, ...(m.sessionId === undefined ? {} : { sessionId: m.sessionId }), ...(m.cwd === undefined ? {} : { cwd: m.cwd }) } : undefined;
 		case 'layoutSave': {
 			const layout = parse(m.layout);
-			return layout ? { type: 'layoutSave', layout } : undefined;
+			const harness = panelState(m.harness);
+			return layout ? { type: 'layoutSave', layout, ...(harness ? { harness } : {}) } : undefined;
 		}
+		case 'harness': {
+			const cwd = m.cwd === undefined ? undefined : absolutePath(m.cwd);
+			return m.cwd === undefined || cwd !== undefined ? { type: 'harness', ...(cwd === undefined ? {} : { cwd }) } : undefined;
+		}
+		case 'harnessOpen': {
+			const cwd = m.cwd === undefined ? undefined : absolutePath(m.cwd);
+			const file = absolutePath(m.file);
+			const line = m.line === undefined ? undefined : isRange(m.line, 1, 1_000_000) ? m.line : null;
+			return file !== undefined && (m.cwd === undefined || cwd !== undefined) && line !== null ? { type: 'harnessOpen', ...(cwd === undefined ? {} : { cwd }), file, ...(line === undefined ? {} : { line }) } : undefined;
+		}
+		case 'harnessGo':
+			return m.target === 'map' || m.target === 'hook' ? { type: 'harnessGo', target: m.target } : undefined;
 		case 'layoutSaveAs': {
 			const layout = parse(m.layout);
 			const name = layoutName(m.name);

@@ -16,13 +16,16 @@ const BUILD = new Set(['bin', 'obj']);
 /** The files listed for a rule's globs, as the editor's search lists at most. */
 const LISTING_LIMIT = 20_000;
 
-/** Files of `root` (relative, with `/`) that `accept` takes, in name order, at most `limit`. */
-async function walk(root: string, limit: number, skipBuild: boolean, accept: (rel: string) => boolean): Promise<string[]> {
+/** Files of `root` (relative, with `/`) that `accept` takes, in name order, at most `limit`; none read after `deadline` (epoch ms) passed. */
+async function walk(root: string, limit: number, skipBuild: boolean, accept: (rel: string) => boolean, deadline = Infinity): Promise<string[]> {
 	const out: string[] = [];
 	const visit = async (rel: string): Promise<void> => {
+		if (Date.now() > deadline) {
+			return;
+		}
 		const entries = (await fs.readdir(path.join(root, rel), { withFileTypes: true }).catch(() => [])).sort((a, b) => a.name < b.name ? -1 : 1);
 		for (const e of entries) {
-			if (out.length >= limit) {
+			if (out.length >= limit || Date.now() > deadline) {
 				return;
 			}
 			const child = rel ? `${rel}/${e.name}` : e.name;
@@ -39,16 +42,18 @@ async function walk(root: string, limit: number, skipBuild: boolean, accept: (re
 	return out;
 }
 
-export function fsScanHost(roots: string[]): ScanHost {
+/** `deadline`: a time (epoch ms) after which the folder walks stop and answer with what they have (a summary of a huge folder must come back in time); the lint has none. */
+export function fsScanHost(roots: string[], deadline = Infinity): ScanHost {
 	const listings = new Map<string, Promise<string[]>>();
 	const listingOf = (root: string) => {
 		if (!listings.has(root)) {
-			listings.set(root, walk(root, LISTING_LIMIT, false, () => true));
+			// A walk the deadline cut answers a list of the full length (padded with empty names), which is how callers tell a cut list: no verdict from it.
+			listings.set(root, walk(root, LISTING_LIMIT, false, () => true, deadline).then(l => Date.now() > deadline ? l.concat(new Array<string>(Math.max(0, LISTING_LIMIT - l.length)).fill('')) : l));
 		}
 		return listings.get(root)!;
 	};
 	return {
-		nested: async (folder: ScanFolder, limit) => (await walk(folder.fsPath, limit, true, rel => /(^|\/)(CLAUDE|AGENTS)\.md$/.test(rel))).map(rel => path.join(folder.fsPath, rel)),
+		nested: async (folder: ScanFolder, limit) => (await walk(folder.fsPath, limit, true, rel => /(^|\/)(CLAUDE|AGENTS)\.md$/.test(rel), deadline)).map(rel => path.join(folder.fsPath, rel)),
 		listing: async (folder, limit) => (await listingOf(folder.fsPath)).slice(0, limit),
 		somewhere: async ref => {
 			const lists = await Promise.all(roots.map(listingOf));

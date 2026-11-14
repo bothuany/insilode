@@ -177,3 +177,39 @@ test('an unsound layout, a layout with no panes under a name, or a bad name is d
 	const many = Array.from({ length: 17 }, (_, i) => pane('p' + (i + 1)))
 	assert.equal(a.agentsAction({ type: 'layoutSave', layout: { seq: 17, root: { type: 'split', id: 's18', dir: 'row', sizes: many.map(() => 1 / 17), children: many } } }), undefined, 'more than 16 panes')
 })
+
+test('the Harness panel\'s messages: an absolute folder or none, a file that is an absolute path, a line that is a whole number, and a target from a short list', T, () => {
+	assert.deepEqual(a.agentsAction({ type: 'harness' }), { type: 'harness' })
+	assert.deepEqual(a.agentsAction({ type: 'harness', cwd: '/work/app', extra: 1 }), { type: 'harness', cwd: '/work/app' })
+	for (const cwd of ['', 'relative', '.', '~/x', 5, null, {}, 'a\0b', '/' + 'x'.repeat(1100)]) {
+		assert.equal(a.agentsAction({ type: 'harness', cwd }), undefined, JSON.stringify(cwd)?.slice(0, 40))
+	}
+	assert.deepEqual(a.agentsAction({ type: 'harnessOpen', file: '/work/app/CLAUDE.md' }), { type: 'harnessOpen', file: '/work/app/CLAUDE.md' })
+	assert.deepEqual(a.agentsAction({ type: 'harnessOpen', cwd: '/work/app', file: '/work/app/CLAUDE.md', line: 7 }), { type: 'harnessOpen', cwd: '/work/app', file: '/work/app/CLAUDE.md', line: 7 })
+	for (const bad of [{}, { file: 'CLAUDE.md' }, { file: '' }, { file: 5 }, { file: 'a\0b' }, { file: '/a', cwd: 'rel' }, { file: '/a', line: 0 }, { file: '/a', line: 1.5 }, { file: '/a', line: 1e9 }, { file: '/a', line: '3' }, { file: '/a', line: null }]) {
+		assert.equal(a.agentsAction({ type: 'harnessOpen', ...bad }), undefined, JSON.stringify(bad))
+	}
+	assert.deepEqual(a.agentsAction({ type: 'harnessGo', target: 'map' }), { type: 'harnessGo', target: 'map' })
+	assert.deepEqual(a.agentsAction({ type: 'harnessGo', target: 'hook' }), { type: 'harnessGo', target: 'hook' })
+	for (const target of ['workbench.action.quit', 'flowHarness.addHook', '', 5, undefined]) {
+		assert.equal(a.agentsAction({ type: 'harnessGo', target }), undefined, String(target))
+	}
+})
+
+test('layoutSave carries the Harness panel\'s state only when it is sound; the layout is judged on its own', T, () => {
+	assert.deepEqual(a.agentsAction({ type: 'layoutSave', layout: layout(), harness: { open: true, width: 340 } }), { type: 'layoutSave', layout: layout(), harness: { open: true, width: 340 } })
+	for (const harness of [{ open: 'yes', width: 340 }, { open: true, width: 100 }, { open: true, width: 700 }, { open: true, width: 340.5 }, { open: true }, 'x', null]) {
+		assert.deepEqual(a.agentsAction({ type: 'layoutSave', layout: layout(), harness }), { type: 'layoutSave', layout: layout() }, JSON.stringify(harness))
+	}
+	assert.equal(a.agentsAction({ type: 'layoutSave', layout: { seq: 'x' }, harness: { open: true, width: 340 } }), undefined)
+})
+
+test('a named save the validation refuses is told apart, for the host to answer it', T, () => {
+	assert.equal(a.agentsAction({ type: 'layoutSaveAs', name: 'Bad', layout: { seq: 'x' } }), undefined)
+	assert.equal(a.refusedSaveName({ type: 'layoutSaveAs', name: 'Bad', layout: { seq: 'x' } }), 'Bad')
+	assert.equal(a.refusedSaveName({ type: 'layoutSaveAs', name: '  Bad  ', layout: 5 }), 'Bad')
+	assert.equal(a.refusedSaveName({ type: 'layoutSaveAs', name: 'x'.repeat(100) }), 'x'.repeat(60), 'an unusable name is cut, not echoed whole')
+	for (const raw of [null, 'x', { type: 'layoutSave', name: 'a' }, { type: 'layoutSaveAs', name: 5 }, { type: 'layoutSaveAs' }]) {
+		assert.equal(a.refusedSaveName(raw), undefined, JSON.stringify(raw))
+	}
+})

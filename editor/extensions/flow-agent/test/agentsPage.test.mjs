@@ -66,7 +66,7 @@ function stubTerminals() {
 	return { terms, factory }
 }
 
-function boot({ vscodeApi = true, term = true } = {}) {
+function boot({ vscodeApi = true, term = true, mac = false, navigator = { platform: mac ? 'MacIntel' : 'Win32' } } = {}) {
 	const posted = []
 	const parentPosted = []
 	const body = new Node('body')
@@ -86,7 +86,7 @@ function boot({ vscodeApi = true, term = true } = {}) {
 	win.window = win
 	const stub = stubTerminals()
 	if (term) { win.insilodeTermFactory = stub.factory }
-	const ctx = { window: win, document, setInterval: (f, ms) => { intervals.push({ f, ms }); return 1 }, setTimeout: (f, ms) => { timers.push({ f, ms }); return timers.length }, clearTimeout: id => { if (timers[id - 1]) { timers[id - 1].f = () => {} } }, Math, Object, isFinite, Date, String, Number, Map, Set, Array, JSON, Boolean, RegExp }
+	const ctx = { window: win, document, setInterval: (f, ms) => { intervals.push({ f, ms }); return 1 }, setTimeout: (f, ms) => { timers.push({ f, ms }); return timers.length }, clearTimeout: id => { if (timers[id - 1]) { timers[id - 1].f = () => {} } }, Math, Object, isFinite, Date, String, Number, Map, Set, Array, JSON, Boolean, RegExp, ...(navigator ? { navigator } : {}) }
 	if (vscodeApi) { ctx.acquireVsCodeApi = () => ({ postMessage: m => posted.push(JSON.parse(JSON.stringify(m))) }) }
 	// One scope for the page's scripts, as the browser gives them (the avatar script defines window.insilodeAvatar).
 	vm.createContext(ctx)
@@ -96,7 +96,9 @@ function boot({ vscodeApi = true, term = true } = {}) {
 		send: m => onMessage({ data: m }),
 		data: (rows, extra = {}) => page.send({ type: 'data', now: Date.now(), avatar: 'pixel', rows, kept: [], customs: [], ...extra }),
 		key: (key, extra = {}) => { const e = { type: 'keydown', key, target: body, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, preventDefault() { e.prevented = true }, ...extra }; for (const f of docListeners.keydown || []) { f(e) } return e },
-		chord: (code, extra = {}) => page.key('x', { code, altKey: true, shiftKey: true, ...extra }),
+		/** A workspace shortcut as the platform types it: Ctrl+Alt on a Mac, Alt+Shift elsewhere. Letters are named by their `code` (KeyR), arrows and paging by their `key`. */
+		chord: (name, extra = {}) => page.key(/^(Arrow|Page)/.test(name) ? name : 'x', { code: name, ...(mac ? { ctrlKey: true, altKey: true } : { altKey: true, shiftKey: true }), ...extra }),
+		mac,
 		click: target => { for (const f of docListeners.click || []) { f({ type: 'click', target }) } },
 		/** Runs the timers that were set with this delay (or all of them), once. */
 		flush: ms => { for (const t of timers.splice(0)) { if (ms === undefined || t.ms === ms) { t.f() } else { timers.push(t) } } },
@@ -602,57 +604,194 @@ test('closing a pane lets go of its terminal and leaves the session running; the
 })
 
 // ---- the keyboard ----------------------------------------------------------------------------------------------------------
-test('workspace shortcuts: focus next and previous pane, close, maximize; plain keys and other modifiers are not shortcuts', T, () => {
-	const p = boot()
+/** Worker | Needy | Finisher side by side, the last one active. */
+function rowOfThree(opts) {
+	const p = boot(opts)
 	p.data(rows())
 	openRow(p, 'Worker')
 	dropRow(p, 'Needy', p.panes()[0], ...RIGHT)
 	dropRow(p, 'Finisher', p.panes()[1], ...RIGHT)
-	const active = () => titles(p)[p.panes().findIndex(n => n.className.split(' ').includes('active'))]
-	assert.equal(active(), 'Finisher')
-	assert.equal(p.chord('BracketRight').prevented, true)
-	assert.equal(active(), 'Worker', 'next wraps round')
-	p.chord('BracketLeft')
-	assert.equal(active(), 'Finisher')
-	p.chord('BracketLeft')
-	assert.equal(active(), 'Needy')
+	return p
+}
+const activeOf = p => titles(p)[p.panes().findIndex(n => n.className.split(' ').includes('active'))]
+
+test('workspace shortcuts: the arrows focus the pane in that direction, and stop at the edge; plain keys and other modifiers are not shortcuts', T, () => {
+	const p = rowOfThree()
+	assert.equal(activeOf(p), 'Finisher')
+	assert.equal(p.chord('ArrowLeft').prevented, true)
+	assert.equal(activeOf(p), 'Needy')
+	p.chord('ArrowLeft')
+	assert.equal(activeOf(p), 'Worker')
+	assert.equal(p.chord('ArrowLeft').prevented, true, 'still the page\'s key at the edge')
+	assert.equal(activeOf(p), 'Worker', 'no wrapping round')
+	p.chord('ArrowRight')
+	p.chord('ArrowRight')
+	assert.equal(activeOf(p), 'Finisher')
+	p.chord('ArrowRight')
+	p.chord('ArrowUp')
+	p.chord('ArrowDown')
+	assert.equal(activeOf(p), 'Finisher', 'nothing above, below or after the last one')
 	assert.ok(p.lastTerm().focused >= 0)
-	assert.equal(p.key('x', { code: 'BracketRight' }).prevented, undefined, 'not without the chord')
-	assert.equal(p.key('x', { code: 'BracketRight', altKey: true }).prevented, undefined)
-	assert.equal(p.key('x', { code: 'BracketRight', altKey: true, shiftKey: true, ctrlKey: true }).prevented, undefined)
-	p.chord('KeyM')
-	assert.equal(p.stage().byClass('pane').filter(n => n.tagName === 'SECTION').length, 1)
-	p.chord('KeyM')
-	assert.equal(p.panes().length, 3)
-	p.chord('KeyW')
-	assert.deepEqual(titles(p), ['Worker', 'Finisher'])
-	p.chord('Period')
-	assert.equal(p.panes().length, 2)
+	// Plain arrows, one modifier, or too many are the agent's or the editor's.
+	assert.equal(p.key('ArrowLeft', { code: 'ArrowLeft' }).prevented, undefined, 'not without the chord')
+	assert.equal(p.key('ArrowLeft', { code: 'ArrowLeft', altKey: true }).prevented, undefined)
+	assert.equal(p.key('ArrowLeft', { code: 'ArrowLeft', altKey: true, shiftKey: true, ctrlKey: true }).prevented, undefined)
+	assert.equal(p.key('ArrowLeft', { code: 'ArrowLeft', altKey: true, shiftKey: true, metaKey: true }).prevented, undefined)
+	assert.equal(activeOf(p), 'Finisher')
 })
 
-test('Alt+Shift+\\ and Alt+Shift+- split the focused pane with the selected session', T, () => {
+test('the arrows follow the geometry: down into the pane below, back up, and between columns', T, () => {
+	const p = rowOfThree()
+	// Worker | Needy | Finisher, then Worker dropped under Needy: [Needy over Worker] | Finisher.
+	dropRow(p, 'Worker', p.panes()[1], ...BOTTOM)
+	assert.deepEqual(titles(p), ['Needy', 'Worker', 'Finisher'])
+	assert.equal(activeOf(p), 'Worker')
+	p.chord('ArrowUp')
+	assert.equal(activeOf(p), 'Needy')
+	p.chord('ArrowUp')
+	assert.equal(activeOf(p), 'Needy', 'nothing above')
+	p.chord('ArrowDown')
+	assert.equal(activeOf(p), 'Worker')
+	p.chord('ArrowRight')
+	assert.equal(activeOf(p), 'Finisher')
+	p.chord('ArrowLeft')
+	assert.equal(activeOf(p), 'Needy', 'both face it equally: the upper one')
+})
+
+test('with a pane maximized the arrows carry the maximize to the neighbour, and the shortcuts close, restore and swap', T, () => {
+	const p = rowOfThree()
+	p.chord('KeyM')
+	assert.equal(p.panes().length, 1)
+	assert.equal(activeOf(p), 'Finisher')
+	p.chord('ArrowLeft')
+	assert.deepEqual(titles(p), ['Needy'], 'the maximized pane is now the one on its left')
+	p.chord('KeyM')
+	assert.equal(p.panes().length, 3)
+	assert.equal(activeOf(p), 'Needy')
+	p.chord('KeyW')
+	assert.deepEqual(titles(p), ['Worker', 'Finisher'])
+})
+
+test('PageUp and PageDown swap the focused pane with the previous and the next one; the focus goes with it', T, () => {
+	const p = rowOfThree()
+	openRow(p, 'Worker')
+	assert.equal(activeOf(p), 'Worker')
+	assert.deepEqual(titles(p), ['Worker', 'Needy', 'Finisher'])
+	assert.equal(p.chord('PageDown').prevented, true)
+	assert.deepEqual(titles(p), ['Needy', 'Worker', 'Finisher'])
+	assert.equal(activeOf(p), 'Worker')
+	p.chord('PageDown')
+	assert.deepEqual(titles(p), ['Needy', 'Finisher', 'Worker'])
+	p.chord('PageDown')
+	assert.deepEqual(titles(p), ['Worker', 'Finisher', 'Needy'], 'the last one swaps with the first: the order wraps')
+	p.chord('PageUp')
+	assert.deepEqual(titles(p), ['Needy', 'Finisher', 'Worker'])
+	assert.equal(activeOf(p), 'Worker')
+})
+
+test('R and D split the focused pane with the selected session, to the right and below', T, () => {
 	const p = boot()
 	p.data(rows())
 	openRow(p, 'Worker')
 	dropRow(p, 'Needy', p.panes()[0], ...CENTER)
 	assert.deepEqual(titles(p), ['Needy'])
-	p.chord('Backslash')
+	p.chord('KeyR')
 	assert.deepEqual(titles(p), ['Needy', 'Worker'], 'the selected session (Worker) opens to the right')
 	openRow(p, 'Finisher')
 	dropRow(p, 'Worker', p.panes()[1], ...CENTER)
 	assert.deepEqual(titles(p), ['Needy', 'Worker'])
-	p.chord('Minus')
+	p.chord('KeyD')
 	assert.equal(p.panes().length, 3)
 	assert.equal(p.body.byClass('sp').filter(s => s.className.split(' ').includes('col')).length, 1)
-	p.chord('Minus')
+	p.chord('KeyD')
 	assert.equal(p.panes().length, 3, 'a session that is open is only shown')
 })
 
-test('with nothing selected a split shortcut says so', T, () => {
+test('with nothing selected a split shortcut says so, and names the shortcut for the list', T, () => {
 	const p = boot()
 	p.data(rows())
-	p.chord('Backslash')
-	assert.match(p.body.byClass('toast')[0].textContent, /Select a session/)
+	p.chord('KeyR')
+	assert.match(p.body.byClass('toast')[0].textContent, /Select a session in the list first \(Alt\+Shift\+S\)/)
+	const m = boot({ mac: true })
+	m.data(rows())
+	m.chord('KeyD')
+	assert.match(m.body.byClass('toast')[0].textContent, /\(Ctrl\+Option\+S\)/)
+})
+
+test('the modifier is the platform\'s: Ctrl+Alt on a Mac (it types nothing there), Alt+Shift elsewhere (Ctrl+Alt is AltGr on Windows and Linux)', T, () => {
+	const mac = rowOfThree({ mac: true })
+	assert.equal(mac.chord('ArrowLeft').prevented, true)
+	assert.equal(activeOf(mac), 'Needy')
+	// Option+Shift+B types a character on a Mac (the only way to type the dotless i on the US layout): not a shortcut there.
+	assert.equal(mac.key('x', { code: 'KeyB', altKey: true, shiftKey: true }).prevented, undefined)
+	assert.equal(mac.key('ArrowLeft', { code: 'ArrowLeft', altKey: true, shiftKey: true }).prevented, undefined)
+	assert.equal(mac.key('x', { code: 'KeyB', ctrlKey: true, altKey: true, shiftKey: true }).prevented, undefined, 'Shift on top is another key')
+	assert.equal(mac.key('x', { code: 'KeyB', ctrlKey: true, altKey: true, metaKey: true }).prevented, undefined)
+	const win = rowOfThree()
+	assert.equal(win.chord('ArrowLeft').prevented, true)
+	// AltGr arrives as Ctrl+Alt and types characters on Turkish and other layouts: never a shortcut there.
+	assert.equal(win.key('x', { code: 'KeyB', ctrlKey: true, altKey: true }).prevented, undefined)
+	assert.equal(win.key('ArrowLeft', { code: 'ArrowLeft', ctrlKey: true, altKey: true }).prevented, undefined)
+	// The platform is the page's own (navigator), and an unknown one is not a Mac.
+	assert.equal(boot({ navigator: { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)' } }).chord('KeyB', { altKey: true, shiftKey: false, ctrlKey: true }).prevented, true)
+	assert.equal(boot({ navigator: null }).chord('KeyB').prevented, true, 'no navigator: Alt+Shift')
+})
+
+test('letters are matched by their physical key, so a layout that labels it otherwise (Turkish Q) still works; punctuation is no longer a shortcut', T, () => {
+	for (const mac of [false, true]) {
+		const p = rowOfThree({ mac })
+		// The key that carries B everywhere may print another character (ı, ß, an accent): the code is what counts.
+		assert.equal(p.chord('KeyB', { key: '\u0131' }).prevented, true)
+		assert.equal(p.body.byClass('bcbar')[0].className.includes('hidden'), false)
+		p.chord('KeyB', { key: 'ß' })
+		assert.equal(p.body.byClass('bcbar')[0].className.includes('hidden'), true)
+		// What the old scheme used: the keys labelled ] [ \ - , . on a US keyboard are other keys elsewhere.
+		for (const code of ['BracketRight', 'BracketLeft', 'Backslash', 'Minus', 'Equal', 'Comma', 'Period', 'NumpadSubtract']) {
+			assert.equal(p.chord(code).prevented, undefined, code)
+		}
+		// A letter by its label on another layout is not that shortcut: only the code counts.
+		assert.equal(p.key('b', { code: 'KeyV', ...(mac ? { ctrlKey: true, altKey: true } : { altKey: true, shiftKey: true }) }).prevented, undefined)
+		assert.equal(p.chord('KeyZ').prevented, undefined, 'a letter with no shortcut')
+	}
+	// Arrows and paging are matched by what they are called, not where they sit.
+	const p = rowOfThree()
+	assert.equal(p.key('ArrowLeft', { code: 'Numpad4', altKey: true, shiftKey: true }).prevented, true)
+})
+
+test('a shortcut works from a text box too', T, () => {
+	const p = boot()
+	p.data(rows())
+	const box = { tagName: 'INPUT', className: '', blur() {} }
+	assert.equal(p.chord('KeyB', { target: box }).prevented, true)
+})
+
+test('the header\'s menu lists the shortcuts with the platform\'s modifier, and the buttons say them in their tooltips', T, () => {
+	for (const mac of [false, true]) {
+		const mod = mac ? 'Ctrl+Option+' : 'Alt+Shift+'
+		const p = boot({ mac })
+		p.data(rows())
+		openRow(p, 'Worker')
+		dropRow(p, 'Needy', p.panes()[0], ...RIGHT)
+		const dots = p.body.labelled('Help and more')
+		assert.ok(dots, 'a menu button in the header')
+		dots.fire('click', { stopPropagation() {} })
+		const menu = p.body.byClass('menu')[0]
+		menuItem(menu, 'Keyboard shortcuts').fire('click')
+		const dialog = p.body.find(n => n.attrs.role === 'dialog')[0]
+		assert.equal(dialog.className.includes('hidden'), false)
+		assert.equal(dialog.attrs['aria-modal'], 'true')
+		const text = dialog.textContent
+		for (const k of ['R', 'D', 'W', 'M', 'B', 'S', 'N', 'H']) { assert.ok(text.includes(mod + k), mod + k + ' is listed') }
+		assert.ok(text.includes(mod + 'Arrow keys'), 'the arrows')
+		assert.ok(text.includes(mod + 'PageUp / PageDown'), 'the swap')
+		assert.doesNotMatch(text, mac ? /Alt\+Shift\+/ : /Ctrl\+Option/, 'the other platform\'s modifier is not shown')
+		// Escape closes it; so does its Close button.
+		p.key('Escape')
+		assert.equal(dialog.className.includes('hidden'), true)
+		assert.match(p.body.button('Broadcast').attrs.title, new RegExp(mod.replace(/\+/g, '\\+') + 'B'))
+		assert.match(p.panes()[0].labelled('Close pane Worker').attrs.title, new RegExp(mod.replace(/\+/g, '\\+') + 'W'))
+		assert.match(p.panes()[0].labelled('Maximize Worker').attrs.title, new RegExp(mod.replace(/\+/g, '\\+') + 'M'))
+	}
 })
 
 test('a terminal leaves workspace shortcuts to the page and everything else to the agent; Escape in a terminal does not blur it', T, () => {
@@ -661,8 +800,16 @@ test('a terminal leaves workspace shortcuts to the page and everything else to t
 	openRow(p, 'Worker')
 	const { isChord } = p.lastTerm().o
 	assert.equal(isChord({ altKey: true, shiftKey: true, code: 'KeyW' }), true)
+	assert.equal(isChord({ altKey: true, shiftKey: true, key: 'ArrowLeft', code: 'ArrowLeft' }), true)
 	assert.equal(isChord({ altKey: true, code: 'KeyW' }), false)
 	assert.equal(isChord({ ctrlKey: true, code: 'KeyC' }), false)
+	assert.equal(isChord({ ctrlKey: true, altKey: true, code: 'KeyW' }), false, 'AltGr is the agent\'s here')
+	const mac = boot({ mac: true })
+	mac.data(rows())
+	openRow(mac, 'Worker')
+	assert.equal(mac.lastTerm().o.isChord({ ctrlKey: true, altKey: true, code: 'KeyW' }), true)
+	assert.equal(mac.lastTerm().o.isChord({ ctrlKey: true, code: 'KeyC' }), false, 'Ctrl+C still interrupts the agent')
+	assert.equal(mac.lastTerm().o.isChord({ altKey: true, shiftKey: true, code: 'KeyW' }), false)
 	let blurred = false
 	const area = { tagName: 'TEXTAREA', className: 'xterm-helper-textarea', blur() { blurred = true } }
 	p.key('Escape', { target: area })
@@ -915,7 +1062,36 @@ test('"Save layout as…" posts the layout under a trimmed name; nothing is save
 	const m = p.last('layoutSaveAs')
 	assert.equal(m.name, 'Review')
 	assert.equal(m.layout.root.children.length, 2)
+	assert.doesNotMatch(p.body.byClass('toast')[0].textContent, /Saved layout/, 'not before the host has said so')
+	p.send({ type: 'layoutSaved', name: 'Review', ok: true })
 	assert.match(p.body.byClass('toast')[0].textContent, /Saved layout "Review"/)
+})
+
+test('a named save the host refused is reported as not saved, with the reason; an answer for a name the page did not save is ignored', T, () => {
+	const p = boot()
+	p.data(rows())
+	layouts(p)
+	openRow(p, 'Worker')
+	const save = name => {
+		const menu = layoutsMenu(p)
+		menu.find(n => n.tagName === 'INPUT')[0].value = name
+		menu.button('Save').fire('click')
+	}
+	const toast = () => p.body.byClass('toast')[0]
+	save('Deep')
+	p.send({ type: 'layoutSaved', name: 'Deep', ok: false, reason: 'invalid' })
+	assert.match(toast().textContent, /"Deep" was not saved/)
+	assert.doesNotMatch(toast().textContent, /Saved layout/)
+	save('Many')
+	p.send({ type: 'layoutSaved', name: 'Many', ok: false, reason: 'limit' })
+	assert.match(toast().textContent, /"Many" was not saved.*20/)
+	// A late or stray answer says nothing of a layout this page is not saving.
+	toast().textContent = ''
+	p.send({ type: 'layoutSaved', name: 'Never asked', ok: true })
+	assert.equal(toast().textContent, '')
+	p.send({ type: 'layoutSaved', ok: true })
+	p.send({ type: 'layoutSaved', name: 5, ok: true })
+	assert.equal(toast().textContent, '')
 })
 
 test('at 20 saved layouts a new name is refused, an existing one is replaced', T, () => {
@@ -1021,13 +1197,13 @@ test('the More menu\'s starts open the new session in a pane when the host\'s ro
 	assert.deepEqual(titles(p).sort(), ['Fresh claude', 'gem'])
 })
 
-test('earlier sessions of a project start again in its folder; this window\'s own folder needs no path', T, () => {
+test('earlier sessions of a project start again in its folder, this window\'s own project included: every pane carries its folder', T, () => {
 	const p = boot()
 	p.data([])
 	p.send(index())
 	p.posted.length = 0
 	p.body.byClass('crow')[0].fire('click')
-	assert.deepEqual({ ...p.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'claude', sessionId: SESSION })
+	assert.deepEqual({ ...p.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'claude', sessionId: SESSION, cwd: '/work/app' })
 	p.send({ type: 'termOpened', id: SESSION, requestId: p.last('termOpen').requestId })
 	assert.deepEqual(p.last('termAttach'), { type: 'termAttach', id: SESSION })
 	p.body.byClass('crow')[1].fire('click')
@@ -1044,7 +1220,58 @@ test('"+ Codex" under a project opens a new session in a new pane, in that proje
 	assert.deepEqual({ ...p.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'codex', cwd: '/work/other' })
 	p.body.button('+ Claude').fire('click')
 	assert.equal(p.panes().length, 2, 'each new session has a pane of its own')
-	assert.deepEqual({ ...p.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'claude' })
+	assert.deepEqual({ ...p.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'claude', cwd: '/work/app' }, 'this window\'s own project: its folder, which is inside the workspace and so asks nothing')
+})
+
+test('a new session from the header or the empty state starts in this window\'s folder when the host named it, so even that pane keeps its folder', T, () => {
+	const p = boot()
+	p.data([], { project: { name: 'app', cwd: '/work/app' } })
+	p.posted.length = 0
+	p.body.button('Claude').fire('click')
+	assert.deepEqual({ ...p.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'claude', cwd: '/work/app' })
+	assert.equal(p.panes().length, 1)
+	// Without a host-named folder (an older host, the website) it is the window's folder by default, as before.
+	const q = boot()
+	q.data([])
+	q.posted.length = 0
+	q.body.button('Codex').fire('click')
+	assert.deepEqual({ ...q.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'codex' })
+})
+
+test('a named layout keeps every pane\'s absolute folder, and applied in another project it resumes in that folder', T, () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'app', cwd: '/work/app' } })
+	// A workspace remembered by an older version: its panes of this window's own folder have none written down.
+	const bare = (id, session) => paneJson(id, session, { cwd: undefined, resume: session })
+	layouts(p, { current: { seq: 3, focus: 'p1', root: { type: 'split', id: 's3', dir: 'row', sizes: [0.5, 0.5], children: [bare('p1', SID(2)), bare('p2', SID(7))] } } })
+	p.send(index())
+	dropRow(p, 'Login work', p.panes()[1], ...RIGHT)
+	assert.equal(p.panes().length, 3)
+	const menu = layoutsMenu(p)
+	menu.find(n => n.tagName === 'INPUT')[0].value = 'Mine'
+	menu.button('Save').fire('click')
+	const saved = p.last('layoutSaveAs').layout
+	const cwds = []
+	const walk = n => n.type === 'pane' ? cwds.push(n.content.cwd) : n.children.forEach(walk)
+	walk(saved.root)
+	assert.equal(cwds.length, 3)
+	assert.ok(cwds.every(c => c === '/work/app'), 'every pane has the folder it belongs to: ' + JSON.stringify(cwds))
+	// What is on screen is not touched by that.
+	p.flush(500)
+	assert.equal(p.last('layoutSave').layout.root.children[0].content.cwd, undefined)
+	// Another project's window applies it: the panes resume where they were, not in that window's folder.
+	const other = boot()
+	other.data([], { project: { name: 'other', cwd: '/work/other' } })
+	layouts(other, { saved: [{ name: 'Mine', layout: saved }] })
+	menuItem(layoutsMenu(other), 'Mine').fire('click')
+	other.send({ type: 'termGone', id: SID(2) })
+	other.send({ type: 'termGone', id: SID(7) })
+	const first = other.panes()[0]
+	assert.match(first.textContent, /Session ended/)
+	other.posted.length = 0
+	first.button('Resume').fire('click')
+	assert.deepEqual({ ...other.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'claude', sessionId: SID(2), cwd: '/work/app' })
+	assert.match(first.textContent, /Resuming the session in app\./, 'and says where')
 })
 
 test('the sidebar controls post the existing and the peer messages', T, () => {
@@ -1352,7 +1579,7 @@ test('clicking a hit starts that session again in a pane; an empty answer says s
 	p.send({ type: 'chatFound', query: 'login', more: false, hits: [hitFor({ kind: 'codex' })] })
 	p.posted.length = 0
 	p.body.byClass('sresult')[0].byClass('crow')[0].fire('click')
-	assert.deepEqual({ ...p.posted.pop(), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'codex', sessionId: SESSION })
+	assert.deepEqual({ ...p.posted.pop(), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'codex', sessionId: SESSION, cwd: '/work/app' })
 	typeInto(p, 'nothing')
 	p.flush()
 	p.send({ type: 'chatFound', query: 'nothing', more: false, hits: [] })
@@ -1644,4 +1871,405 @@ test('the strip is built again only when the queue changed, so a chip the keyboa
 	p.data(rows().filter(r => r.id !== SID(1)), { project: { name: 'my-app' } })
 	assert.equal(queue(p).className.includes('hidden'), true)
 	assert.equal(chips(p).length, 0)
+})
+
+// ---- the Harness panel -----------------------------------------------------------------------------------------------------
+const rule = (pattern, over = {}) => ({ pattern, scope: 'project', where: '.claude/settings.json', file: '/work/app/.claude/settings.json', ...over })
+const SUMMARY = (over = {}) => ({
+	root: '/work/app', score: 82, startupTokens: 4200,
+	instructions: [
+		{ name: 'CLAUDE.md', kind: 'instructions', scope: 'project', where: 'CLAUDE.md', file: '/work/app/CLAUDE.md', detail: 'Loaded in every session', tokens: 900 },
+		{ name: 'style.md', kind: 'rules', scope: 'project', where: '.claude/rules/style.md', file: '/work/app/.claude/rules/style.md', detail: 'Files matching src/**' },
+	],
+	hooks: [
+		{ event: 'PreToolUse', matcher: 'Bash', command: 'GITHUB_TOKEN=*** bash .claude/hooks/check.sh', scope: 'project', where: '.claude/settings.json', file: '/work/app/.claude/settings.json', line: 7 },
+		{ event: 'Stop', command: 'echo user-stop', scope: 'user', where: '~/.claude/settings.json', file: '/home/u/.claude/settings.json' },
+	],
+	permissions: { mode: 'plan', modeWhere: '.claude/settings.json', counts: { allow: 2, ask: 1, deny: 1 }, allow: [rule('Bash(npm test:*)'), rule('Read')], ask: [rule('Bash(git push:*)')], deny: [rule('Read(./.env)', { scope: 'local' })] },
+	mcp: [{ name: 'github', transport: 'stdio', scope: 'project', state: 'on', target: 'npx -y server --token ***', where: '.mcp.json', file: '/work/app/.mcp.json' }, { name: 'old', transport: 'http', scope: 'user', state: 'off', target: 'https://x.dev/mcp', where: '~/.claude.json', file: '/home/u/.claude.json' }],
+	skills: { count: 1, items: [{ name: 'deploy', scope: 'project', where: '.claude/skills/deploy/SKILL.md', file: '/work/app/.claude/skills/deploy/SKILL.md' }] },
+	agents: { count: 0, items: [] },
+	commands: { count: 2, items: [{ name: '/ship', scope: 'project' }, { name: '/mine', scope: 'user' }] },
+	findings: [{ severity: 'error', message: 'Script .claude/hooks/missing.sh does not exist', where: '.claude/settings.json', file: '/work/app/.claude/settings.json', line: 12, code: 'missing-script' }, { severity: 'warning', message: 'Bash(git *) is broad', where: '.claude/settings.json', file: '/work/app/.claude/settings.json', code: 'overbroad' }],
+	counts: { error: 1, warning: 1, info: 0 }, notes: [], ...over,
+})
+const hpanel = p => p.body.byClass('hpanel')[0]
+const hbtn = p => p.body.button('Harness')
+const asks = p => p.all('harness')
+const secHead = (p, title) => hpanel(p).byClass('hsh').find(b => b.byClass('ht')[0].textContent === title)
+/** The page with the panel open on a project, the host's answer in. */
+function withHarness(summary = SUMMARY(), cwd = '/work/app') {
+	const p = boot()
+	p.data(rows(), { project: { name: 'app', cwd: '/work/home' } })
+	openRow(p, 'Worker')
+	hbtn(p).fire('click')
+	p.send({ type: 'harnessData', cwd, summary })
+	return p
+}
+
+test('the panel is hidden and asks for nothing until it is opened; then it asks for the focused pane\'s project, else this window\'s folder', T, () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'app', cwd: '/work/home' } })
+	openRow(p, 'Worker')
+	assert.equal(hpanel(p).className.includes('hidden'), true)
+	assert.equal(hbtn(p).attrs['aria-pressed'], 'false')
+	assert.deepEqual(asks(p), [])
+	hbtn(p).fire('click')
+	assert.equal(hpanel(p).className.includes('hidden'), false)
+	assert.equal(hbtn(p).attrs['aria-pressed'], 'true')
+	assert.deepEqual(asks(p), [{ type: 'harness', cwd: '/work/app' }], 'the pane\'s folder wins over the window\'s')
+	assert.match(hpanel(p).textContent, /Reading the harness…/)
+	// Without a pane it is this window's folder; with none named at all, the host picks its own.
+	p.body.labelled('Close pane Worker').fire('click')
+	hbtn(p).fire('click')
+	hbtn(p).fire('click')
+	assert.deepEqual(asks(p).at(-1), { type: 'harness', cwd: '/work/home' })
+	const bare = boot()
+	bare.data(rows(), { project: { name: 'app' } })
+	hbtn(bare).fire('click')
+	assert.deepEqual(asks(bare), [{ type: 'harness' }])
+})
+
+test('the summary is shown by section, each with its count: instructions, hooks (event → command, and where it is defined), permissions, servers, names and lint findings', T, () => {
+	const p = withHarness()
+	const text = hpanel(p).textContent
+	assert.match(text, /^Harness/)
+	assert.match(text, /app/)
+	for (const [title, n] of [['Harness lint', '2'], ['Instructions', '2'], ['Hooks', '2'], ['Permissions', '4'], ['MCP servers', '2'], ['Skills', '1'], ['Subagents', '0'], ['Slash commands', '2']]) {
+		const head = secHead(p, title)
+		assert.ok(head, title)
+		assert.equal(head.byClass('hn')[0].textContent, n, title)
+	}
+	// Open by default: the findings and the instructions. The rest wait.
+	assert.equal(secHead(p, 'Harness lint').attrs['aria-expanded'], 'true')
+	assert.equal(secHead(p, 'Instructions').attrs['aria-expanded'], 'true')
+	assert.equal(secHead(p, 'Hooks').attrs['aria-expanded'], 'false')
+	assert.match(text, /Script \.claude\/hooks\/missing\.sh does not exist/)
+	assert.match(text, /\.claude\/settings\.json:12/)
+	assert.match(text, /CLAUDE\.md/)
+	assert.match(text, /~900 tok/)
+	assert.match(text, /Files matching src\/\*\*|style\.md/)
+	assert.match(text, /Health 82/)
+	assert.match(text, /1 error, 1 warning/)
+	secHead(p, 'Hooks').fire('click')
+	const hooks = hpanel(p).text ?? hpanel(p).textContent
+	assert.match(hooks, /PreToolUse · Bash→GITHUB_TOKEN=\*\*\* bash \.claude\/hooks\/check\.sh/)
+	assert.match(hooks, /Stop→echo user-stop/)
+	const chips = hpanel(p).byClass('hchip').map(c => [c.textContent, c.attrs.title])
+	assert.ok(chips.some(c => c[0] === 'Project' && c[1] === 'Defined in .claude/settings.json'))
+	assert.ok(chips.some(c => c[0] === 'User' && c[1] === 'Defined in ~/.claude/settings.json'), 'the hook of the user\'s settings says so')
+	// Permissions: the mode, three counts, each expandable to its rules.
+	secHead(p, 'Permissions').fire('click')
+	assert.match(hpanel(p).textContent, /Default mode: plan/)
+	assert.equal(hpanel(p).byClass('hsubsec').length, 3)
+	assert.equal(secHead(p, 'Allow').byClass('hn')[0].textContent, '2')
+	assert.equal(secHead(p, 'Deny').byClass('hn')[0].textContent, '1')
+	assert.doesNotMatch(hpanel(p).textContent, /Bash\(npm test:\*\)/)
+	secHead(p, 'Allow').fire('click')
+	assert.match(hpanel(p).textContent, /Bash\(npm test:\*\)/)
+	secHead(p, 'MCP servers').fire('click')
+	assert.match(hpanel(p).textContent, /github.*stdio.*Project/)
+	assert.match(hpanel(p).textContent, /old.*http.*off.*User/)
+	secHead(p, 'Slash commands').fire('click')
+	secHead(p, 'Skills').fire('click')
+	assert.match(hpanel(p).textContent, /\/ship.*Project\/mine.*User/)
+	assert.match(hpanel(p).textContent, /deploy/)
+})
+
+test('everything the summary says is text: markup in a command, a message or a name stays as typed', T, () => {
+	const evil = '<img src=x onerror=alert(1)>'
+	const p = withHarness(SUMMARY({
+		instructions: [{ name: evil, kind: 'instructions', scope: 'project', where: evil, file: '/work/app/x', detail: evil }],
+		hooks: [{ event: evil, command: evil + '<script>x</script>', scope: 'project', where: evil, file: '/work/app/s.json' }],
+		findings: [{ severity: 'error', message: evil + '<b>bold</b>', where: evil, file: '/work/app/s.json' }],
+		mcp: [{ name: evil, transport: evil, scope: 'project', state: 'on', target: evil, where: evil, file: '/work/app/m.json' }],
+	}))
+	for (const t of ['Hooks', 'MCP servers']) { secHead(p, t).fire('click') }
+	assert.equal(hpanel(p).find(n => n.tagName === 'IMG' || n.tagName === 'SCRIPT' || n.tagName === 'B' && n.parent && !n.parent.className.includes('hh')).filter(n => n.tagName !== 'B').length, 0)
+	assert.match(hpanel(p).textContent, /<img src=x onerror=alert\(1\)>/, 'shown as typed')
+	assert.match(hpanel(p).textContent, /<b>bold<\/b>/)
+	assert.equal(hpanel(p).innerHTML, '', 'no markup was set on the panel')
+})
+
+test('a summary with missing or wrong parts is drawn with what is there; one that is not a summary says it could not be read', T, () => {
+	const p = withHarness({ root: '/work/app', instructions: 'nope', hooks: [null, 5, { event: 'Stop' }], permissions: null, findings: { a: 1 }, skills: 3 })
+	assert.match(hpanel(p).textContent, /Harness lint/)
+	assert.equal(secHead(p, 'Hooks').byClass('hn')[0].textContent, '1')
+	assert.equal(secHead(p, 'Instructions').byClass('hn')[0].textContent, '0')
+	const q = withHarness(5)
+	assert.match(q.body.byClass('hstate')[0].textContent, /could not be read/)
+})
+
+test('sections fold and unfold from the keyboard-reachable header buttons, and keep the focus through the repaint', T, () => {
+	const p = withHarness()
+	const head = secHead(p, 'Instructions')
+	assert.equal(head.attrs['aria-expanded'], 'true')
+	head.focus()
+	head.fire('click')
+	assert.equal(secHead(p, 'Instructions').attrs['aria-expanded'], 'false')
+	assert.doesNotMatch(hpanel(p).textContent, /Loaded in every session/)
+	assert.equal(Node.focused, secHead(p, 'Instructions'), 'the focus stays on the header')
+	secHead(p, 'Instructions').fire('click')
+	assert.equal(secHead(p, 'Instructions').attrs['aria-expanded'], 'true')
+})
+
+test('a failed ask shows the host\'s sentence with Try again, which asks again; a late answer for another project is ignored', T, () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'app', cwd: '/work/home' } })
+	openRow(p, 'Worker')
+	hbtn(p).fire('click')
+	p.send({ type: 'harnessData', cwd: '/work/elsewhere', summary: SUMMARY() })
+	assert.match(hpanel(p).textContent, /Reading the harness…/, 'an answer for another folder is not for this ask')
+	p.send({ type: 'harnessFailed', cwd: '/work/app', message: 'That folder is not one of the projects listed here.' })
+	assert.match(hpanel(p).textContent, /That folder is not one of the projects listed here\./)
+	assert.equal(hpanel(p).byClass('hstate')[0].attrs.role, 'alert')
+	p.posted.length = 0
+	hpanel(p).button('Try again').fire('click')
+	assert.deepEqual(asks(p), [{ type: 'harness', cwd: '/work/app' }])
+	assert.match(hpanel(p).textContent, /Reading the harness…/)
+	p.send({ type: 'harnessData', cwd: '/work/app', summary: SUMMARY() })
+	assert.match(hpanel(p).textContent, /Harness lint/)
+	// A failed refresh of a project already shown puts the sentence above what is known, and a failure with no sentence still says something.
+	p.send({ type: 'harnessFailed', cwd: '/work/app' })
+	assert.match(hpanel(p).byClass('hstate')[0].textContent, /The harness could not be read\./)
+	assert.match(hpanel(p).textContent, /Harness lint/, 'what was known stays below')
+})
+
+test('the panel never shows one project\'s harness under another project\'s name: moving on to another project clears it until that one answers', T, () => {
+	const p = twoProjects()
+	hbtn(p).fire('click')
+	p.send({ type: 'harnessData', cwd: '/work/app', summary: SUMMARY() })
+	assert.match(hpanel(p).textContent, /Harness lint/)
+	p.panes()[1].fire('mousedown')
+	p.flush(400)
+	assert.doesNotMatch(hpanel(p).textContent, /CLAUDE\.md|Harness lint/)
+	assert.match(hpanel(p).textContent, /Reading the harness…/)
+	p.send({ type: 'harnessFailed', cwd: '/work/other', message: 'Boom.' })
+	assert.doesNotMatch(hpanel(p).textContent, /Harness lint/)
+	assert.match(hpanel(p).textContent, /Boom\./)
+})
+
+test('a host that never answers does not leave "Reading the harness…" up for good', T, () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'app', cwd: '/work/app' } })
+	hbtn(p).fire('click')
+	assert.match(hpanel(p).textContent, /Reading the harness…/)
+	p.flush(8000)
+	assert.match(hpanel(p).textContent, /did not answer/)
+	assert.ok(hpanel(p).button('Try again'))
+})
+
+test('the refresh button reads the harness again, and is off while it is being read', T, () => {
+	const p = withHarness()
+	const refresh = () => p.body.labelled('Refresh the harness')
+	assert.equal(refresh().attrs.disabled, undefined)
+	p.posted.length = 0
+	refresh().fire('click')
+	assert.deepEqual(asks(p), [{ type: 'harness', cwd: '/work/app' }])
+	assert.equal(refresh().attrs.disabled, '', 'not twice at once')
+	assert.match(hpanel(p).textContent, /Harness lint/, 'what is known stays up while it is read again')
+	assert.equal(hpanel(p).byClass('hbody')[0].className.includes('stale'), true)
+	p.send({ type: 'harnessData', cwd: '/work/app', summary: SUMMARY({ score: 90 }) })
+	assert.match(hpanel(p).textContent, /Health 90/)
+	assert.equal(refresh().attrs.disabled, undefined)
+})
+
+/** Two terminal panes of two projects, the first focused. */
+function twoProjects() {
+	const p = boot()
+	p.data(rows(), { project: { name: 'app', cwd: '/work/app' } })
+	const pane = (id, session, cwd) => ({ type: 'pane', id, content: { kind: 'terminal', agent: 'claude', session, title: 'T-' + id, cwd } })
+	layouts(p, { current: { seq: 3, focus: 'p1', root: { type: 'split', id: 's3', dir: 'row', sizes: [0.5, 0.5], children: [pane('p1', SID(2), '/work/app'), pane('p2', SID(7), '/work/other')] } } })
+	return p
+}
+
+test('the panel follows the focus: moving to a pane of another project asks again after a short pause, once; the same project asks nothing', T, () => {
+	const p = twoProjects()
+	hbtn(p).fire('click')
+	assert.deepEqual(asks(p), [{ type: 'harness', cwd: '/work/app' }])
+	p.send({ type: 'harnessData', cwd: '/work/app', summary: SUMMARY() })
+	p.posted.length = 0
+	// Back and forth quickly, ending on the other project: one ask, for where the focus rests.
+	p.panes()[1].fire('mousedown')
+	p.panes()[0].fire('mousedown')
+	p.panes()[1].fire('mousedown')
+	assert.deepEqual(asks(p), [], 'nothing before the pause')
+	p.flush(400)
+	assert.deepEqual(asks(p), [{ type: 'harness', cwd: '/work/other' }])
+	p.send({ type: 'harnessData', cwd: '/work/other', summary: SUMMARY({ root: '/work/other' }) })
+	assert.match(hpanel(p).textContent, /other/)
+	// Back on the first: that, and only that.
+	p.posted.length = 0
+	p.panes()[0].fire('mousedown')
+	p.panes()[0].fire('mousedown')
+	p.flush(400)
+	assert.deepEqual(asks(p), [{ type: 'harness', cwd: '/work/app' }])
+	// Resting on the project it already shows asks nothing.
+	p.send({ type: 'harnessData', cwd: '/work/app', summary: SUMMARY() })
+	p.posted.length = 0
+	p.panes()[0].fire('mousedown')
+	p.flush(400)
+	assert.deepEqual(asks(p), [])
+})
+
+test('a closed panel asks for nothing when the focus moves; opening it again asks for where the focus is now', T, () => {
+	const p = twoProjects()
+	hbtn(p).fire('click')
+	p.send({ type: 'harnessData', cwd: '/work/app', summary: SUMMARY() })
+	hbtn(p).fire('click')
+	assert.equal(hpanel(p).className.includes('hidden'), true)
+	p.posted.length = 0
+	p.panes()[1].fire('mousedown')
+	p.flush()
+	assert.deepEqual(asks(p), [])
+	hbtn(p).fire('click')
+	assert.deepEqual(asks(p), [{ type: 'harness', cwd: '/work/other' }])
+	// The close button in the panel's header hides it too.
+	p.body.labelled('Hide the harness panel').fire('click')
+	assert.equal(hpanel(p).className.includes('hidden'), true)
+	assert.equal(hbtn(p).attrs['aria-pressed'], 'false')
+})
+
+test('a row of the panel opens its file through the host, naming the project and the line; a row without a file is not a button', T, () => {
+	const p = withHarness()
+	p.posted.length = 0
+	hpanel(p).byClass('hrow').find(r => /CLAUDE\.md/.test(r.textContent) && r.tagName === 'BUTTON').fire('click')
+	assert.deepEqual(p.all('harnessOpen'), [{ type: 'harnessOpen', cwd: '/work/app', file: '/work/app/CLAUDE.md' }])
+	p.posted.length = 0
+	hpanel(p).byClass('hrow').find(r => /missing\.sh/.test(r.textContent)).fire('click')
+	assert.deepEqual(p.all('harnessOpen'), [{ type: 'harnessOpen', cwd: '/work/app', file: '/work/app/.claude/settings.json', line: 12 }], 'a finding opens at its line')
+	secHead(p, 'Slash commands').fire('click')
+	const ship = hpanel(p).byClass('hrow').find(r => /\/ship/.test(r.textContent))
+	assert.equal(ship.tagName, 'DIV', 'a slash command\'s file is not part of the summary: nothing to open')
+	ship.fire('click')
+	assert.equal(p.all('harnessOpen').length, 1)
+	assert.deepEqual(p.all('harnessGo'), [])
+})
+
+test('the buttons open the harness map and the hooks studio; neither names a command', T, () => {
+	const p = withHarness()
+	p.posted.length = 0
+	hpanel(p).button('Open harness map').fire('click')
+	hpanel(p).button('Hooks studio').fire('click')
+	assert.deepEqual(p.all('harnessGo'), [{ type: 'harnessGo', target: 'map' }, { type: 'harnessGo', target: 'hook' }])
+})
+
+test('whether the panel is open and how wide is saved with the layout and restored once; what the user did first is not overridden', T, () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'app', cwd: '/work/app' } })
+	layouts(p, { harness: { open: true, width: 420 } })
+	assert.equal(hpanel(p).className.includes('hidden'), false)
+	assert.equal(hpanel(p).style.width, '420px')
+	assert.equal(hbtn(p).attrs['aria-pressed'], 'true')
+	assert.deepEqual(asks(p), [], 'asked once the first messages have settled, not at once')
+	p.flush(400)
+	assert.deepEqual(asks(p), [{ type: 'harness', cwd: '/work/app' }])
+	// Closing it is remembered with the layout.
+	hbtn(p).fire('click')
+	p.flush(500)
+	assert.deepEqual(p.last('layoutSave').harness, { open: false, width: 420 })
+	// The width: the grip takes the arrow keys (wider to the left), within bounds, and saves.
+	hbtn(p).fire('click')
+	const grip = hpanel(p).byClass('hgrip')[0]
+	grip.fire('keydown', { key: 'ArrowLeft' })
+	assert.equal(hpanel(p).style.width, '436px')
+	grip.fire('keydown', { key: 'ArrowRight', shiftKey: true })
+	assert.equal(hpanel(p).style.width, '372px')
+	for (let i = 0; i < 40; i++) { grip.fire('keydown', { key: 'ArrowRight', shiftKey: true }) }
+	assert.equal(hpanel(p).style.width, '260px')
+	for (let i = 0; i < 40; i++) { grip.fire('keydown', { key: 'ArrowLeft', shiftKey: true }) }
+	assert.equal(hpanel(p).style.width, '640px')
+	p.flush(500)
+	assert.deepEqual(p.last('layoutSave').harness, { open: true, width: 640 })
+	// A host that answers late with another state does not undo what the user just did.
+	const late = boot()
+	late.data(rows(), { project: { name: 'app', cwd: '/work/app' } })
+	hbtn(late).fire('click')
+	layouts(late, { harness: { open: false, width: 300 } })
+	assert.equal(hpanel(late).className.includes('hidden'), false)
+	assert.notEqual(hpanel(late).style.width, '300px')
+	// A state that is not sound is not applied.
+	const odd = boot()
+	odd.data(rows())
+	layouts(odd, { harness: { open: 'yes', width: 5 } })
+	layouts(boot(), { harness: null })
+	assert.equal(hpanel(odd).className.includes('hidden'), true)
+})
+
+test('the grip drags the width with the pointer', T, () => {
+	const p = boot()
+	p.data(rows())
+	layouts(p)
+	hbtn(p).fire('click')
+	const grip = hpanel(p).byClass('hgrip')[0]
+	grip.fire('pointerdown', { clientX: 1000 })
+	grip.fire('pointermove', { clientX: 900 })
+	assert.equal(hpanel(p).style.width, '440px')
+	grip.fire('pointerup')
+	p.flush(500)
+	assert.equal(p.last('layoutSave').harness.width, 440)
+	grip.fire('pointermove', { clientX: 100 })
+	assert.equal(hpanel(p).style.width, '440px', 'no drag without a press')
+})
+
+test('the shortcut H shows and hides the panel, with the platform\'s modifier', T, () => {
+	for (const mac of [false, true]) {
+		const p = boot({ mac })
+		p.data(rows(), { project: { name: 'app', cwd: '/work/app' } })
+		assert.equal(p.chord('KeyH').prevented, true)
+		assert.equal(hpanel(p).className.includes('hidden'), false)
+		assert.deepEqual(asks(p), [{ type: 'harness', cwd: '/work/app' }])
+		p.chord('KeyH')
+		assert.equal(hpanel(p).className.includes('hidden'), true)
+		assert.match(hbtn(p).attrs.title, new RegExp((mac ? 'Ctrl\\+Option\\+' : 'Alt\\+Shift\\+') + 'H'))
+	}
+})
+
+test('the panel sits beside the panes while each keeps its minimum size and lies over them when it would not: the panes decide, not the window\'s width', T, () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'app', cwd: '/work/app' } })
+	openRow(p, 'Worker')
+	dropRow(p, 'Needy', p.panes()[0], ...RIGHT)
+	assert.equal(p.panes().length, 2)
+	const over = () => hpanel(p).className.split(' ').includes('over')
+	// The stage as wide as it is with the panel beside it (340 px): 1000 px leaves 648 for two panes of at least 280 + a gutter and the padding.
+	p.stage().w = 1000; p.stage().h = 600
+	hbtn(p).fire('click')
+	assert.equal(over(), false)
+	// A narrower stage leaves them too little: the panel lies over them instead of squeezing them. (The stage is as wide as the page makes it: with the
+	// panel over the panes it is the whole width, so the numbers below say what the page would measure in each state.)
+	const grip = () => p.body.byClass('hgrip')[0]
+	p.stage().w = 500
+	grip().fire('keydown', { key: 'ArrowLeft' })
+	assert.equal(over(), true)
+	assert.equal(hpanel(p).className, 'hpanel over')
+	// Wide again, it goes back beside them.
+	p.stage().w = 1500
+	grip().fire('keydown', { key: 'ArrowLeft' })
+	assert.equal(over(), false)
+	p.stage().w = 500
+	grip().fire('keydown', { key: 'ArrowLeft' })
+	assert.equal(over(), true)
+	// With fewer panes there is room beside them (one pane needs one pane's width only).
+	p.stage().w = 900
+	p.body.labelled('Close pane Needy').fire('click')
+	assert.equal(over(), false)
+	// Opening a pane decides again; a maximized pane is judged alone.
+	p.stage().w = 500
+	dropRow(p, 'Needy', p.panes()[0], ...RIGHT)
+	assert.equal(over(), true)
+	p.stage().w = 900
+	p.chord('KeyM')
+	assert.equal(over(), false)
+	hbtn(p).fire('click')
+	assert.equal(hpanel(p).className, 'hpanel hidden', 'a closed panel is over nothing')
+	// A page that cannot measure its workspace keeps the panel beside it.
+	const blind = boot()
+	blind.data(rows(), { project: { name: 'app', cwd: '/work/app' } })
+	openRow(blind, 'Worker')
+	hbtn(blind).fire('click')
+	assert.equal(hpanel(blind).className, 'hpanel')
+	assert.match(html, /\.hpanel\.over \{ position: absolute; top: 0; right: 0; bottom: 0;[^}]*max-width: calc\(100% - 40px\)/)
+	assert.match(html, /\.split \{ position: relative; \}/)
+	assert.match(html, /\.hpanel \{ position: relative; flex: 0 0 auto;/)
 })

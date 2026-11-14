@@ -74,7 +74,8 @@ export const MAX_LAYOUT_NAME = 60;
 /** The whole module as one function without free variables: see the header. */
 export function paneLayoutModule() {
 	const MAX_PANES_ = 16;
-	const MAX_DEPTH = 8;
+	// A tree of n panes is at most n - 1 splits deep, so the pane cap already bounds the depth: this limit only guards the recursion and must never refuse a layout the cap allows.
+	const MAX_DEPTH = MAX_PANES_;
 	const GUTTER = 6;
 	const KINDS = ['terminal', 'transcript'];
 	const AGENTS = ['claude', 'codex', 'custom'];
@@ -178,6 +179,8 @@ export function paneLayoutModule() {
 	}
 
 	const nextId = (layout: Layout, prefix: 'p' | 's') => `${prefix}${++layout.seq}`;
+	// Ids have six digits (ID above) and a new pane may take two (its own and its split's): a layout that has run out of ids is not changed, so what it saves still parses.
+	const idsLeft = (layout: Layout) => layout.seq + 2 <= 999999;
 
 	/** Puts `leaf` next to `target` on `edge`: into the target's own split when it runs the same way (the target gives half its share), otherwise in a new split. */
 	function insertNext(layout: Layout, targetId: string, edge: DropEdge, leaf: Leaf) {
@@ -224,7 +227,7 @@ export function paneLayoutModule() {
 	function openPane(layout: Layout, content: Content): { layout: Layout; id?: string } {
 		const next = clone(layout);
 		const count = panes(next).length;
-		if (count >= MAX_PANES_) {
+		if (count >= MAX_PANES_ || !idsLeft(layout)) {
 			return { layout };
 		}
 		const leaf: Leaf = { type: 'pane', id: nextId(next, 'p'), content: clone(content) };
@@ -238,9 +241,9 @@ export function paneLayoutModule() {
 		return { layout: settle(next), id: leaf.id };
 	}
 
-	/** A new pane beside `targetId`. Nothing happens (no `id` in the answer) for an unknown pane or at the pane cap. */
+	/** A new pane beside `targetId`. Nothing happens (no `id` in the answer) for an unknown pane, at the pane cap or with no ids left. */
 	function splitPane(layout: Layout, targetId: string, edge: DropEdge, content: Content): { layout: Layout; id?: string } {
-		if (!find(layout, targetId) || panes(layout).length >= MAX_PANES_) {
+		if (!find(layout, targetId) || panes(layout).length >= MAX_PANES_ || !idsLeft(layout)) {
 			return { layout };
 		}
 		const next = clone(layout);
@@ -265,7 +268,7 @@ export function paneLayoutModule() {
 	/** On the centre of another pane the two swap places; on an edge the pane leaves its place (its neighbours take the space) and sits beside the other. */
 	function movePane(layout: Layout, srcId: string, targetId: string, zone: DropZone): Layout {
 		const src = find(layout, srcId);
-		if (!src || !find(layout, targetId) || srcId === targetId) {
+		if (!src || !find(layout, targetId) || srcId === targetId || (zone !== 'center' && !idsLeft(layout))) {
 			return layout;
 		}
 		const next = clone(layout);
@@ -352,6 +355,41 @@ export function paneLayoutModule() {
 		}
 		const at = list.findIndex(p => p.id === id);
 		return list[at < 0 ? (step > 0 ? 0 : list.length - 1) : (at + step + list.length * 4) % list.length].id;
+	}
+
+	/**
+	 * The pane beside `id` in a direction ('left', 'right', 'up', 'down'), by where the panes sit in a `w` x `h` workspace: among the panes
+	 * entirely on that side that share some of its edge, the one nearest, then the one sharing the most, then the one nearest its middle.
+	 * No wrapping: none past the edge, and a pane that only touches a corner is not beside it.
+	 */
+	function towards(layout: Layout, id: string | undefined, dir: string, w: number, h: number): string | undefined {
+		const all = rects(layout, w > 0 ? w : 1000, h > 0 ? h : 1000);
+		const from = id === undefined ? undefined : all.get(id);
+		if (!from || ['left', 'right', 'up', 'down'].indexOf(dir) < 0) {
+			return undefined;
+		}
+		const horizontal = dir === 'left' || dir === 'right';
+		// Along the direction (a) and across it (b): an interval is [start, start + length].
+		const a = (r: Rect) => horizontal ? [r.x, r.w] : [r.y, r.h];
+		const b = (r: Rect) => horizontal ? [r.y, r.h] : [r.x, r.w];
+		const sign = dir === 'right' || dir === 'down' ? 1 : -1;
+		let best: { id: string; gap: number; overlap: number; off: number } | undefined;
+		for (const [other, r] of all) {
+			if (other === id) {
+				continue;
+			}
+			const gap = sign > 0 ? a(r)[0] - (a(from)[0] + a(from)[1]) : a(from)[0] - (a(r)[0] + a(r)[1]);
+			const overlap = Math.min(b(from)[0] + b(from)[1], b(r)[0] + b(r)[1]) - Math.max(b(from)[0], b(r)[0]);
+			// The gutter between neighbours is the only gap there should be; a pane across it by less than that overlaps instead.
+			if (gap < -0.5 || overlap <= 0.5) {
+				continue;
+			}
+			const off = Math.abs(b(r)[0] + b(r)[1] / 2 - (b(from)[0] + b(from)[1] / 2));
+			if (!best || gap < best.gap - 0.5 || (Math.abs(gap - best.gap) <= 0.5 && (overlap > best.overlap + 0.5 || (Math.abs(overlap - best.overlap) <= 0.5 && off < best.off - 0.5)))) {
+				best = { id: other, gap, overlap, off };
+			}
+		}
+		return best?.id;
 	}
 
 	/** Where every pane sits in a workspace of `w` x `h` (the gutters between panes taken off first). */
@@ -475,10 +513,11 @@ export function paneLayoutModule() {
 				return undefined;
 			}
 		}
-		const seq = typeof m.seq === 'number' && Number.isInteger(m.seq) && m.seq >= 0 && m.seq < 1e9 ? Math.max(m.seq, top) : undefined;
-		if (seq === undefined) {
+		// A stored seq must be well formed but is not believed: the counter is the largest id in use (ids have six digits), so a stored 999999 cannot make the next id unparseable.
+		if (!(typeof m.seq === 'number' && Number.isInteger(m.seq) && m.seq >= 0 && m.seq < 1e9)) {
 			return undefined;
 		}
+		const seq = top;
 		const ids = new Set(leaves(root).map(p => p.id));
 		const out: Layout = { seq };
 		if (root) {
@@ -506,8 +545,8 @@ export function paneLayoutModule() {
 		return t.length > 0 && t.length <= 60 && !/[\u0000-\u001f\u007f]/.test(t) ? t : undefined;
 	}
 
-	return { emptyLayout, panes, find, openPane, splitPane, replaceContent, movePane, closePane, resize, maximize, restore, toggleMaximize, focusPane, neighbor, rects, fits, dropZone, parse, validate, layoutName };
+	return { emptyLayout, panes, find, openPane, splitPane, replaceContent, movePane, closePane, resize, maximize, restore, toggleMaximize, focusPane, neighbor, towards, rects, fits, dropZone, parse, validate, layoutName };
 }
 
 const api = paneLayoutModule();
-export const { emptyLayout, panes, find, openPane, splitPane, replaceContent, movePane, closePane, resize, maximize, restore, toggleMaximize, focusPane, neighbor, rects, fits, dropZone, parse, validate, layoutName } = api;
+export const { emptyLayout, panes, find, openPane, splitPane, replaceContent, movePane, closePane, resize, maximize, restore, toggleMaximize, focusPane, neighbor, towards, rects, fits, dropZone, parse, validate, layoutName } = api;

@@ -7,7 +7,8 @@
 import type { AgentSession } from './agents';
 import type { AttentionKind } from './attention';
 import type { AvatarKind } from './desktopModel';
-import type { SavedLayout } from './layoutStore';
+import type { AgentsPageHarnessData, AgentsPageHarnessFailed } from './harnessData';
+import type { HarnessPanelState, SavedLayout } from './layoutStore';
 import type { PaneLayout } from './paneLayout';
 import type { UsageLimits } from './usage';
 import type { WorktreeView } from './worktreeActions';
@@ -100,7 +101,7 @@ export interface AgentsPageData {
 	/** flow.agents.claude.allowBypassPermissions, for the Claude start menu's bypass item. */
 	bypass?: boolean;
 	/** This window's project, for the sidebar's first group. */
-	project?: { name: string };
+	project?: { name: string; /** The folder's absolute path: a pane of this window's folder keeps it, so a saved layout applied in another project resumes there. */ cwd?: string };
 	/** Other open windows' projects and sessions, and projects with no window (peers.ts). */
 	peers?: PeerProject[];
 	recent?: RecentProject[];
@@ -228,7 +229,17 @@ export interface AgentsPageTermFailed {
 export interface AgentsPageLayouts {
 	type: 'layouts';
 	current?: PaneLayout;
+	/** The Harness panel as the page left it (shown or not, how wide). */
+	harness?: HarnessPanelState;
 	saved: SavedLayout[];
 }
 
-export type AgentsPageMessage = AgentsPageData | AgentsPageTail | AgentsPageChatIndex | AgentsPageChatFound | AgentsPageLayouts | AgentsPageTermData | AgentsPageTermGone | AgentsPageTermOpened | AgentsPageTermFailed;
+/** Host → page: the answer to a `layoutSaveAs`, so the page says "Saved" only for a layout the host stored. `name` is the one the host read (trimmed); `reason` says why not: the 20-layout limit, or a layout or name the host's validation refused. */
+export interface AgentsPageLayoutSaved {
+	type: 'layoutSaved';
+	name: string;
+	ok: boolean;
+	reason?: 'limit' | 'invalid';
+}
+
+export type AgentsPageMessage = AgentsPageData | AgentsPageTail | AgentsPageHarnessData | AgentsPageHarnessFailed | AgentsPageChatIndex | AgentsPageChatFound | AgentsPageLayouts | AgentsPageLayoutSaved | AgentsPageTermData | AgentsPageTermGone | AgentsPageTermOpened | AgentsPageTermFailed;

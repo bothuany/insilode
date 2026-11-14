@@ -13,10 +13,12 @@ import type { Agents } from './agents';
 import { bypassAllowed, BYPASS_SETTING } from './bypass';
 import type { StartHow } from './dockMessage';
 import type { AgentsPageData, AgentsPageLayouts, AgentsPageMessage, AgentsPageTail } from './agentsData';
-import { agentsAction } from './agentsMessage';
+import { agentsAction, refusedSaveName } from './agentsMessage';
 import { agentsHtml, type TermAssets } from './agentsPage';
 import { readAvatar } from './desktopModel';
+import { HarnessBridge } from './harnessBridge';
 import type { LayoutStore } from './layoutStore';
+import { MAX_LAYOUTS, type PaneLayout } from './paneLayout';
 import type { Peers } from './peers';
 import { renameFromPalette } from './paletteActions';
 import { savedAgents } from './pick';
@@ -66,6 +68,15 @@ export class AgentsPanel implements vscode.Disposable {
 	/** What the last look at the machine's running sessions, and the last index sent to the page, said: the page is told only when one changes. */
 	private liveSig = '';
 	private indexSig = '';
+
+	/** The Harness panel's host side: it answers only for folders the page was given, and opens only files its summaries named. */
+	private readonly harness = new HarnessBridge({
+		near: () => [...(vscode.workspace.workspaceFolders ?? []).map(f => f.uri.fsPath), ...[...this.agents.sessions.values()].map(s => s.cwd).filter((c): c is string => !!c)],
+		indexed: async () => (await this.projects?.projects() ?? []).map(p => p.cwd),
+		// flow-harness reads the folder (read-only); this extension never imports it.
+		summary: folder => vscode.commands.executeCommand('flowHarness.summary', folder),
+		open: (file, line) => vscode.window.showTextDocument(vscode.Uri.file(file), { preview: true, ...(line ? { selection: new vscode.Range(line - 1, 0, line - 1, 0) } : {}) }),
+	});
 
 	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows, private readonly peers?: Peers, private readonly projects?: ProjectIndex, private readonly term?: TermHost, private readonly layouts?: LayoutStore) {}
 
@@ -141,8 +152,7 @@ export class AgentsPanel implements vscode.Disposable {
 		this.ready = false;
 		clearTimeout(this.timer);
 		this.searching?.abort();
-		this.attached.forEach(a => a.detach());
-		this.attached.clear();
+		this.detachAll();
 		this.listeners.forEach(d => d.dispose());
 		this.listeners = [];
 	}
@@ -153,8 +163,15 @@ export class AgentsPanel implements vscode.Disposable {
 
 	private onMessage(raw: unknown) {
 		const m = agentsAction(raw);
-		switch (m?.type) {
+		if (!m) {
+			// A named save the validation refused is answered like any other, so the page does not report it as saved.
+			const refused = refusedSaveName(raw);
+			return refused === undefined ? undefined : this.send({ type: 'layoutSaved', name: refused, ok: false, reason: 'invalid' });
+		}
+		switch (m.type) {
 			case 'ready':
+				// A page that loads again has forgotten what it showed: what the old one attached must not keep its size or take its input.
+				this.detachAll();
 				this.ready = true;
 				this.startPoll();
 				this.post();
@@ -192,15 +209,50 @@ export class AgentsPanel implements vscode.Disposable {
 			case 'chatList': return void this.sendIndex();
 			case 'chatSearch': return void this.chatSearch(m.query);
 			// The pane layouts, validated by agentsAction; what is stored is only ever what paneLayout.ts accepts.
-			case 'layoutSave': return this.layouts?.setCurrent(m.layout);
-			case 'layoutSaveAs': return void (this.layouts?.save(m.name, m.layout) && this.sendLayouts(false));
+			case 'layoutSave':
+				this.layouts?.setCurrent(m.layout);
+				return m.harness ? this.layouts?.setHarness(m.harness) : undefined;
+			case 'layoutSaveAs': return this.saveAs(m.name, m.layout);
 			case 'layoutDelete': return void (this.layouts?.remove(m.name), this.sendLayouts(false));
+			// The Harness panel: a summary of a project the page was given, and a file that summary named (harnessBridge.ts); the buttons open the harness extension's own views.
+			case 'harness': return void this.sendHarness(m.cwd);
+			case 'harnessOpen': return void this.harness.open(m.cwd, this.workspaceFolder(), m.file, m.line);
+			// One fixed command per target, so the page never names a command id.
+			case 'harnessGo': return void Promise.resolve(m.target === 'map' ? vscode.commands.executeCommand('workbench.view.extension.flowHarness') : vscode.commands.executeCommand('flowHarness.addHook')).catch(() => undefined);
 			// The terminal panes (termHost.ts): the page may only touch a terminal it attached to.
 			case 'termAttach': return this.termAttach(m.id);
 			case 'termDetach': return this.termDetach(m.id);
 			case 'termInput': return void (this.attached.has(m.id) && this.term?.input(m.id, m.data));
 			case 'termResize': return void (this.attached.has(m.id) && this.term?.resize(m.id, m.cols, m.rows));
 			case 'termOpen': return void this.termOpen(m.requestId, m.kind, m.sessionId, m.cwd);
+		}
+	}
+
+	private detachAll() {
+		this.attached.forEach(a => a.detach());
+		this.attached.clear();
+	}
+
+	private saveAs(name: string, layout: PaneLayout) {
+		if (!this.layouts) {
+			return;
+		}
+		const ok = this.layouts.save(name, layout);
+		if (ok) {
+			this.sendLayouts(false);
+		}
+		// The layout is the validated one, so what can still refuse it is the cap on names.
+		this.send({ type: 'layoutSaved', name, ok, ...(ok ? {} : { reason: this.layouts.saved().length >= MAX_LAYOUTS && !this.layouts.saved().some(s => s.name === name) ? 'limit' as const : 'invalid' as const }) });
+	}
+
+	private workspaceFolder(): string | undefined {
+		return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	}
+
+	private async sendHarness(cwd: string | undefined) {
+		const answer = await this.harness.load(cwd, this.workspaceFolder());
+		if (this.panel) {
+			this.send(answer);
 		}
 	}
 
@@ -299,7 +351,8 @@ export class AgentsPanel implements vscode.Disposable {
 	private sendLayouts(withCurrent: boolean) {
 		if (this.layouts) {
 			const current = withCurrent ? this.layouts.current() : undefined;
-			const m: AgentsPageLayouts = { type: 'layouts', ...(current ? { current } : {}), saved: this.layouts.saved() };
+			const harness = withCurrent ? this.layouts.harness() : undefined;
+			const m: AgentsPageLayouts = { type: 'layouts', ...(current ? { current } : {}), ...(harness ? { harness } : {}), saved: this.layouts.saved() };
 			this.send(m);
 		}
 	}
@@ -358,7 +411,7 @@ export class AgentsPanel implements vscode.Disposable {
 				limits: this.agents.latestLimits,
 				customs: customs.map(a => a.name),
 				bypass: bypassAllowed(),
-				project: { name: vscode.workspace.workspaceFolders?.[0]?.name ?? 'This window' },
+				project: { name: vscode.workspace.workspaceFolders?.[0]?.name ?? 'This window', ...(vscode.workspace.workspaceFolders?.[0] ? { cwd: vscode.workspace.workspaceFolders[0].uri.fsPath } : {}) },
 				peers: this.peers?.view().peers ?? [],
 				recent: this.peers?.view().recent ?? [],
 			};

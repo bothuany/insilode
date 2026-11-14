@@ -5,7 +5,7 @@
  *  (the website's shim defines one too). agentsPanel.ts gives it to the webview and answers.
  *
  *  It is a terminal workspace: the sessions are listed on the left, and dragged into panes that split and rearrange (the layout is
- *  paneLayout.ts, the workspace agentsWorkspace.ts, the rest agentsShell.ts). Board and List stay as overviews. The terminals are
+ *  paneLayout.ts, the workspace agentsWorkspace.ts, the rest agentsShell.ts, and the Harness panel on the right agentsHarnessPanel.ts). Board and List stay as overviews. The terminals are
  *  xterm.js, which agentsPanel.ts hands over built (esbuild.mjs makes it); without it the page still draws and its panes say so.
  *  Text from a row only ever reaches the page through textContent (the h() helper): the only markup set as HTML is built from
  *  constants (the avatar, the CLI marks, the pane icons).
@@ -16,6 +16,7 @@ import { DOCK_COLORS, ICON, colorVars } from './dockPage';
 import { paneLayoutModule } from './paneLayout';
 import { BOOT_SCRIPT, SHELL_CSS, SHELL_SCRIPT } from './agentsShell';
 import { WORKSPACE_CSS, WORKSPACE_SCRIPT } from './agentsWorkspace';
+import { HARNESS_CSS, HARNESS_SCRIPT } from './agentsHarnessPanel';
 
 /** The built terminal: xterm.js with its fit addon as one script that sets `window.insilodeXterm`, and its style sheet. */
 export interface TermAssets {
@@ -55,6 +56,7 @@ ${AVATAR_CSS}
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 ${SHELL_CSS}
 ${WORKSPACE_CSS}
+${HARNESS_CSS}
 `;
 
 /** The page's script: the layout module, then the shell, the workspace and the start. Plain JavaScript in String.raw, so it can be tested as text. */
@@ -63,6 +65,7 @@ const L = (${paneLayoutModule.toString()})();
 const MARK = { claude: ${JSON.stringify(ICON.claude)}, codex: ${JSON.stringify(ICON.codex)} };
 ${SHELL_SCRIPT}
 ${WORKSPACE_SCRIPT}
+${HARNESS_SCRIPT}
 ${BOOT_SCRIPT}
 `;
 

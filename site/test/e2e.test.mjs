@@ -382,6 +382,26 @@ test('try: the Agents page marks the session another program runs, and queues it
 	await page.close()
 })
 
+test('try: the Agents page\'s Harness panel opens on the demo project and lists its harness', { skip }, async () => {
+	const { page, problems } = await open('try/')
+	const agents = await inside(page, 'iframe.agents-page')
+	await until(() => agents.evaluate(() => document.querySelectorAll('.qchip').length === 2), 'the page to be drawn')
+	assert.equal(await agents.evaluate(() => document.querySelector('.hpanel').className.includes('hidden')), true, 'closed until asked for')
+	await agents.evaluate(() => [...document.querySelectorAll('button')].find(b => b.textContent === 'Harness').click())
+	await until(async () => /Harness lint/.test(await agents.evaluate(() => document.querySelector('.hpanel').innerText)), 'the summary')
+	const panel = await agents.evaluate(() => document.querySelector('.hpanel').innerText)
+	assert.match(panel, /CLAUDE\.md/)
+	assert.match(panel, /Hooks/)
+	assert.match(panel, /Already covered by a broader rule|already covered by a broader rule/i)
+	assert.deepEqual(await agents.evaluate(() => [...document.querySelectorAll('.hpanel .hsh')].map(b => b.querySelector('.ht').textContent)), ['Harness lint', 'Instructions', 'Hooks', 'Permissions', 'MCP servers', 'Skills', 'Subagents', 'Slash commands'])
+	// With the pane of another project focused (the session another program runs: its pane names its folder) the panel asks about that folder and shows the answer.
+	await agents.evaluate(() => document.querySelector('.qchip[data-q^="ext:"]').click())
+	await until(async () => /harbor-docs/.test(await agents.evaluate(() => document.querySelector('.hpanel .hproj').textContent)), 'the panel to follow the focus to the other project')
+	await until(async () => /Harness lint/.test(await agents.evaluate(() => document.querySelector('.hpanel').innerText)) && !/Reading the harness|did not answer/.test(await agents.evaluate(() => document.querySelector('.hpanel').innerText)), 'the other project\'s summary')
+	assert.deepEqual(problems, [])
+	await page.close()
+})
+
 test('docs: the documents of the repository are pages of the site, linked to each other, with the rest on GitHub', { skip }, async () => {
 	const { page, problems } = await open()
 	await page.click('.nav-links a[href="./docs/"]')

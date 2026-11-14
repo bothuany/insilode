@@ -243,12 +243,101 @@ test('untrusted layouts: anything unsound is refused whole, and validate then gi
 		assert.equal(L.parse(raw), undefined, JSON.stringify(raw))
 		assert.deepEqual(L.validate(raw), { seq: 0 })
 	}
-	// More than 16 panes, and a tree nested deeper than 8.
+	// More than 16 panes, whether flat or as a staircase (the depth limit is the pane cap's, see the staircase test below).
 	const many = Array.from({ length: 17 }, (_, i) => pane('p' + (i + 1)))
 	assert.equal(L.parse({ seq: 17, root: row(many, many.map(() => 1 / 17)) }), undefined)
 	let deep = pane('p1')
-	for (let i = 0; i < 10; i++) { deep = { type: 'split', id: 's' + (i + 2), dir: i % 2 ? 'row' : 'col', children: [deep, pane('p' + (i + 20))], sizes: [0.5, 0.5] } }
+	for (let i = 0; i < 16; i++) { deep = { type: 'split', id: 's' + (i + 2), dir: i % 2 ? 'row' : 'col', children: [deep, pane('p' + (i + 20))], sizes: [0.5, 0.5] } }
 	assert.equal(L.parse({ seq: 40, root: deep }), undefined)
+})
+
+/** The depth of the deepest pane: a lone pane is 0. */
+const depthOf = (n, d = 0) => n.type === 'pane' ? d : Math.max(...n.children.map(k => depthOf(k, d + 1)))
+
+test('the depth limit agrees with the pane cap: a staircase of 16 panes (depth 15) is still sound, so it keeps saving', T, () => {
+	let layout = L.openPane(L.emptyLayout(), c('n0')).layout
+	let last = L.panes(layout)[0].id
+	for (let i = 1; i < 16; i++) {
+		const r = L.splitPane(layout, last, i % 2 ? 'bottom' : 'right', c('n' + i))
+		layout = r.layout
+		last = r.id
+	}
+	assert.equal(L.panes(layout).length, 16)
+	assert.equal(depthOf(layout.root), 15)
+	const back = L.parse(JSON.parse(JSON.stringify(layout)))
+	assert.ok(back, 'a sound layout is not refused for its depth')
+	assert.deepEqual(back, layout)
+})
+
+test('seq is worked out from the ids, never trusted: a stored seq of 999999 cannot make the next pane id unparseable', T, () => {
+	const pane = (id) => ({ type: 'pane', id, content: { kind: 'terminal', agent: 'claude' } })
+	const stored = L.parse({ seq: 999999, root: pane('p1') })
+	assert.equal(stored.seq, 1)
+	// The next ids are the ones the parser takes: opening a pane and saving again works.
+	const more = L.openPane(stored, c('b'))
+	assert.ok(more.id)
+	assert.ok(L.parse(JSON.parse(JSON.stringify(more.layout))))
+	// The highest ids parse; a layout that has run out of ids is left as it is, so the successor of an id is always one that parses.
+	const high = L.parse({ seq: 1, root: pane('p999997') })
+	assert.equal(high.seq, 999997)
+	const split = L.splitPane(high, 'p999997', 'right', c('b'))
+	assert.ok(split.id, 'two ids are left: the pane\'s and its split\'s')
+	assert.deepEqual([split.id, split.layout.root.id], ['p999998', 's999999'])
+	assert.deepEqual(L.parse(JSON.parse(JSON.stringify(split.layout))), split.layout, 'the highest layout a split can make still saves')
+	assert.equal(L.splitPane(split.layout, split.id, 'bottom', c('c')).id, undefined, 'out of ids: nothing happens')
+	assert.equal(L.openPane(split.layout, c('c')).id, undefined)
+	assert.equal(L.movePane(split.layout, 'p999997', split.id, 'left'), split.layout, 'an edge move needs a split of its own')
+	assert.notEqual(L.movePane(split.layout, 'p999997', split.id, 'center'), split.layout, 'a swap makes no id')
+	// A malformed seq is still a malformed layout.
+	assert.equal(L.parse({ seq: 1e9, root: pane('p1') }), undefined)
+})
+
+test('towards: the pane next to this one in a direction, by where the panes sit', T, () => {
+	// a | (b over c) | d  as a row of three, the middle one a column.
+	const { layout: row3, ids } = opened('a', 'b', 'd')
+	const withC = L.splitPane(row3, ids.b, 'bottom', c('c'))
+	const layout = withC.layout
+	const cid = withC.id
+	const W = 1000, H = 600
+	assert.equal(L.towards(layout, ids.a, 'right', W, H), ids.b, 'from the left pane, the upper of the two (it holds the left pane\'s top half too)')
+	assert.equal(L.towards(layout, ids.b, 'left', W, H), ids.a)
+	assert.equal(L.towards(layout, cid, 'left', W, H), ids.a)
+	assert.equal(L.towards(layout, ids.b, 'down', W, H), cid)
+	assert.equal(L.towards(layout, cid, 'up', W, H), ids.b)
+	assert.equal(L.towards(layout, cid, 'right', W, H), ids.d)
+	assert.equal(L.towards(layout, ids.d, 'left', W, H), ids.b, 'the pane that shares the most edge, the upper on a tie')
+	// Nothing beyond the edge: no wrapping, no answer.
+	assert.equal(L.towards(layout, ids.a, 'left', W, H), undefined)
+	assert.equal(L.towards(layout, ids.d, 'right', W, H), undefined)
+	assert.equal(L.towards(layout, ids.a, 'up', W, H), undefined)
+	assert.equal(L.towards(layout, ids.b, 'up', W, H), undefined)
+	assert.equal(L.towards(layout, cid, 'down', W, H), undefined)
+	// A pane that is not there, a lone pane and a direction that is none.
+	assert.equal(L.towards(layout, 'p99', 'right', W, H), undefined)
+	assert.equal(L.towards(opened('a').layout, opened('a').ids.a, 'right', W, H), undefined)
+	assert.equal(L.towards(layout, ids.a, 'sideways', W, H), undefined)
+	// The size only decides how much the gutters take: an unusable one still gives the same answer.
+	assert.equal(L.towards(layout, ids.a, 'right', 0, 0), ids.b)
+})
+
+test('towards: of two panes beside it, the one that faces the most of it wins; a pane that only touches at a corner is not beside it', T, () => {
+	// a is tall on the left; on the right b is small on top and c large below.
+	let { layout, ids } = opened('a', 'b')
+	const c1 = L.splitPane(layout, ids.b, 'bottom', c('c'))
+	// The column on the right holds b over c: its border moves up, so b gets a fifth of the height and c the rest.
+	layout = L.resize(c1.layout, c1.layout.root.children[1].id, 0, -0.3, 0.1)
+	assert.equal(L.towards(layout, ids.a, 'right', 1000, 600), c1.id, 'c faces more of a than b does')
+	assert.equal(L.towards(layout, c1.id, 'left', 1000, 600), ids.a)
+	// A diagonal pane is not a neighbour: from the top-left pane of a 2x2 grid, down is the one under it, not the far corner.
+	let g = opened('a', 'b').layout
+	const [pa, pb] = L.panes(g).map(p => p.id)
+	g = L.splitPane(g, pa, 'bottom', c('c')).layout
+	g = L.splitPane(g, pb, 'bottom', c('d')).layout
+	const [ga, gc, gb, gd] = ['a', 'c', 'b', 'd'].map(n => L.panes(g).find(p => p.content.session === n).id)
+	assert.equal(L.towards(g, ga, 'down', 1000, 600), gc)
+	assert.equal(L.towards(g, ga, 'right', 1000, 600), gb)
+	assert.equal(L.towards(g, gd, 'up', 1000, 600), gb)
+	assert.equal(L.towards(g, gd, 'left', 1000, 600), gc)
 })
 
 test('what validation keeps: sizes normalised, strings capped, extra keys dropped, a stale focus or maximized pane forgotten, seq never below an id', T, () => {

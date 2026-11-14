@@ -22,9 +22,11 @@ module.exports = {
 	UIKind: { Desktop: 1, Web: 2 },
 	env: { uiKind: 2 },
 	ProgressLocation: {},
-	workspace: { workspaceFolders: [], getConfiguration: () => ({ get: (k, d) => d }), onDidChangeConfiguration: none },
-	window: { createWebviewPanel: () => globalThis.__panel() },
-	commands: { executeCommand: async () => undefined },
+	Uri: { file: p => ({ fsPath: p }) },
+	Range: class { constructor(...a) { this.a = a } },
+	workspace: { get workspaceFolders() { return globalThis.__folders ?? [] }, getConfiguration: () => ({ get: (k, d) => d }), onDidChangeConfiguration: none },
+	window: { createWebviewPanel: () => globalThis.__panel(), showTextDocument: (...a) => { (globalThis.__shown ??= []).push(a); return Promise.resolve() } },
+	commands: { executeCommand: (...a) => (globalThis.__exec ?? (async () => undefined))(...a) },
 }`
 
 let tmp
@@ -122,6 +124,27 @@ test('the layout on screen is stored as the page saves it and comes back with re
 	assert.deepEqual(new LayoutStore(ws, gs).saved(), [])
 })
 
+test('a named save is answered: saved, or refused with a reason, so the page never claims a save the host did not make', TT, async () => {
+	const ws = memento(), gs = memento()
+	const t = setup({ layouts: new LayoutStore(ws, gs) })
+	const answers = () => t.posted.filter(m => m.type === 'layoutSaved')
+	t.page({ type: 'layoutSaveAs', name: ' Review ', layout: two() })
+	assert.deepEqual(answers(), [{ type: 'layoutSaved', name: 'Review', ok: true }])
+	// A layout the host's validation refuses (the page's own rules drifted, or it was tampered with) is answered too, not dropped.
+	t.page({ type: 'layoutSaveAs', name: 'Bad', layout: { seq: 1, root: { type: 'pane', id: 'bad', content: {} } } })
+	t.page({ type: 'layoutSaveAs', name: 'Empty', layout: { seq: 0 } })
+	assert.deepEqual(answers().slice(1), [{ type: 'layoutSaved', name: 'Bad', ok: false, reason: 'invalid' }, { type: 'layoutSaved', name: 'Empty', ok: false, reason: 'invalid' }])
+	// The 21st name is refused for the limit.
+	for (let i = 0; i < 19; i++) { t.page({ type: 'layoutSaveAs', name: 'L' + i, layout: two() }) }
+	t.page({ type: 'layoutSaveAs', name: 'One too many', layout: two() })
+	assert.deepEqual(answers().at(-1), { type: 'layoutSaved', name: 'One too many', ok: false, reason: 'limit' })
+	assert.equal(new LayoutStore(ws, gs).saved().length, 20)
+	// A name that is not one gets no answer to match (the page checks names itself), and nothing is stored.
+	const before = answers().length
+	t.page({ type: 'layoutSaveAs', name: 5, layout: two() })
+	assert.equal(answers().length, before)
+})
+
 test('the page is built with the terminal when out/xterm.js and out/xterm.css sit beside the host code, and without them when they do not', TT, async () => {
 	assert.doesNotMatch(setup().view.html, /insilode:xterm/, 'no files beside the test bundle: a page without terminals')
 	assert.match(setup().view.html, /Content-Security-Policy/)
@@ -205,6 +228,22 @@ test('attaching again keeps one attachment: the new one is made before the old o
 	assert.deepEqual(t.calls.detach, ['s1'], 'only the first is let go')
 	t.page({ type: 'termInput', id: 's1', data: 'a' })
 	assert.equal(t.calls.input.length, 1)
+})
+
+test('a page that says ready again (a reload) starts with nothing attached: what the old page held no longer takes input or a size', TT, async () => {
+	const t = withTerm()
+	t.page({ type: 'termAttach', id: 's1' })
+	t.page({ type: 'termAttach', id: 's2' })
+	t.page({ type: 'ready' })
+	assert.deepEqual(t.calls.detach.sort(), ['s1', 's2'], 'the old page\'s attachments are let go, so the terminals lose its size override')
+	t.page({ type: 'termInput', id: 's1', data: 'stale' })
+	t.page({ type: 'termResize', id: 's1', cols: 120, rows: 40 })
+	assert.deepEqual([t.calls.input, t.calls.resize], [[], []])
+	// The new page attaches what it shows, and only that works again.
+	t.page({ type: 'termAttach', id: 's1' })
+	t.page({ type: 'termInput', id: 's1', data: 'fresh' })
+	t.page({ type: 'termInput', id: 's2', data: 'not re-attached' })
+	assert.deepEqual(t.calls.input, [['s1', 'fresh']])
 })
 
 test('a closed terminal is reported once and forgotten', TT, async () => {
@@ -347,4 +386,135 @@ test('a tail of an indexed session is read from the transcript the host lists, n
 	assert.deepEqual(tails.find(m => m.id === SID(1)).entries.map(e => [e.role, e.text]), [['user', 'Fix the login redirect'], ['assistant', 'On it.']])
 	assert.deepEqual(tails.find(m => m.id === SID(2)), { type: 'tail', id: SID(2), entries: [], note: 'This session is not listed any more.' })
 	assert.deepEqual(asked, [['claude', SID(1)], ['claude', SID(2)]])
+})
+
+// ---- the Harness panel's host side -----------------------------------------------------------------------------------------
+const SUMMARY = (root, over = {}) => ({
+	root, score: 90, startupTokens: 0, instructions: [{ name: 'CLAUDE.md', kind: 'instructions', scope: 'project', where: 'CLAUDE.md', file: root + '/CLAUDE.md', detail: '' }], hooks: [], mcp: [], findings: [],
+	permissions: { counts: { allow: 0, ask: 0, deny: 0 }, allow: [], ask: [], deny: [] }, skills: { count: 0, items: [] }, agents: { count: 0, items: [] }, commands: { count: 0, items: [] }, counts: { error: 0, warning: 0, info: 0 }, notes: [], ...over,
+})
+
+/** A panel over a stubbed harness extension: `asked` is every folder the summary command was called with, `ran` every other command. */
+function withHarness({ folders = ['/work/app'], sessions = [], projects, summary } = {}) {
+	const asked = []
+	const ran = []
+	globalThis.__folders = folders.map(f => ({ uri: { fsPath: f }, name: f }))
+	globalThis.__shown = []
+	globalThis.__exec = async (id, ...args) => {
+		if (id === 'flowHarness.summary') {
+			asked.push(args[0])
+			return summary ? summary(args[0]) : { ok: true, summary: SUMMARY(args[0]) }
+		}
+		ran.push([id, ...args])
+		return undefined
+	}
+	const none = () => ({ dispose() {} })
+	const posted = []
+	const listeners = {}
+	globalThis.__panel = () => ({ visible: false, active: true, webview: { html: '', postMessage: async m => { posted.push(JSON.parse(JSON.stringify(m))); return true }, onDidReceiveMessage: f => { listeners.message = f; return none() } }, onDidChangeViewState: none, onDidDispose: none, reveal() {}, dispose() {} })
+	const agents = { onDidChange: none, sessions: new Map(sessions.map(c => [c, { id: c, cwd: c }])) }
+	const panel = new AgentsPanel(agents, undefined, undefined, projects, undefined, undefined)
+	panel.open()
+	return { posted, asked, ran, page: m => listeners.message(m), shown: () => globalThis.__shown, answers: () => posted.filter(m => m.type === 'harnessData' || m.type === 'harnessFailed'),
+		done: () => { delete globalThis.__folders; delete globalThis.__exec; delete globalThis.__shown } }
+}
+
+test('the page gets the harness of this window\'s folder, of a folder a session works in and of a project of the index; any other folder is refused without asking the harness extension', TT, async () => {
+	const projects = { projects: async () => [{ key: KEY, name: 'other', where: '~/other', cwd: '/work/other', own: false, sessions: [] }] }
+	const t = withHarness({ sessions: ['/work/session'], projects })
+	try {
+		t.page({ type: 'harness' })
+		t.page({ type: 'harness', cwd: '/work/app' })
+		t.page({ type: 'harness', cwd: '/work/session/' })
+		t.page({ type: 'harness', cwd: '/work/other' })
+		await sleep(30)
+		assert.deepEqual(t.asked, ['/work/app', '/work/app', '/work/session', '/work/other'])
+		assert.deepEqual(t.answers().map(m => [m.type, m.cwd, m.summary?.root]), [['harnessData', undefined, '/work/app'], ['harnessData', '/work/app', '/work/app'], ['harnessData', '/work/session/', '/work/session'], ['harnessData', '/work/other', '/work/other']], 'the answer echoes the page\'s own cwd')
+		const before = t.asked.length
+		for (const cwd of ['/', '/etc', '/work', '/work/app2', '/work/app/../secret', '/work/app/sub', '/Users']) { t.page({ type: 'harness', cwd }) }
+		await sleep(30)
+		assert.equal(t.asked.length, before, 'nothing was asked for a folder the page was not given')
+		const refused = t.answers().slice(4)
+		assert.equal(refused.length, 7)
+		assert.ok(refused.every(m => m.type === 'harnessFailed' && /not one of the projects/.test(m.message)))
+		// What the page sends wrong never gets this far.
+		t.page({ type: 'harness', cwd: 'relative/dir' })
+		t.page({ type: 'harness', cwd: 5 })
+		t.page({ type: 'harness', cwd: 'a\0b' })
+		await sleep(10)
+		assert.equal(t.answers().length, 11)
+	} finally { t.done() }
+})
+
+test('a window with no folder says so; a harness extension that is not there is a sentence, not an error', TT, async () => {
+	const none = withHarness({ folders: [] })
+	try {
+		none.page({ type: 'harness' })
+		await sleep(10)
+		assert.deepEqual(none.answers().map(m => m.message), ['This window has no folder open.'])
+	} finally { none.done() }
+	const gone = withHarness({ summary: () => { throw new Error('command not found') } })
+	try {
+		gone.page({ type: 'harness' })
+		await sleep(10)
+		assert.deepEqual(gone.answers().map(m => [m.type, m.message]), [['harnessFailed', 'The harness extension is not available.']])
+	} finally { gone.done() }
+	const bad = withHarness({ summary: () => ({ ok: false, message: 'That folder does not exist.' }) })
+	try {
+		bad.page({ type: 'harness' })
+		await sleep(10)
+		assert.deepEqual(bad.answers().map(m => m.message), ['That folder does not exist.'])
+	} finally { bad.done() }
+})
+
+test('a file is opened only if the summary last sent for that folder named it', TT, async () => {
+	const t = withHarness({ folders: ['/work/app', '/work/other'] })
+	try {
+		t.page({ type: 'harnessOpen', cwd: '/work/app', file: '/work/app/CLAUDE.md' })
+		assert.deepEqual(t.shown(), [], 'nothing was sent yet')
+		t.page({ type: 'harness', cwd: '/work/app' })
+		await sleep(10)
+		t.page({ type: 'harnessOpen', cwd: '/work/app', file: '/work/app/CLAUDE.md', line: 4 })
+		t.page({ type: 'harnessOpen', file: '/work/app/CLAUDE.md' })
+		t.page({ type: 'harnessOpen', cwd: '/work/app', file: '/etc/passwd' })
+		t.page({ type: 'harnessOpen', cwd: '/work/other', file: '/work/app/CLAUDE.md' })
+		t.page({ type: 'harnessOpen', cwd: '/work/app', file: '/work/app/../../etc/passwd' })
+		t.page({ type: 'harnessOpen', cwd: '/work/app', file: 'CLAUDE.md' })
+		await sleep(10)
+		assert.deepEqual(t.shown().map(a => [a[0].fsPath, a[1].selection?.a]), [['/work/app/CLAUDE.md', [3, 0, 3, 0]], ['/work/app/CLAUDE.md', undefined]], 'the one that was named, with and without its line (cwd left out is this window\'s folder)')
+	} finally { t.done() }
+})
+
+test('the buttons run the harness extension\'s own views by name; the page never names a command', TT, async () => {
+	const t = withHarness()
+	try {
+		t.page({ type: 'harnessGo', target: 'map' })
+		t.page({ type: 'harnessGo', target: 'hook' })
+		t.page({ type: 'harnessGo', target: 'workbench.action.quit' })
+		t.page({ type: 'harnessGo', command: 'workbench.action.quit' })
+		await sleep(10)
+		assert.deepEqual(t.ran.map(r => r[0]), ['workbench.view.extension.flowHarness', 'flowHarness.addHook'])
+	} finally { t.done() }
+})
+
+test('the Harness panel\'s state is kept with the layout and comes back with ready; a state that is not sound is not kept', TT, async () => {
+	const ws = memento(), gs = memento()
+	const t = setup({ layouts: new LayoutStore(ws, gs) })
+	t.page({ type: 'ready' })
+	assert.deepEqual(t.posted.find(m => m.type === 'layouts'), { type: 'layouts', saved: [] }, 'nothing remembered yet')
+	t.page({ type: 'layoutSave', layout: two(), harness: { open: true, width: 400 } })
+	t.page({ type: 'layoutSave', layout: two(), harness: { open: 'yes', width: 5 } })
+	t.page({ type: 'layoutSave', layout: two(), harness: { open: true, width: 3000 } })
+	t.page({ type: 'layoutSave', layout: two(), harness: { open: true, width: 400.5 } })
+	const again = setup({ layouts: new LayoutStore(ws, gs) })
+	again.page({ type: 'ready' })
+	assert.deepEqual(again.posted.find(m => m.type === 'layouts').harness, { open: true, width: 400 })
+	// A layout save with no panel state leaves the panel as it was; one with an unsound layout stores neither.
+	t.page({ type: 'layoutSave', layout: two() })
+	t.page({ type: 'layoutSave', layout: { seq: 'x' }, harness: { open: false, width: 300 } })
+	assert.deepEqual(new LayoutStore(ws, gs).harness(), { open: true, width: 400 })
+	assert.deepEqual(new LayoutStore(ws, gs).current(), two())
+	// What storage holds is validated on the way out too.
+	ws.m.set('flow.agents.page.harness', { open: true, width: 'wide' })
+	assert.equal(new LayoutStore(ws, gs).harness(), undefined)
 })

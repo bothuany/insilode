@@ -18,6 +18,21 @@ export interface SavedLayout {
 
 export const CURRENT_KEY = 'flow.agents.page.layout';
 export const SAVED_KEY = 'flow.agents.page.layouts';
+export const HARNESS_KEY = 'flow.agents.page.harness';
+
+/** The Harness panel's state, kept with the layout on screen: shown or not, and how wide (in pixels). */
+export interface HarnessPanelState {
+	open: boolean;
+	width: number;
+}
+export const MIN_HARNESS_WIDTH = 260;
+export const MAX_HARNESS_WIDTH = 640;
+
+/** The panel state in `raw` when it is sound, else undefined. */
+export function panelState(raw: unknown): HarnessPanelState | undefined {
+	const m = raw as Record<string, unknown> | null;
+	return m && typeof m === 'object' && typeof m.open === 'boolean' && typeof m.width === 'number' && Number.isInteger(m.width) && m.width >= MIN_HARNESS_WIDTH && m.width <= MAX_HARNESS_WIDTH ? { open: m.open, width: m.width } : undefined;
+}
 
 export class LayoutStore {
 	constructor(private readonly workspace: Memento, private readonly global: Memento) {}
@@ -31,6 +46,15 @@ export class LayoutStore {
 	/** An empty workspace is stored as nothing, so a closed workspace stays closed. */
 	setCurrent(layout: PaneLayout): void {
 		void this.workspace.update(CURRENT_KEY, layout.root ? layout : undefined);
+	}
+
+	/** The Harness panel as the page left it, when it is still sound. */
+	harness(): HarnessPanelState | undefined {
+		return panelState(this.workspace.get<unknown>(HARNESS_KEY));
+	}
+
+	setHarness(state: HarnessPanelState): void {
+		void this.workspace.update(HARNESS_KEY, state);
 	}
 
 	/** The saved layouts, oldest first; an entry that is not sound is left out, and no more than MAX_LAYOUTS are read. */

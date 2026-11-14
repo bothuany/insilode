@@ -24,7 +24,8 @@ export function gitIgnoredOf(cwd: string, files: readonly string[]): Promise<Set
 				resolve(set);
 			}
 		};
-		const child = spawn('git', ['check-ignore', '--stdin', '-z'], { cwd, windowsHide: true });
+		// The folder may be one nobody opened (the Agents page's harness summary looks at any project): its own git config must not get to run a program, and fsmonitor is the setting that does.
+		const child = spawn('git', ['-c', 'core.fsmonitor=false', 'check-ignore', '--stdin', '-z'], { cwd, windowsHide: true });
 		// A hung git must not hold the harness view: past this, nothing counts as ignored.
 		const timer = setTimeout(() => {
 			child.kill();

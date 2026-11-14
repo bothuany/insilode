@@ -21,7 +21,7 @@ test('a rule keeps the harness lint entry off vscode, transitively', () => {
 
 test('the files it shares with the extension are in the pure harness modules rule', () => {
 	const rule = config.forbidden.find(r => r.name === 'harness-logic-stays-off-vscode');
-	for (const f of ['scanCore', 'scanFsHost']) {
+	for (const f of ['scanCore', 'scanFsHost', 'harnessLint']) {
 		assert.match(`editor/extensions/flow-harness/src/${f}.ts`, new RegExp(rule.from.path), f);
 	}
 });

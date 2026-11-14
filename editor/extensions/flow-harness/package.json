@@ -183,6 +183,11 @@
         "command": "flowHarness.flowModel",
         "title": "Harness Flow Model",
         "category": "Harness"
+      },
+      {
+        "command": "flowHarness.summary",
+        "title": "Harness Summary of a Folder",
+        "category": "Harness"
       }
     ],
     "configuration": {
@@ -289,6 +294,10 @@
         },
         {
           "command": "flowHarness.flowModel",
+          "when": "false"
+        },
+        {
+          "command": "flowHarness.summary",
           "when": "false"
         },
         {

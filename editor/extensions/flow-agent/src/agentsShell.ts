@@ -134,6 +134,13 @@ export const SHELL_CSS = String.raw`
 .krow .br { font-family: var(--mono); }
 .empty { max-width: 460px; margin: 60px auto; text-align: center; color: var(--muted); }
 .empty b { color: var(--text); font-size: 15px; }
+.dlg { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; padding: 16px; background: rgb(0 0 0 / .45); }
+.dlgbox { width: min(520px, 100%); max-height: 100%; overflow: auto; padding: 16px 18px; border: 1px solid var(--line); border-radius: 10px; background: var(--vscode-menu-background, var(--bg)); color: var(--vscode-menu-foreground, var(--text)); box-shadow: 0 10px 30px rgb(0 0 0 / .45); }
+.dlgbox h2 { margin: 0 0 12px; font-size: 15px; }
+.klist { display: grid; gap: 7px; margin-bottom: 12px; }
+.kr { display: grid; grid-template-columns: minmax(170px, max-content) 1fr; gap: 6px 16px; align-items: baseline; }
+.kr .kbd { justify-self: start; white-space: nowrap; }
+@media (max-width: 480px) { .kr { grid-template-columns: 1fr; } }
 .hidden { display: none !important; }
 `;
 
@@ -183,12 +190,27 @@ const CLI_NAME = { claude: 'Claude Code', codex: 'Codex', custom: 'Custom' };
 const KIND_NAME = { claude: 'Claude', codex: 'Codex' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// ---- the keyboard shortcuts ------------------------------------------------------------------------------------------------
+// The modifier is the platform's: Ctrl+Alt on a Mac, where it types nothing (Option+Shift+letter types characters there: it is the only way to
+// type a dotless i on the US layout), and Alt+Shift elsewhere (Ctrl+Alt is AltGr on Windows and Linux and types characters on Turkish and
+// other layouts). The platform is the page's own: the webview runs in the browser the user looks at, which the host cannot tell.
+const isMac = (() => { try { return typeof navigator !== 'undefined' && !!navigator && /Mac|iPhone|iPad/i.test(String(navigator.platform || navigator.userAgent || '')); } catch (x) { return false; } })();
+const MOD = isMac ? 'Ctrl+Option+' : 'Alt+Shift+';
+// Letters by the physical key (e.code): the keys that carry R D W M B S N H have the same letters on a US and a Turkish Q keyboard, and a modifier may change what e.key says. Arrows and paging by what they are called (e.key).
+const LETTER_CHORDS = new Map([['KeyR', 'splitRight'], ['KeyD', 'splitDown'], ['KeyW', 'close'], ['KeyM', 'max'], ['KeyB', 'broadcast'], ['KeyS', 'sidebar'], ['KeyN', 'needs'], ['KeyH', 'harness']]);
+const NAMED_CHORDS = new Map([['ArrowLeft', 'left'], ['ArrowRight', 'right'], ['ArrowUp', 'up'], ['ArrowDown', 'down'], ['PageUp', 'moveBack'], ['PageDown', 'moveFwd']]);
+const chordOk = e => isMac ? !!e.ctrlKey && !!e.altKey && !e.shiftKey && !e.metaKey : !!e.altKey && !!e.shiftKey && !e.ctrlKey && !e.metaKey;
+const chordOf = e => chordOk(e) ? (NAMED_CHORDS.get(e.key) || LETTER_CHORDS.get(e.code)) : undefined;
+// What the "Keyboard shortcuts" dialog lists: the key (after the modifier) and what it does.
+const SHORTCUTS = [['Arrow keys', 'Focus the pane in that direction'], ['R', 'Split right with the selected session'], ['D', 'Split down with the selected session'], ['W', 'Close the pane (its session keeps running)'], ['M', 'Maximize or restore the pane'],
+	['PageUp / PageDown', 'Swap the pane with the previous or the next one'], ['B', 'Broadcast one line to several terminals'], ['S', 'Focus the session list'], ['N', 'Jump to the next session that needs you'], ['H', 'Show or hide the harness panel']];
+
 // ---- state -----------------------------------------------------------------------------------------------------------------
 let data = { rows: [], kept: [], customs: [], peers: [], recent: [], now: Date.now(), avatar: 'gyro' };
 let skew = 0; // the host's clock minus ours, so elapsed times tick between data messages
 const now = () => Date.now() + skew;
 let view = 'work'; // 'work' (the terminal workspace), 'board' or 'list'
-let selKey;        // the sidebar row last picked: Alt+Shift+\ and Alt+Shift+- split with it
+let selKey;        // the sidebar row last picked: the split shortcuts (R and D) open it
 let selContent;    // a function making that row's pane content
 const rowEls = new Map();
 const filter = { q: '', cli: 'all', unread: false, wt: false, ended: false };
@@ -270,12 +292,12 @@ function ownContent(s) {
 // Another window's session cannot be owned: a read-only pane with a way to that window.
 const peerContent = (p, r) => ({ kind: 'transcript', agent: agentOf(r.cli), session: r.id, title: r.name, folder: p.name, peer: p.key });
 // A session of the machine's index that another program runs: read-only here (two processes on one session would corrupt it), with a way to resume once it stops.
-const extContent = (p, kind, id, title, l) => ({ kind: 'transcript', agent: kind, session: id, resume: id, ...(p.own ? {} : { cwd: p.cwd }), folder: p.name, title, ext: l.basis === 'recent' ? 'Codex' : l.source });
-// An earlier session of the machine's index: started again in its folder (this window's own folder needs no path), unless something runs it right now.
+const extContent = (p, kind, id, title, l) => ({ kind: 'transcript', agent: kind, session: id, resume: id, cwd: p.cwd, folder: p.name, title, ext: l.basis === 'recent' ? 'Codex' : l.source });
+// An earlier session of the machine's index: started again in its folder, this window's own included (a pane keeps the folder it belongs to, so a saved layout applied in another project still resumes there), unless something runs it right now.
 function indexContent(p, kind, id, title) {
 	const x = indexed(kind, id);
 	const l = x && liveOf(x.s);
-	return l ? extContent(p, kind, id, title, l) : { kind: 'terminal', agent: kind, resume: id, ...(p.own ? {} : { cwd: p.cwd }), folder: p.name, title };
+	return l ? extContent(p, kind, id, title, l) : { kind: 'terminal', agent: kind, resume: id, cwd: p.cwd, folder: p.name, title };
 }
 
 // ---- menus: one at a time, under the button that opened it -----------------------------------------------------------------
@@ -333,6 +355,11 @@ menuEl.addEventListener('keydown', e => {
 	} else if (e.key === 'Tab') { closeMenu(false); }
 });
 
+// The keyboard shortcuts dialog (filled by showShortcuts).
+const shortcutsEl = h('div', { class: 'dlg hidden', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Keyboard shortcuts' });
+shortcutsEl.addEventListener('click', e => { if (e.target === shortcutsEl) { closeShortcuts(); } });
+let shortcutsFrom;
+
 // ---- the shell, built once -------------------------------------------------------------------------------------------------
 const side = h('nav', { class: 'side', 'aria-label': 'Projects and sessions' });
 const head = h('div', { class: 'head' });
@@ -342,7 +369,9 @@ const filters = h('div', { class: 'filters' });
 const boardEl = h('div'), keptEl = h('div');
 const main = h('div', { class: 'main hidden' }, filters, boardEl, keptEl);
 // Hidden until the first rows arrive: drawn empty first, the whole page would jump when they come (a layout shift). Without a host it shows itself after a moment.
-const root = h('div', { id: 'app' }, head, tools, h('div', { class: 'split' }, side, work, main), menuEl);
+// The Harness panel (agentsHarnessPanel.ts) sits right of the workspace and fills itself; hidden until it is asked for.
+const harnessPanel = h('aside', { class: 'hpanel hidden', 'aria-label': 'Harness' });
+const root = h('div', { id: 'app' }, head, tools, h('div', { class: 'split' }, side, work, main, harnessPanel), menuEl, shortcutsEl);
 root.hidden = true;
 const reveal = () => { root.hidden = false; };
 setTimeout(reveal, 2000);
@@ -383,10 +412,31 @@ function moreItems() {
 	];
 }
 const layoutsBtn = h('button', { type: 'button', class: 'btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Save the pane layout, or apply a saved one', onclick: e => { e.stopPropagation(); showMenu(layoutsBtn, layoutItems); } }, 'Layouts ▾');
-const broadcastBtn = h('button', { type: 'button', class: 'btn', 'aria-pressed': 'false', title: 'Send one line to several terminals at once (Alt+Shift+B)', onclick: () => toggleBroadcast() }, 'Broadcast');
+const broadcastBtn = h('button', { type: 'button', class: 'btn', 'aria-pressed': 'false', title: 'Send one line to several terminals at once (' + MOD + 'B)', onclick: () => toggleBroadcast() }, 'Broadcast');
 const viewBtn = (v, label, tip) => { const b = h('button', { type: 'button', class: 'btn', 'aria-pressed': 'false', title: tip, onclick: () => setView(v) }, label); b.view = v; return b; };
 const viewBtns = [viewBtn('work', 'Workspace', 'Terminal panes you can split and rearrange'), viewBtn('board', 'Board', 'Agents by what they wait for'), viewBtn('list', 'List', 'Agents as a table')];
-add(tools, h('div', { class: 'row2' }, startBtn('claude', 'Claude'), startBtn('codex', 'Codex'), moreBtn), h('div', { class: 'row2' }, layoutsBtn, broadcastBtn), h('span', { class: 'grow' }), h('div', { class: 'seg2', role: 'group', 'aria-label': 'View' }, viewBtns));
+// The Harness panel's toggle (agentsHarnessPanel.ts) and the "…" menu: help that has no place of its own in the header.
+const harnessBtn = h('button', { type: 'button', class: 'btn', 'aria-pressed': 'false', title: 'Show the harness of the focused pane\'s project: instructions, hooks, permissions, MCP servers (' + MOD + 'H)', onclick: () => toggleHarness() }, 'Harness');
+const dotsBtn = h('button', { type: 'button', class: 'btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'Help and more', title: 'Help and more', onclick: e => { e.stopPropagation(); showMenu(dotsBtn, dotsItems); } }, '⋯');
+const dotsItems = () => [{ label: 'Keyboard shortcuts', run: () => showShortcuts() }];
+add(tools, h('div', { class: 'row2' }, startBtn('claude', 'Claude'), startBtn('codex', 'Codex'), moreBtn), h('div', { class: 'row2' }, layoutsBtn, broadcastBtn, harnessBtn), h('span', { class: 'grow' }), h('div', { class: 'seg2', role: 'group', 'aria-label': 'View' }, viewBtns), dotsBtn);
+
+// The shortcuts, listed with the platform's own modifier. A dialog, so it can be read at leisure; Escape or Close puts it away.
+function showShortcuts() {
+	const close = h('button', { type: 'button', class: 'btn small primary', onclick: () => closeShortcuts() }, 'Close');
+	fill(shortcutsEl, [h('div', { class: 'dlgbox' }, h('h2', null, 'Keyboard shortcuts'),
+		h('div', { class: 'klist' }, SHORTCUTS.map(k => h('div', { class: 'kr' }, h('span', { class: 'kbd' }, MOD + k[0]), h('span', { class: 'kt' }, k[1])))),
+		h('p', { class: 'note' }, 'They work inside a terminal too, and are not sent to the agent.'), h('div', { class: 'row2' }, close))]);
+	shortcutsEl.className = 'dlg';
+	shortcutsFrom = document.activeElement;
+	if (close.focus) { close.focus(); }
+}
+function closeShortcuts() {
+	shortcutsEl.className = 'dlg hidden';
+	wipe(shortcutsEl);
+	if (shortcutsFrom && shortcutsFrom.focus) { shortcutsFrom.focus(); }
+	shortcutsFrom = undefined;
+}
 function setView(v) {
 	if (view === v) { return; }
 	view = v;
@@ -440,7 +490,7 @@ function chatRows(key) {
 	const p = chat.projects.find(x => x.key === key);
 	if (!p) { return null; }
 	const list = chat.more.has(key) ? p.sessions : p.sessions.slice(0, 5);
-	const start = (kind, label) => h('button', { type: 'button', class: 'btn small', title: 'Start ' + label + ' in a new pane, in ' + p.where, onclick: () => startNew(kind, p.own ? undefined : p.cwd, p.name) }, '+ ' + label);
+	const start = (kind, label) => h('button', { type: 'button', class: 'btn small', title: 'Start ' + label + ' in a new pane, in ' + p.where, onclick: () => startNew(kind, p.cwd, p.name) }, '+ ' + label);
 	return [h('div', { class: 'cstart' }, start('claude', 'Claude'), start('codex', 'Codex')), list.map(s => crow(p, s)),
 		p.sessions.length > 5 ? h('button', { type: 'button', class: 'btn small cmore', onclick: () => { if (chat.more.has(key)) { chat.more.delete(key); } else { chat.more.add(key); } paintSide(); } }, chat.more.has(key) ? 'Show fewer' : 'Show ' + (p.sessions.length - 5) + ' more') : null];
 }
@@ -546,7 +596,7 @@ function paintHead() {
 			w.label, h('span', { class: 'bar' }, h('i', { style: 'width:' + p + '%' })), h('span', null, p + '%'), w.resetsAt ? h('span', null, 'resets in ' + until(w.resetsAt - now())) : null);
 	}) : [];
 	fill(head, [
-		h('div', { class: 'counts' }, count(g.needs, 'Needs you', '--blocked', 'Sessions waiting for you, here or elsewhere on this computer (Alt+Shift+N jumps to the next)'), count(g.working, 'Working', '--working'), count(g.done, 'Done', '--done')),
+		h('div', { class: 'counts' }, count(g.needs, 'Needs you', '--blocked', 'Sessions waiting for you, here or elsewhere on this computer (' + MOD + 'N jumps to the next)'), count(g.working, 'Working', '--working'), count(g.done, 'Done', '--done')),
 		data.rows.some(s => s.cost) ? h('span', { class: 'totals', title: 'Tokens and dollars are what the CLIs report for each session; dollars are estimates.' }, h('b', null, tok(tokens)), ' tokens' + (priced ? ' · ' : ''), priced ? h('b', null, usd(dollars)) : null, priced ? ' est.' : null) : null,
 		lim.length ? h('div', { class: 'limits' }, lim) : null,
 	]);
@@ -703,7 +753,7 @@ function paintQueue() {
 	const again = keep ? Array.from(queueEl.children).find(e => e.getAttribute('data-q') === keep) : undefined;
 	if (again && again.focus) { again.focus(); }
 }
-// Alt+Shift+N: the next session that needs the user, round and round the queue.
+// The N shortcut: the next session that needs the user, round and round the queue.
 function jumpToNext() {
 	const items = queueItems();
 	if (!items.length) { notice('Nothing is waiting for you.'); return; }
@@ -726,6 +776,7 @@ function paint() {
 	for (const b of viewBtns) { b.setAttribute('aria-pressed', view === b.view ? 'true' : 'false'); }
 	main.scrollTop = mainTop;
 	paintWorkspace();
+	harnessSync();
 	// Avatars no row uses any more are dropped, so the cache does not grow with every state change.
 	const live = new Set();
 	for (const s of data.rows) { live.add([s.id, data.avatar, s.cli, avState(s), ctxPct(s) === undefined ? '' : ctxPct(s)].join('|')); }
@@ -775,6 +826,7 @@ const inTerm = t => !!(t && t.className && String(t.className).indexOf('xterm') 
 document.addEventListener('keydown', e => {
 	if (wsKey(e)) { return; }
 	if (e.key === 'Escape') {
+		if (shortcutsEl.className.indexOf('hidden') < 0) { closeShortcuts(); return; }
 		if (menuState) { closeMenu(true); return; }
 		if (inTerm(e.target)) { return; }
 		if (typing(e.target) && e.target.blur) { e.target.blur(); }

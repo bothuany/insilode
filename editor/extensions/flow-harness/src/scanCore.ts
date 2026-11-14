@@ -55,7 +55,7 @@ export interface HarnessItem {
 	/** Path-scoped rules: the globs they apply to (empty for an always-on rule). */
 	paths?: string[];
 	/** MCP servers: the manager's id for it, the name its tool calls carry, and whether it is on. */
-	mcp?: { id: string; toolPrefix: string; state: McpServer['state']; transport: McpServer['transport'] };
+	mcp?: { id: string; toolPrefix: string; state: McpServer['state']; transport: McpServer['transport']; /** The command line (credential-looking arguments masked) or the URL (user info and secret query values masked). */ target: string };
 	agents: string[];
 }
 
@@ -90,6 +90,12 @@ export interface ScanHost {
 }
 
 export interface ScanOptions {
+	/** Skip a file larger than this many bytes as if it were not there (a summary of a folder nobody opened must not read a multi-gigabyte CLAUDE.md). Default: no limit. */
+	maxFileBytes?: number;
+	/** Leave out Claude's and Codex's memory files (they are read only for the map's memory view). Default true. */
+	memory?: boolean;
+	/** With the user's files read: still refuse a link in the folders that leads out of them, as the lint without the user's files does (the user's own files are read as ever). */
+	confine?: boolean;
 	/** Read the user's own files (~/.claude, ~/.codex, the user MCP servers and memory): false for a repository's CI run, which has none. Default true. */
 	user?: boolean;
 }
@@ -103,17 +109,26 @@ let userScan = true;
  * (a settings file pointing at some secret) is not read, and `outside` collects what was refused, to be reported once.
  */
 let confined: string[] | undefined;
+/** With `confined`: the paths (as written, not resolved) the check applies to; undefined: every path. */
+let checkedOnly: string[] | undefined;
 const outside = new Set<string>();
+/** Files bigger than this are not read (see `ScanOptions.maxFileBytes`), set by `scanFolders`. */
+let maxRead = Infinity;
 
 const home = os.homedir();
 const tokensOf = (text: string) => Math.round(text.length / 4);
 async function read(p: string): Promise<string | undefined> {
-	if (confined) {
+	if (confined && (!checkedOnly || checkedOnly.some(r => p === r || p.startsWith(r + path.sep)))) {
 		const real = await fs.realpath(p).catch(() => undefined);
 		if (real !== undefined && !confined.some(r => real === r || real.startsWith(r + path.sep))) {
 			outside.add(p);
 			return undefined;
 		}
+	}
+	// Only a regular file: reading a named pipe or a device would never end.
+	const st = await fs.stat(p).catch(() => undefined);
+	if (!st?.isFile() || st.size > maxRead) {
+		return undefined;
 	}
 	return fs.readFile(p, 'utf8').catch(() => undefined);
 }
@@ -394,7 +409,7 @@ async function mcpServers(items: HarnessItem[], root: string, user: boolean) {
 			kind: 'mcp', scope: scopeOf(s), label: s.name,
 			detail: [s.scope === 'user' || s.scope === 'local' || s.scope === 'project' ? '' : s.scope, s.transport, target, state].filter(Boolean).join(' · '),
 			file: s.file, issues: s.issues.map(i => ({ ...i, code: 'mcp-config' })), agents: [s.harness],
-			mcp: { id: s.id, toolPrefix: s.toolPrefix, state: s.state, transport: s.transport },
+			mcp: { id: s.id, toolPrefix: s.toolPrefix, state: s.state, transport: s.transport, target },
 		});
 	}
 	for (const p of config.problems) {
@@ -523,7 +538,7 @@ const MAX_NESTED = 200;
  * What one workspace folder contributes. The user's own files (home folder) belong to no folder: `first` reads them once,
  * with the first folder, so a workspace of three folders does not list them three times.
  */
-async function scanFolder(items: HarnessItem[], folder: ScanFolder, first: boolean, user: boolean): Promise<string[]> {
+async function scanFolder(items: HarnessItem[], folder: ScanFolder, first: boolean, user: boolean, memory: boolean): Promise<string[]> {
 	const root = folder.fsPath;
 	const notes: string[] = [];
 
@@ -570,7 +585,7 @@ async function scanFolder(items: HarnessItem[], folder: ScanFolder, first: boole
 		await agentsIn(items, path.join(claudeDir(), 'agents'), 'user');
 	}
 
-	if (user) {
+	if (user && memory) {
 		await memoryIn(items, root);
 	}
 
@@ -590,8 +605,18 @@ const sameItem = (i: HarnessItem) => JSON.stringify([i.kind, i.scope, i.file, i.
  * The harness of these folders (a multi-root workspace has one in each). `host` answers what needs the workspace search;
  * `undefined` for no folders.
  */
-export async function scanFolders(folders: ScanFolder[], scanHost: ScanHost, options: ScanOptions = {}): Promise<Harness | undefined> {
+export function scanFolders(folders: ScanFolder[], scanHost: ScanHost, options: ScanOptions = {}): Promise<Harness | undefined> {
+	// The scan keeps its host and options in module variables: two at once (the editor's own and a summary of another folder) would swap them under each other.
+	const run = scanning.then(() => scanNow(folders, scanHost, options));
+	scanning = run.then(() => undefined, () => undefined);
+	return run;
+}
+/** The scan in progress (or the last one): the next waits for it. */
+let scanning: Promise<void> = Promise.resolve();
+
+async function scanNow(folders: ScanFolder[], scanHost: ScanHost, options: ScanOptions): Promise<Harness | undefined> {
 	host = scanHost;
+	maxRead = options.maxFileBytes ?? Infinity;
 	somewhere.clear();
 	outside.clear();
 	if (!folders.length) {
@@ -599,13 +624,15 @@ export async function scanFolders(folders: ScanFolder[], scanHost: ScanHost, opt
 	}
 	const user = options.user !== false;
 	userScan = user;
-	confined = user ? undefined : await Promise.all(folders.map(f => fs.realpath(f.fsPath).catch(() => f.fsPath)));
+	confined = user && !options.confine ? undefined : await Promise.all(folders.map(f => fs.realpath(f.fsPath).catch(() => f.fsPath)));
+	// Only what lies inside the folders is checked when the user's files are read too; without them everything is.
+	checkedOnly = user ? folders.map(f => f.fsPath) : undefined;
 	const root = folders[0].fsPath;
 	const items: HarnessItem[] = [];
 	const notes: string[] = [];
 	for (const [n, folder] of folders.entries()) {
 		const batch: HarnessItem[] = [];
-		notes.push(...await scanFolder(batch, folder, n === 0, user));
+		notes.push(...await scanFolder(batch, folder, n === 0, user, options.memory !== false));
 		const known = new Set(items.map(sameItem));
 		const mine = batch.filter(i => !known.has(sameItem(i)));
 		if (n > 0) {
