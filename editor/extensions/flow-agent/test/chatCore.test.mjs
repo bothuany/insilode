@@ -106,6 +106,10 @@ test('an edit is answered for the user only when every file is inside the folder
 	// Windows drops trailing dots and spaces and reads `name:stream` as the name: a folder that does not exist yet is created as the protected one.
 	for (const name of ['.vscode.', '.claude ', '.git. .', '.mcp.json.', '.vscode::$INDEX_ALLOCATION']) { assert.equal(inside(join(root, 'src', name, 'x')), false, name) }
 	assert.equal(inside(join(root, 'src', '.mcp.jsonl')), true, 'only that name')
+	// A case-insensitive disk folds compatibility characters to ASCII and ignores invisible ones: `ſ` is `s`, so `.vſcode` not there yet is `.vscode`.
+	for (const name of ['.v\u017fcode', '.mcp.j\u017fon', '.\uff47\uff49\uff54', '.git\u200b', '.clau\u00adde', '.V\u017fCode', '.g\ufeffit', '.vscode\u2060.']) { assert.equal(inside(join(root, name, 'x')), false, name) }
+	// Names that merely look close stay the user's to edit without a question.
+	for (const name of ['.github', '.gitignore', 'src/.vscodeignore', 'caf\u00e9', '\u65e5\u672c\u8a9e']) { assert.equal(inside(join(root, name, 'x.ts')), true, name) }
 	// No location, no folder, or one bad file among good ones: ask.
 	assert.equal(c.editsInside(root, []), false)
 	assert.equal(c.editsInside('', [join(root, 'src', 'a.ts')]), false)

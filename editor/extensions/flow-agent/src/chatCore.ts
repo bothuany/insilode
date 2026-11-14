@@ -77,11 +77,21 @@ function realOf(p: string): string | undefined {
 }
 
 /**
+ * A path segment as a file system may read it. APFS and NTFS fold compatibility characters to ASCII (`ſ` is `s`, fullwidth `ｇ` is
+ * `g`) and HFS+/APFS ignore invisible ones (zero-width, soft hyphen), so `.vſcode` that does not exist yet would be created as the
+ * protected `.vscode`. NFKC, then drop default-ignorables, then lower-case; whatever else this maps onto a protected name only costs a question.
+ * Windows also reads `name:stream` as the name and drops trailing dots and spaces.
+ */
+export function foldName(seg: string): string {
+	return seg.normalize('NFKC').replace(/\p{Default_Ignorable_Code_Point}/gu, '').toLowerCase().replace(/:.*$/, '').replace(/[. ]+$/, '');
+}
+
+/**
  * Inside `root` and under none of the protected names (lower-cased: a case-insensitive disk spells `.GIT` too). Windows also drops
  * trailing dots and spaces and reads `name:stream` as the name, so a folder not there yet (`.vscode.`) would be created as `.vscode`.
  */
 function plainInside(root: string, p: string): boolean {
-	return isInside(root, p) && !path.relative(root, p).split(/[\\/]/).some(seg => PROTECTED.has(seg.toLowerCase().replace(/:.*$/, '').replace(/[. ]+$/, '')));
+	return isInside(root, p) && !path.relative(root, p).split(/[\\/]/).some(seg => PROTECTED.has(foldName(seg)));
 }
 
 /**
