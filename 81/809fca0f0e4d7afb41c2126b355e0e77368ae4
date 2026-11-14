@@ -1,0 +1,63 @@
+editor/extensions/flow-agent/src/agentsMessage.ts
+  s_c2897d6f2cc16d::t_95759fef7ad54a 8,11,18-21,46-59,64-66,98-110
+editor/extensions/flow-agent/tsconfig.json
+  s_c2897d6f2cc16d::t_36c10b08abfa1c 20-21
+editor/patches/flow-core.patch
+  s_c2897d6f2cc16d::t_5e78bbb18e0100 1226-1248,1250-1251,1253-1276,1280-1292
+  s_c2897d6f2cc16d::t_7a78b8d77a340a 1249,1252,1277-1279
+editor/extensions/flow-agent/src/folderTrust.ts
+  s_c2897d6f2cc16d::t_993c31434a90d7 1-64
+editor/extensions/flow-agent/src/termHost.ts
+  s_c2897d6f2cc16d::t_acc9e0319a70b5 10,52-69,109
+  s_c2897d6f2cc16d::t_967fd92e801b26 1-9,11-51,70-108,110-115
+editor/extensions/flow-agent/src/extension.ts
+  s_c2897d6f2cc16d::t_36c10b08abfa1c 27
+  s_c2897d6f2cc16d::t_15095aa03d184e 12-13,85-86,95
+editor/extensions/flow-agent/test/termBridge.test.mjs
+  s_c2897d6f2cc16d::t_4d81d8f9c57491 1-202
+editor/extensions/flow-agent/src/termBuffer.ts
+  s_c2897d6f2cc16d::t_f7bb48ea567393 1-33,36-52
+  s_c2897d6f2cc16d::t_8869bf10edb037 34-35
+editor/extensions/flow-agent/test/termBuffer.test.mjs
+  s_c2897d6f2cc16d::t_4d81d8f9c57491 1-69
+editor/extensions/flow-agent/src/termBridge.ts
+  s_c2897d6f2cc16d::t_aa668e84d35612 1-45,47-193
+  s_c2897d6f2cc16d::t_967fd92e801b26 46
+editor/extensions/flow-agent/src/chatSessions.ts
+  s_c2897d6f2cc16d::t_dfe67a3e8c9a9f 16,25
+  s_c2897d6f2cc16d::t_993c31434a90d7 18,26,186-188
+editor/extensions/flow-agent/src/agentsPanel.ts
+  s_c2897d6f2cc16d::t_15095aa03d184e 24-25,45-46,48,116-117,173-212
+editor/extensions/flow-agent/test/agentsMessage.test.mjs
+  s_c2897d6f2cc16d::t_363e9deff766c6 124-174
+editor/extensions/flow-agent/src/agents.ts
+  s_c2897d6f2cc16d::t_2c103cdfb51355 745-747,749,772,784,810-812,856-869
+  s_c2897d6f2cc16d::t_4dbd9d965ffa33 870
+editor/extensions/flow-agent/test/agentsPanel.test.mjs
+  s_c2897d6f2cc16d::t_363e9deff766c6 130-144,146-152,154-240
+  s_c2897d6f2cc16d::t_4e8dcfad53a334 145,153
+editor/extensions/flow-agent/src/agentsData.ts
+  s_c2897d6f2cc16d::t_06bb642ee88eca 212-241
+test/arch/commands.test.mjs
+  s_c2897d6f2cc16d::t_f0c63be09189e1 32-34
+editor/extensions/flow-agent/test/termHost.test.mjs
+  s_c2897d6f2cc16d::t_00804f5aecf743 1-207
+editor/extensions/flow-agent/package.json
+  s_c2897d6f2cc16d::t_36c10b08abfa1c 35-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "81809fca0f0e4d7afb41c2126b355e0e77368ae4",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
