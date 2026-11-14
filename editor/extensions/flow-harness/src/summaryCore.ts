@@ -172,7 +172,7 @@ const RANK: Record<Severity, number> = { error: 0, warning: 1, info: 2 };
 /** A file as the map shows it: inside the folder relative to it, otherwise with the home folder as `~`. */
 export function shownPath(root: string, file: string, home: string): string {
 	const rel = path.relative(root, file);
-	return clip(!rel.startsWith('..') && !path.isAbsolute(rel) ? rel.split(path.sep).join('/') : home && (file === home || file.startsWith(home + path.sep)) ? '~' + file.slice(home.length) : file, CAPS.where);
+	return clip(!rel.startsWith('..') && !path.isAbsolute(rel) ? rel.split(path.sep).join('/') : home && (file === home || file.startsWith(home + path.sep)) ? '~' + file.slice(home.length).split(path.sep).join('/') : file, CAPS.where);
 }
 
 export function buildSummary(harness: Harness, extras: SummaryExtras, root: string): HarnessSummary {

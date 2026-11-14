@@ -508,8 +508,10 @@ test('the page gets the harness of this window\'s folder, of a folder a session 
 		t.page({ type: 'harness', cwd: '/work/session/' })
 		t.page({ type: 'harness', cwd: '/work/other' })
 		await sleep(30)
-		assert.deepEqual(t.asked, ['/work/app', '/work/app', '/work/session', '/work/other'])
-		assert.deepEqual(t.answers().map(m => [m.type, m.cwd, m.summary?.root]), [['harnessData', undefined, '/work/app'], ['harnessData', '/work/app', '/work/app'], ['harnessData', '/work/session/', '/work/session'], ['harnessData', '/work/other', '/work/other']], 'the answer echoes the page\'s own cwd')
+		// The host asks flow-harness for the folder resolved (on Windows that adds a drive to a path written without one), and echoes the page's own cwd.
+		const [app, session, other] = ['/work/app', '/work/session', '/work/other'].map(f => resolve(f))
+		assert.deepEqual(t.asked, [app, app, session, other])
+		assert.deepEqual(t.answers().map(m => [m.type, m.cwd, m.summary?.root]), [['harnessData', undefined, app], ['harnessData', '/work/app', app], ['harnessData', '/work/session/', session], ['harnessData', '/work/other', other]], 'the answer echoes the page\'s own cwd')
 		const before = t.asked.length
 		for (const cwd of ['/', '/etc', '/work', '/work/app2', '/work/app/../secret', '/work/app/sub', '/Users']) { t.page({ type: 'harness', cwd }) }
 		await sleep(30)
@@ -548,20 +550,23 @@ test('a window with no folder says so; a harness extension that is not there is 
 })
 
 test('a file is opened only if the summary last sent for that folder named it', TT, async () => {
+	// The summary names its files after the folder it was asked for, which is the folder resolved: on Windows that has a drive.
+	const app = resolve('/work/app')
+	const file = app + '/CLAUDE.md'
 	const t = withHarness({ folders: ['/work/app', '/work/other'] })
 	try {
-		t.page({ type: 'harnessOpen', cwd: '/work/app', file: '/work/app/CLAUDE.md' })
+		t.page({ type: 'harnessOpen', cwd: app, file })
 		assert.deepEqual(t.shown(), [], 'nothing was sent yet')
-		t.page({ type: 'harness', cwd: '/work/app' })
+		t.page({ type: 'harness', cwd: app })
 		await sleep(10)
-		t.page({ type: 'harnessOpen', cwd: '/work/app', file: '/work/app/CLAUDE.md', line: 4 })
-		t.page({ type: 'harnessOpen', file: '/work/app/CLAUDE.md' })
-		t.page({ type: 'harnessOpen', cwd: '/work/app', file: '/etc/passwd' })
-		t.page({ type: 'harnessOpen', cwd: '/work/other', file: '/work/app/CLAUDE.md' })
-		t.page({ type: 'harnessOpen', cwd: '/work/app', file: '/work/app/../../etc/passwd' })
-		t.page({ type: 'harnessOpen', cwd: '/work/app', file: 'CLAUDE.md' })
+		t.page({ type: 'harnessOpen', cwd: app, file, line: 4 })
+		t.page({ type: 'harnessOpen', file })
+		t.page({ type: 'harnessOpen', cwd: app, file: resolve('/etc/passwd') })
+		t.page({ type: 'harnessOpen', cwd: resolve('/work/other'), file })
+		t.page({ type: 'harnessOpen', cwd: app, file: app + '/../../etc/passwd' })
+		t.page({ type: 'harnessOpen', cwd: app, file: 'CLAUDE.md' })
 		await sleep(10)
-		assert.deepEqual(t.shown().map(a => [a[0].fsPath, a[1].selection?.a]), [['/work/app/CLAUDE.md', [3, 0, 3, 0]], ['/work/app/CLAUDE.md', undefined]], 'the one that was named, with and without its line (cwd left out is this window\'s folder)')
+		assert.deepEqual(t.shown().map(a => [a[0].fsPath, a[1].selection?.a]), [[file, [3, 0, 3, 0]], [file, undefined]], 'the one that was named, with and without its line (cwd left out is this window\'s folder)')
 	} finally { t.done() }
 })
 

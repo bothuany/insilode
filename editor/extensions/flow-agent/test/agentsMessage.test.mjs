@@ -205,6 +205,19 @@ test('the Harness panel\'s messages: an absolute folder or none, a file that is 
 	}
 })
 
+test('a path the page names is absolute on the platform it runs on: drive and share paths on Windows, a leading slash elsewhere, run with both rule sets on any machine', T, () => {
+	for (const ok of ['C:\\work\\app', 'c:/work/app', 'D:\\', '\\\\server\\share\\x', '\\work']) {
+		assert.equal(a.isPagePath(ok, 'win32'), true, ok)
+	}
+	for (const bad of ['', 'work\\app', 'C:work', '..\\up', '.', 5, null, undefined, 'C:\\a\0b', 'C:\\' + 'x'.repeat(1100)]) {
+		assert.equal(a.isPagePath(bad, 'win32'), false, String(bad).slice(0, 30))
+	}
+	assert.equal(a.isPagePath('/work/app', 'linux'), true)
+	for (const bad of ['C:\\work\\app', 'work/app', '\\\\server\\share', '/a\0b']) {
+		assert.equal(a.isPagePath(bad, 'linux'), false, bad)
+	}
+})
+
 test('layoutSave carries the Harness panel\'s state only when it is sound; the layout is judged on its own', T, () => {
 	assert.deepEqual(a.agentsAction({ type: 'layoutSave', layout: layout(), harness: { open: true, width: 340 } }), { type: 'layoutSave', layout: layout(), harness: { open: true, width: 340 } })
 	for (const harness of [{ open: 'yes', width: 340 }, { open: true, width: 100 }, { open: true, width: 700 }, { open: true, width: 340.5 }, { open: true }, 'x', null]) {

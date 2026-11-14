@@ -6,8 +6,8 @@ import assert from 'node:assert/strict'
 import { build } from 'esbuild'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { homedir, tmpdir } from 'node:os'
+import { basename, dirname, join, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { randomUUID } from 'node:crypto'
 
@@ -30,12 +30,12 @@ const entry = (pid, over = {}) => ({
 	kind: 'interactive', entrypoint: 'cli', name: 'tag-app-ae', status: 'idle', updatedAt: 1794616582587, statusUpdatedAt: 1794616582587,
 	peerToken: 'SECRET-TOKEN', messagingSocketPath: '/tmp/secret.sock', ...over,
 })
-/** A sessions folder with these files (name -> object or raw text); every pid is alive unless it is in `dead`. */
+/** A sessions folder with these files (name -> object or raw text); every pid is alive unless it is in `dead`. The pids are made up, so nothing here may ask the machine about them (no real `startTime`: a real process may have one of these pids). */
 function folder(files, dead = []) {
 	const dir = join(tmp, 's' + n++)
 	mkdirSync(dir, { recursive: true })
 	for (const [name, v] of Object.entries(files)) writeFileSync(join(dir, name), typeof v === 'string' ? v : JSON.stringify(v))
-	const io = { ...m.nodeIo, isAlive: pid => !dead.includes(pid) }
+	const io = { ...m.nodeIo, isAlive: pid => !dead.includes(pid), startTime: undefined }
 	return { dir, io }
 }
 const list = async (files, dead) => { const f = folder(files, dead); return m.listLive(f.io, f.dir) }
@@ -62,8 +62,9 @@ test('sessions whose process is gone are dropped; one that exists but is another
 	assert.deepEqual((await list({ '11.json': a, '12.json': b }, [12])).map(s => s.pid), [11])
 	const kill = process.kill
 	try {
+		// What EPERM means depends on the platform (isAliveWith's own test injects it); the real io just passes this machine's.
 		process.kill = () => { throw Object.assign(new Error('x'), { code: 'EPERM' }) }
-		assert.equal(m.nodeIo.isAlive(1), false)
+		assert.equal(m.nodeIo.isAlive(1), process.platform === 'win32')
 		process.kill = () => { throw Object.assign(new Error('x'), { code: 'ESRCH' }) }
 		assert.equal(m.nodeIo.isAlive(1), false)
 	} finally {
@@ -235,7 +236,7 @@ test('the real start time of a process comes from one ps with an argument array'
 const live = (over = {}) => ({ id: randomUUID(), cwd: join(tmp, 'proj'), pid: 1, status: 'working', source: 'Claude desktop', name: 'Fix login', updatedAt: 5000, ...over })
 const project = (name, own, sessions) => ({ key: 'k' + name, name, where: '~/' + name, cwd: join(tmp, name), own, sessions })
 const sess = (id, kind, modified, title = 't' + id) => ({ id, kind, title, modified })
-const opts = (skip = [], now = 1_000_000) => ({ skip: new Set(skip), realOf: c => c, describe: cwd => ({ key: 'new:' + cwd, name: cwd.split('/').pop(), where: cwd }), now })
+const opts = (skip = [], now = 1_000_000) => ({ skip: new Set(skip), realOf: c => c, describe: cwd => ({ key: 'new:' + cwd, name: basename(cwd), where: cwd }), now })
 
 test('a live session in an indexed project is marked and moves to the top; the input is not changed', T, () => {
 	const a = live({ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', source: 'Claude Code CLI', status: 'needs' })
@@ -246,7 +247,7 @@ test('a live session in an indexed project is marked and moves to the top; the i
 	assert.deepEqual(projects[1].sessions.map(s => s.id), [a.id, '11111111-1111-4111-8111-111111111111'])
 	assert.deepEqual(projects[1].sessions[0], { id: a.id, kind: 'claude', title: 'Old title', modified: 100, live: { status: 'needs', source: 'Claude Code CLI', basis: 'live' } })
 	assert.equal(projects[1].sessions[1].live, undefined)
-	assert.equal(files.get(a.id), join(process.env.CLAUDE_CONFIG_DIR || join(process.env.HOME || '', '.claude'), 'projects', join(tmp, 'proj').replace(/[^a-zA-Z0-9]/g, '-'), a.id + '.jsonl'))
+	assert.equal(files.get(a.id), join(process.env.CLAUDE_CONFIG_DIR || join(homedir(), '.claude'), 'projects', join(tmp, 'proj').replace(/[^a-zA-Z0-9]/g, '-'), a.id + '.jsonl'))
 })
 
 test('a live session no project lists yet is added to its folder\'s project, or gets a project of its own named by the folder; projects with one come first after this window\'s', T, () => {

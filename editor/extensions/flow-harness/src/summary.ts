@@ -37,7 +37,8 @@ export function folderOf(raw: unknown): string | undefined {
 		return undefined;
 	}
 	const resolved = path.resolve(raw);
-	return resolved.length > 1 && resolved.endsWith(path.sep) ? resolved.slice(0, -1) : resolved;
+	// A root keeps its separator: on Windows "C:" without it is the current folder of that drive.
+	return resolved.length > path.parse(resolved).root.length && resolved.endsWith(path.sep) ? resolved.slice(0, -1) : resolved;
 }
 
 /** The text of a regular file of at most MAX_FILE bytes, checked on the opened handle (a named pipe opens at once with O_NONBLOCK and is not a file), or undefined. */

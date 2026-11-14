@@ -28,7 +28,8 @@ module.exports = {
 let tmp
 let TermHost
 before(async () => {
-	tmp = realpathSync(mkdtempSync(join(tmpdir(), 'flow-termhost-')))
+	// Native, as the product's own realpath is: it expands a Windows runner's 8.3 short temp name (RUNNER~1), the JavaScript one does not.
+	tmp = realpathSync.native(mkdtempSync(join(tmpdir(), 'flow-termhost-')))
 	const outfile = join(tmp, 'termHost.cjs')
 	await build({
 		entryPoints: [join(ROOT, 'src', 'termHost.ts')], bundle: true, platform: 'node', format: 'cjs', outfile, logLevel: 'silent',

@@ -33,11 +33,19 @@ function bridge({ near = ['/work/app'], indexed = ['/work/indexed'], answer = ro
 }
 
 test('folders compare resolved, without a trailing separator, and by case only where the file system ignores it', T, () => {
-	assert.equal(B.folderKey('/work/app/'), '/work/app')
-	assert.equal(B.folderKey('/work/app/sub/..'), '/work/app')
-	assert.equal(B.folderKey('/'), '/')
-	assert.ok(B.isKnownFolder('/work/app/', ['/work/app']))
-	assert.ok(!B.isKnownFolder('/work/App', ['/work/app']), 'case counts off Windows')
+	// The platform is passed everywhere: the default is the runner's, and a POSIX path resolved on Windows gains a drive.
+	assert.equal(B.folderKey('/work/app/', 'linux'), '/work/app')
+	assert.equal(B.folderKey('/work/app/sub/..', 'linux'), '/work/app')
+	assert.equal(B.folderKey('/', 'linux'), '/')
+	assert.ok(B.isKnownFolder('/work/app/', ['/work/app'], 'linux'))
+	assert.ok(!B.isKnownFolder('/work/App', ['/work/app'], 'linux'), 'case counts off Windows')
+	assert.equal(B.folderKey('C:\\Work\\App\\', 'win32'), 'c:\\work\\app')
+	assert.equal(B.folderKey('C:\\Work\\App\\Sub\\..', 'win32'), 'c:\\work\\app')
+	assert.equal(B.folderKey('C:\\', 'win32'), 'c:\\', 'a drive root keeps its separator')
+	assert.equal(B.folderKey('\\\\Srv\\Share\\', 'win32'), '\\\\srv\\share\\', 'so does a share')
+	assert.ok(B.isKnownFolder('c:/work/app', ['C:\\Work\\App'], 'win32'), 'forward slashes are the same folder')
+	assert.ok(!B.isKnownFolder('C:\\Work\\App2', ['C:\\Work\\App'], 'win32'))
+	assert.ok(!B.isKnownFolder('D:\\Work\\App', ['C:\\Work\\App'], 'win32'), 'another drive is another folder')
 	assert.ok(B.isKnownFolder('C:\\Work\\App\\', ['c:\\work\\app'], 'win32'), 'Windows folds case and separators')
 	assert.ok(!B.isKnownFolder('/work/app2', ['/work/app']), 'a longer name is not the same folder')
 	assert.ok(!B.isKnownFolder('/work', ['/work/app']), 'a parent is not the folder')
@@ -67,7 +75,7 @@ test('a folder the page was not given is refused with a sentence and flow-harnes
 	}
 	assert.deepEqual(calls.summary, [])
 	// A failing index look is a refusal too, not an error.
-	const broken = new B.HarnessBridge({ near: () => [], indexed: async () => { throw new Error('boom') }, summary: async () => { throw new Error('never') }, open() {} })
+	const broken = new B.HarnessBridge({ near: () => [], indexed: async () => { throw new Error('boom') }, summary: async () => { throw new Error('never') }, open() {} }, 'linux')
 	assert.equal((await broken.load('/x', undefined)).type, 'harnessFailed')
 })
 
@@ -90,7 +98,7 @@ test('what flow-harness answers is passed on, or its sentence; anything else, an
 		const r = await bridge({ answer: () => answer }).b.load('/work/app', undefined)
 		assert.deepEqual([r.type, r.message], ['harnessFailed', 'The harness could not be read.'], JSON.stringify(answer))
 	}
-	const gone = new B.HarnessBridge({ near: () => ['/work/app'], indexed: async () => [], summary: () => Promise.reject(new Error('command \'flowHarness.summary\' not found')), open() {} })
+	const gone = new B.HarnessBridge({ near: () => ['/work/app'], indexed: async () => [], summary: () => Promise.reject(new Error('command \'flowHarness.summary\' not found')), open() {} }, 'linux')
 	assert.deepEqual(await gone.load('/work/app', undefined), { type: 'harnessFailed', cwd: '/work/app', message: 'The harness extension is not available.' })
 })
 
@@ -122,10 +130,22 @@ test('only the folders looked at most recently keep their files; the open of a f
 	for (const f of folders) { await b.load(f, undefined) }
 	assert.equal(b.open('/work/p0', undefined, '/work/p0/CLAUDE.md'), false, 'the oldest was let go')
 	assert.equal(b.open('/work/p11', undefined, '/work/p11/CLAUDE.md'), true)
-	const throwing = new B.HarnessBridge({ near: () => ['/work/app'], indexed: async () => [], summary: async r => ({ ok: true, summary: summary(r, [r + '/a.md']) }), open: () => Promise.reject(new Error('no editor')) })
+	const throwing = new B.HarnessBridge({ near: () => ['/work/app'], indexed: async () => [], summary: async r => ({ ok: true, summary: summary(r, [r + '/a.md']) }), open: () => Promise.reject(new Error('no editor')) }, 'linux')
 	await throwing.load('/work/app', undefined)
 	assert.equal(throwing.open('/work/app', undefined, '/work/app/a.md'), true)
 	await new Promise(r => setTimeout(r, 5))
+})
+
+test('on Windows the whole flow works with drive letters, backslashes and any case', T, async () => {
+	const { b, calls } = bridge({ platform: 'win32', near: ['C:\\Work\\App'], indexed: ['D:\\Other'], answer: root => ({ ok: true, summary: summary(root, [root + '\\CLAUDE.md']) }) })
+	assert.equal((await b.load('c:/work/app/', undefined)).type, 'harnessData')
+	assert.deepEqual(calls.summary, ['c:\\work\\app'], 'asked tidied, with the separators of the platform')
+	assert.equal(b.open('C:\\WORK\\APP', undefined, 'c:\\work\\app\\CLAUDE.md', 2), true)
+	assert.equal(b.open('C:\\Work\\App', undefined, 'c:\\work\\app\\..\\x.md'), false)
+	assert.equal((await b.load('D:\\Other\\', undefined)).type, 'harnessData')
+	assert.equal((await b.load('E:\\Work\\App', undefined)).type, 'harnessFailed')
+	assert.equal((await b.load('\\\\attacker\\share', undefined)).type, 'harnessFailed', 'a share nobody listed is refused')
+	assert.deepEqual(calls.open, [['c:\\work\\app\\CLAUDE.md', 2]])
 })
 
 test('summaryFiles reads a summary that is wrong in places without throwing', T, () => {

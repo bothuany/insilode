@@ -63,8 +63,12 @@ export type AgentsAction =
 	| { type: 'harnessOpen'; cwd?: string; file: string; line?: number }
 	| { type: 'harnessGo'; target: 'map' | 'hook' };
 
+/** Whether `v` is a path the page may name: text of a sane length, no NUL, absolute on `platform` (a drive path or a share on Windows, a leading slash elsewhere). */
+export const isPagePath = (v: unknown, platform: NodeJS.Platform = process.platform): v is string =>
+	typeof v === 'string' && v.length > 0 && v.length <= MAX_PATH && !v.includes('\0') && (platform === 'win32' ? path.win32 : path.posix).isAbsolute(v);
+
 /** An absolute path as the page sends one, or undefined. */
-const absolutePath = (v: unknown): string | undefined => typeof v === 'string' && v.length > 0 && v.length <= MAX_PATH && !v.includes('\0') && path.isAbsolute(v) ? v : undefined;
+const absolutePath = (v: unknown): string | undefined => isPagePath(v) ? v : undefined;
 
 /** An integer in [min, max]. */
 const isRange = (n: unknown, min: number, max: number): n is number => typeof n === 'number' && Number.isInteger(n) && n >= min && n <= max;
@@ -109,7 +113,7 @@ export function agentsAction(raw: unknown): AgentsAction | undefined {
 		case 'termOpen':
 			return typeof m.requestId === 'string' && m.requestId.length > 0 && m.requestId.length <= MAX_REQUEST && (m.kind === 'claude' || m.kind === 'codex')
 				&& (m.sessionId === undefined || (typeof m.sessionId === 'string' && SESSION_ID.test(m.sessionId)))
-				&& (m.cwd === undefined || (typeof m.cwd === 'string' && m.cwd.length <= MAX_PATH && !m.cwd.includes('\0') && path.isAbsolute(m.cwd)))
+				&& (m.cwd === undefined || isPagePath(m.cwd))
 				? { type: 'termOpen', requestId: m.requestId, kind: m.kind, ...(m.sessionId === undefined ? {} : { sessionId: m.sessionId }), ...(m.cwd === undefined ? {} : { cwd: m.cwd }), ...(m.force === true && m.kind === 'claude' && m.sessionId !== undefined ? { force: true as const } : {}) } : undefined;
 		case 'layoutSave': {
 			const layout = parse(m.layout);

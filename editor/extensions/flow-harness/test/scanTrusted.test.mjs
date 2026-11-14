@@ -11,6 +11,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const T = { timeout: 30000 }
+const NO_LINKS = { skip: process.platform === 'win32' && 'a symbolic link needs a privilege a Windows runner does not have' }
 let tmp
 let S, H, SC, LI, LL
 let n = 0
@@ -91,7 +92,7 @@ test('an untrusted listing keeps its cap, says it was cut, and gives no "matches
 })
 
 // ---- 2: links to folders ---------------------------------------------------------------------------------------------------------
-test('trusted: a link to a folder in .claude/rules is followed (a loop by its real path, once), untrusted: skipped and said', T, async () => {
+test('trusted: a link to a folder in .claude/rules is followed (a loop by its real path, once), untrusted: skipped and said', { ...T, ...NO_LINKS }, async () => {
 	const dir = repo({ 'CLAUDE.md': '# x\n', 'shared-src/team.md': 'A shared rule.\n', '.claude/rules/keep.md': 'A rule that stays.\n' })
 	symlinkSync('../../shared-src', join(dir, '.claude', 'rules', 'shared'))
 	symlinkSync('.', join(dir, '.claude', 'rules', 'a'))
@@ -106,7 +107,7 @@ test('trusted: a link to a folder in .claude/rules is followed (a loop by its re
 	assert.ok(saidOf(theirs).some(x => /link/i.test(x)), JSON.stringify(saidOf(theirs)))
 })
 
-test('trusted: a real folder is entered once and a real file listed once, whatever number of links lead to them', T, async () => {
+test('trusted: a real folder is entered once and a real file listed once, whatever number of links lead to them', { ...T, ...NO_LINKS }, async () => {
 	// 12 folders, each with two links to the next: every file is reachable through 2^n paths, and the walk takes each real folder once.
 	const files = { 'CLAUDE.md': '# x\n' }
 	for (let i = 0; i <= 12; i++) { files[`.claude/rules/n${i}/r${i}.md`] = `Rule ${i}.\n` }
@@ -129,7 +130,7 @@ test('trusted: a real folder is entered once and a real file listed once, whatev
 	assert.equal(new Set(labels.map(l => l.replace(/^.*\//, ''))).size, 3, 'no file twice: ' + labels.join(' '))
 })
 
-test('a cut made in a folder is a finding of that folder: no line, and no instruction file stands in for it', T, async () => {
+test('a cut made in a folder is a finding of that folder: no line, and no instruction file stands in for it', { ...T, ...NO_LINKS }, async () => {
 	const dir = repo({ 'CLAUDE.md': '# x\n', '.claude/rules/keep.md': 'A rule.\n' })
 	symlinkSync('.', join(dir, '.claude', 'rules', 'a'))
 	const harness = await trusted(dir)
@@ -144,7 +145,7 @@ test('a cut made in a folder is a finding of that folder: no line, and no instru
 	assert.equal(A.isTracked(limit), false)
 })
 
-test('the CLI still reports a rules folder that is a link out of the repository: outside-repo, and nothing of it is read', T, async () => {
+test('the CLI still reports a rules folder that is a link out of the repository: outside-repo, and nothing of it is read', { ...T, ...NO_LINKS }, async () => {
 	const outside = join(tmp, 'dotfiles-' + n++)
 	write(join(outside, 'mine.md'), 'A rule of mine, elsewhere.\n')
 	const dir = repo({ 'CLAUDE.md': '# x\n' })
@@ -212,7 +213,7 @@ test('a project of more than 20 000 files: a listing that was cut never gives a 
 	assert.ok(saidOf(harness).some(x => /20000|20 000/.test(x)), JSON.stringify(saidOf(harness)))
 })
 
-test('what a scan says it cut does not hide that a project has no CLAUDE.md', T, async () => {
+test('what a scan says it cut does not hide that a project has no CLAUDE.md', { ...T, ...NO_LINKS }, async () => {
 	const dir = repo({ '.claude/rules/keep.md': 'A rule.\n' })
 	symlinkSync('.', join(dir, '.claude', 'rules', 'a'))
 	const harness = await trusted(dir)

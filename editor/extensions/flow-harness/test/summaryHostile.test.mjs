@@ -12,6 +12,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const T = { timeout: 20000 }
+const NO_LINKS = { skip: process.platform === 'win32' && 'a symbolic link needs a privilege a Windows runner does not have' }
 let tmp
 let S, C, H, SC, LI, PG, IG, R0
 let n = 0
@@ -58,7 +59,7 @@ after(() => rmSync(tmp, { recursive: true, force: true }))
 const walkStrings = (v, f) => { if (typeof v === 'string') { f(v) } else if (Array.isArray(v)) { v.forEach(x => walkStrings(x, f)) } else if (v && typeof v === 'object') { Object.values(v).forEach(x => walkStrings(x, f)) } }
 
 // ---- 1: links ----------------------------------------------------------------------------------------------------------------
-test('a rules folder full of links back to itself is answered at once, and the next scan is not held up behind it', T, async () => {
+test('a rules folder full of links back to itself is answered at once, and the next scan is not held up behind it', { ...T, ...NO_LINKS }, async () => {
 	const dir = repo({ 'CLAUDE.md': '# x\n', '.claude/rules/keep.md': 'A rule that stays.\n' })
 	link('.', join(dir, '.claude', 'rules', 'a'))
 	link('.', join(dir, '.claude', 'rules', 'b'))
@@ -74,7 +75,7 @@ test('a rules folder full of links back to itself is answered at once, and the n
 	assert.ok(mem < 1.2 * 1024 ** 3, 'rss ' + mem)
 })
 
-test('a link to a folder elsewhere is not walked, and no file outside the folder is named in the summary', T, async () => {
+test('a link to a folder elsewhere is not walked, and no file outside the folder is named in the summary', { ...T, ...NO_LINKS }, async () => {
 	const outside = join(tmp, 'outside-' + n++)
 	write(join(outside, 'NEWS.md'), '# news\nsecret outside text\n')
 	write(join(outside, 'deploy', 'SKILL.md'), '---\nname: leaked-skill\ndescription: Leaked description from outside the folder\n---\n')
@@ -122,7 +123,7 @@ test('the walks stop at a depth and an entry cap, and a scan past its deadline s
 	assert.ok(after.ms < 500)
 })
 
-test('the editor\'s own scan (user files read, nothing confined) follows a link to a folder, and does not walk a link back into its own folder', T, async () => {
+test('the editor\'s own scan (user files read, nothing confined) follows a link to a folder, and does not walk a link back into its own folder', { ...T, ...NO_LINKS }, async () => {
 	const outside = join(tmp, 'outside-' + n++)
 	write(join(outside, 'NEWS.md'), '# news\n')
 	const dir = repo({ 'CLAUDE.md': '# x\n', '.claude/rules/keep.md': 'A rule.\n' })
@@ -393,7 +394,9 @@ test('rules full of globs: 500 rule files of 100 globs against 20 000 files, bra
 	files.push({ file: '/p/.claude/rules/bomb.md', label: 'bomb.md', kind: 'claude-rule', text: '---\npaths: ["' + '{a,b}'.repeat(40) + '", "*a*a*a*a*a*a*a*a*b", "**/**/**/**/x", "' + 'x'.repeat(5000) + '"]\n---\nbody\n' })
 	const projectFiles = Array.from({ length: 20_000 }, (_, i) => `src/pkg${i % 50}/module${i}/${'a'.repeat(60)}.ts`)
 	const r = await timed(() => LI.lint({ files, hooks: [], rules: [], cwd: '/p', home: '/h', projectFiles, untrusted: true }))
-	assert.ok(r.ms < 2500, 'took ' + r.ms)
+	// The lint's own time budget for globs (500 ms) is what ends this, and it said so; the wall-clock bound is only generous (ten times that) so that a runner several times slower passes, while the billion matches would not.
+	assert.ok(r.value.some(f => f.code === 'scan-limited' && /too long/.test(f.message)), 'the glob budget ran out and said so')
+	assert.ok(r.ms < 5000, 'took ' + r.ms)
 	assert.ok(!r.value.some(f => f.file.endsWith('bomb.md') && f.code === 'dead-glob'), 'no verdict on globs that cannot be matched safely')
 	// And an ordinary dead glob is still found, with a glob that is compiled once.
 	const one = LI.lint({ files: [files[0]], hooks: [], rules: [], cwd: '/p', home: '/h', projectFiles, untrusted: true })
@@ -410,22 +413,27 @@ test('500 links to one big rule file, and two settings files each at the caps, a
 	const stall = await longestStall(async () => {
 		const r = await timed(() => S.harnessSummary(dir))
 		assert.equal(r.value.ok, true, JSON.stringify(r.value))
-		assert.ok(r.ms < 2600, 'took ' + r.ms)
+		assert.ok(r.ms < 6000, 'took ' + r.ms)
 		assert.ok(r.value.summary.notes.some(x => /add up to more than is read/.test(x)), JSON.stringify(r.value.summary.notes))
 		assert.ok(r.value.summary.instructions.filter(i => i.kind === 'rules').length < 60, 'a bounded list')
 	})
-	assert.ok(stall < 1500, 'the event loop was held for ' + stall)
+	assert.ok(stall < 3000, 'the event loop was held for ' + stall)
 	assert.ok(process.memoryUsage().rss < 1.2 * 1024 ** 3, 'rss ' + process.memoryUsage().rss)
 	const rules = n => Array.from({ length: n }, (_, i) => `Bash(cmd${i} *)`)
 	const settings = { permissions: { allow: rules(1600), ask: rules(1600).map(x => x + ' '), deny: rules(1600).map(x => x + '  ') }, hooks: { Stop: [{ hooks: Array.from({ length: 1600 }, (_, i) => ({ type: 'command', command: `bash .claude/h${i}.sh` })) }] } }
 	const both = repo({ 'CLAUDE.md': '# x\n', '.claude/settings.json': JSON.stringify(settings, null, 2), '.claude/settings.local.json': JSON.stringify(settings, null, 2) })
 	let worst = 0
 	const t = await timed(async () => { worst = await longestStall(() => S.harnessSummary(both).then(r => assert.equal(r.ok, true))) })
-	assert.ok(t.ms < 4000, 'two full settings files took ' + t.ms)
-	assert.ok(worst < 1500, 'stalled ' + worst)
+	// What is machine independent is that the rule checks have a budget of their own and say when it ran out (the quadratic shadowing check once held the loop for a second here and two on a CI runner); the times are only generous bounds for a slow runner.
+	const many = Array.from({ length: 20_000 }, (_, i) => ({ pattern: `Bash(cmd${i} *)`, effect: 'allow', scope: 'project', file: '/p/.claude/settings.json', line: i }))
+	const checked = await timed(() => LI.lint({ files: [], hooks: [], rules: many, cwd: '/p', home: '/h', untrusted: true }))
+	assert.ok(checked.value.some(f => f.code === 'scan-limited' && /permission rules/.test(f.message)), 'the rule budget ran out and said so')
+	assert.ok(checked.ms < 5000, 'rules took ' + checked.ms)
+	assert.ok(t.ms < 8000, 'two full settings files took ' + t.ms)
+	assert.ok(worst < 3000, 'stalled ' + worst)
 })
 
-test('a link whose target names a network path is refused before anything resolves it, and said once', T, async () => {
+test('a link whose target names a network path is refused before anything resolves it, and said once', { ...T, ...NO_LINKS }, async () => {
 	const dir = repo({ 'AGENTS.md': '# a\n' })
 	link('//attacker/share/x.md', join(dir, 'CLAUDE.md'))
 	link('\\\\attacker\\share\\y', join(dir, '.claude'))

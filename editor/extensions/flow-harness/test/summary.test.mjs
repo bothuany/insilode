@@ -199,7 +199,7 @@ test('only an existing absolute folder is summarised: anything else is refused w
 	// A trailing separator and a path that goes round (a/../b) name the same folder.
 	assert.equal((await S.harnessSummary(dir + '/')).summary.root, dir)
 	assert.equal((await S.harnessSummary(join(dir, 'x', '..'))).summary.root, dir)
-	assert.equal(S.folderOf('/'), '/')
+	assert.equal(S.folderOf('/'), resolve('/'), 'a root keeps its separator (on Windows "D:" alone is the current folder of the drive)')
 })
 
 // ---- real folders ----------------------------------------------------------------------------------------------------------

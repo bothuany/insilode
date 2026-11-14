@@ -243,6 +243,8 @@ export function ruleGlobs(f: LintFile): { glob: string; line: number }[] {
 /** For an untrusted folder: how long all the glob checks of one lint run may take together, and the longest path they look at: rules are the text of files, and 500 rules of 100 globs against 20 000 files is a billion matches. A trusted folder has neither. */
 const GLOB_MS = 500;
 const MAX_PATH = 400;
+/** For an untrusted folder: how long the rule checks may take together (the shadowing check compares each allow rule with all the rules). */
+const RULE_MS = 300;
 
 function lintGlobs(f: LintFile, input: LintInput, out: Finding[], until: number, longPaths: boolean) {
 	// A cut listing is no ground for "matches no file": the file may be in the part not listed (the scan says the listing was cut: scanCore.ts).
@@ -252,7 +254,8 @@ function lintGlobs(f: LintFile, input: LintInput, out: Finding[], until: number,
 	let skipped: number | undefined;
 	for (const { glob, line } of ruleGlobs(f)) {
 		// No verdict, so no finding, for a glob that is too elaborate to match safely, a listing with paths too long to look at, or a check that ran out of time: said once per file below.
-		if (!globIsBounded(glob) || longPaths) {
+		// (Past the budget a glob is not even compiled: each one would still test its first 256 paths, and 500 files hold 50 000 globs.)
+		if (!globIsBounded(glob) || longPaths || Date.now() > until) {
 			skipped ??= line;
 			continue;
 		}
@@ -463,9 +466,10 @@ function lintHooks(input: LintInput, out: Finding[]) {
 /** Allow rules that hand over much more than they look like: a whole tool, a shell or interpreter, or every domain. */
 const BROAD_PROGRAMS = new Set(['bash', 'sh', 'zsh', 'pwsh', 'powershell', 'cmd', 'sudo', 'env', 'xargs', 'eval', 'node', 'python', 'python3', 'ruby', 'perl', 'npx', 'curl', 'wget', 'ssh', 'rm', 'git', 'docker', 'kubectl', 'find']);
 
-function lintRules(input: LintInput, out: Finding[]) {
+function lintRules(input: LintInput, out: Finding[], until: number) {
 	const ctx = { cwd: input.cwd, home: input.home };
 	const seen = new Map<string, Rule & { line: number }>();
+	let unchecked: (Rule & { line: number }) | undefined;
 	for (const r of input.rules) {
 		const at = { file: r.file, line: r.line };
 		const problem = ruleProblem(r);
@@ -506,12 +510,18 @@ function lintRules(input: LintInput, out: Finding[]) {
 		}
 		// An allow rule that a deny or ask rule elsewhere always overrides does nothing.
 		const sample = sampleCall(p.tool, spec);
-		if (sample) {
+		// Each check below reads every rule, so n rules cost n squared: a folder nobody trusted gets a time budget and no verdict past it.
+		if (sample && Date.now() > until) {
+			unchecked ??= r;
+		} else if (sample) {
 			const v = simulate(sample, input.rules.filter(x => x !== r), ctx);
 			if (v.rule && (v.decision === 'deny' || v.decision === 'ask') && v.rule.pattern !== r.pattern) {
 				out.push({ ...at, severity: 'warning', code: 'shadowed', message: `${r.pattern} never takes effect where ${v.rule.pattern} (${v.rule.effect}, ${v.rule.scope} settings) matches: deny and ask win over allow`, fix: `Narrow ${v.rule.pattern}, or delete this allow rule` });
 			}
 		}
+	}
+	if (unchecked) {
+		out.push({ file: unchecked.file, line: unchecked.line, severity: 'info', code: 'scan-limited', message: 'There are so many permission rules that some allow rules were not checked against the others.', fix: '' });
 	}
 }
 
@@ -534,7 +544,7 @@ export function lint(input: LintInput): Finding[] {
 	}
 	lintOverlap(input, all);
 	lintHooks(input, all);
-	lintRules(input, all);
+	lintRules(input, all, input.untrusted ? Date.now() + RULE_MS : Infinity);
 	let out = all;
 	if (input.untrusted) {
 		const seen = new Map<string, { file: string; code: string; count: number }>();
