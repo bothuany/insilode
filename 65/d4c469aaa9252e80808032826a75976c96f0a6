@@ -1,0 +1,62 @@
+editor/extensions/flow-agent/test/agentsMessage.test.mjs
+  s_1c1a3e293d98a8::t_8be5c088d5fbe0 115-123
+editor/extensions/flow-agent/test/fixtures/index/claude-search.jsonl
+  s_1c1a3e293d98a8::t_6ea35181d3e9ca 1-6
+editor/extensions/flow-agent/test/agentsPanel.test.mjs
+  s_1c1a3e293d98a8::t_4046c461e93527 118-129
+editor/extensions/flow-agent/src/sessionIndex.ts
+  s_1c1a3e293d98a8::t_d51e0d5372e205 160-162,222,230,258,261
+  s_1c1a3e293d98a8::t_43a573689e993b 259-260
+editor/extensions/flow-agent/src/chatSessions.ts
+  s_1c1a3e293d98a8::t_460e7139de9f8b 20-21,150-153,155-156
+  s_1c1a3e293d98a8::t_a0596be46864ac 154
+  s_1c1a3e293d98a8::t_ef192610427ca8 157-158
+editor/extensions/flow-agent/test/agentsPage.test.mjs
+  s_1c1a3e293d98a8::t_38d8a2c68655a8 678-687,700-719
+  s_1c1a3e293d98a8::t_a468ee1cd1b9a2 688-699
+  s_1c1a3e293d98a8::t_8be5c088d5fbe0 623-677,720-751
+editor/extensions/flow-agent/src/agentsPanel.ts
+  s_1c1a3e293d98a8::t_460e7139de9f8b 39-40,111,161,170-175,178-179,181
+  s_1c1a3e293d98a8::t_a0596be46864ac 176-177,180
+  s_1c1a3e293d98a8::t_c7b3662cfb0de4 182-183
+editor/extensions/flow-agent/src/agentsMessage.ts
+  s_1c1a3e293d98a8::t_460e7139de9f8b 9,33-34,63-64
+editor/extensions/flow-agent/test/fixtures/index/codex-search.jsonl
+  s_1c1a3e293d98a8::t_6ea35181d3e9ca 1-6
+editor/extensions/flow-agent/src/sessionSearch.ts
+  s_1c1a3e293d98a8::t_11205ac166b416 1-9,11-85,95,105,108-115,117-126,129-136,139-140,142,144-147,149-158,165-172,175-177,179-182,184,186
+  s_1c1a3e293d98a8::t_d51e0d5372e205 173-174,178
+  s_1c1a3e293d98a8::t_26debff68320bb 161-162
+  s_1c1a3e293d98a8::t_a0596be46864ac 10,86-88,90-91,93-94,96-104,106-107,116,127-128,137-138,141,143,148,159-160,163-164,183,185
+  s_1c1a3e293d98a8::t_e9a6a554d3c5ee 89,92
+editor/extensions/flow-agent/src/agentsPage.ts
+  s_1c1a3e293d98a8::t_a0596be46864ac 460-461,464-465,471,491,1078
+  s_1c1a3e293d98a8::t_4bf69ab3812f2b 75-78,305-306,387-400,463,466-470,472-490,492-493,528-529,1075-1077,1079
+  s_1c1a3e293d98a8::t_e9a6a554d3c5ee 462
+editor/extensions/flow-agent/test/sessionSearch.test.mjs
+  s_1c1a3e293d98a8::t_a468ee1cd1b9a2 128-132,134-138
+  s_1c1a3e293d98a8::t_38d8a2c68655a8 99,103-112,117,121-127,139-149,169,171-173,183,192
+  s_1c1a3e293d98a8::t_13586bac1a64f8 1-98,100-102,150-168,170,174-178,182,185-191,193-223
+  s_1c1a3e293d98a8::t_775e2b003665d2 133
+  s_1c1a3e293d98a8::t_8de85d9b8ab88f 179-181,184
+  s_1c1a3e293d98a8::t_52cfd0b407e032 113-116,118-120
+editor/extensions/flow-agent/src/agentsData.ts
+  s_1c1a3e293d98a8::t_460e7139de9f8b 204-208,210-212
+  s_1c1a3e293d98a8::t_a0596be46864ac 203,209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "65d4c469aaa9252e80808032826a75976c96f0a6",
+  "prompts": {},
+  "sessions": {
+    "s_1c1a3e293d98a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a99a3dd-7db0-4ba0-882d-a4dd922189be",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}

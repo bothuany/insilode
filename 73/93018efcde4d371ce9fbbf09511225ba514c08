@@ -1,0 +1,131 @@
+editor/extensions/flow-view/src/skeleton/sessions.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 7
+editor/extensions/flow-view/src/types/typeService.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 11
+ui/src/board/SequenceView.tsx
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 4
+ui/src/board/edges.tsx
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 9
+editor/extensions/flow-view/src/board/fromCode/sequence.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 9
+ui/src/board/legend.tsx
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 3
+editor/extensions/flow-view/test/boardFromFlow.test.mjs
+  s_1c1a3e293d98a8::t_94cae0fae46081 17
+editor/extensions/flow-view/src/board/fromCode/board.ts
+  s_1c1a3e293d98a8::t_009a0a6d7d4b4a 5
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 8
+editor/extensions/flow-view/test/canvas-board.test.mjs
+  s_1c1a3e293d98a8::t_6c1c7e49ff88f8 3,213-217
+  s_1c1a3e293d98a8::t_009a0a6d7d4b4a 6
+editor/extensions/flow-view/src/skeleton/paths.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 8
+editor/extensions/flow-view/src/boardRequest.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 7
+editor/extensions/flow-view/test/skeleton-match.test.mjs
+  s_1c1a3e293d98a8::t_6c1c7e49ff88f8 17
+editor/extensions/flow-view/src/types/boards.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 7
+editor/extensions/flow-view/src/typeviews.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 11
+editor/extensions/flow-view/test/board-core.test.mjs
+  s_1c1a3e293d98a8::t_6c1c7e49ff88f8 11,22,40
+editor/extensions/flow-view/test/plan-parser.test.mjs
+  s_1c1a3e293d98a8::t_6c1c7e49ff88f8 9
+editor/extensions/flow-view/src/board/canvas.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 13
+editor/extensions/flow-view/src/skeletonHost.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 12
+ui/src/board/svg.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 7
+editor/extensions/flow-view/test/board-compare.test.mjs
+  s_1c1a3e293d98a8::t_6c1c7e49ff88f8 8
+editor/extensions/flow-view/src/board/plan.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 10
+ui/src/board/sequence.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 4
+test/arch/wire-types.test.mjs
+  s_1c1a3e293d98a8::t_009a0a6d7d4b4a 29
+editor/extensions/flow-view/src/skeleton/match.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 9
+editor/extensions/flow-view/test/skeleton-guard.test.mjs
+  s_1c1a3e293d98a8::t_6c1c7e49ff88f8 17
+ui/src/board/cards.tsx
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 5
+board-canvas/spec.ts
+  s_1c1a3e293d98a8::t_ec55149193a80d 1-521
+editor/extensions/flow-view/src/board/overlap.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 8
+editor/extensions/flow-view/src/board/viewer.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 13
+ui/src/board/steps.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 6
+docs/plans/canvas-board.md
+  s_1c1a3e293d98a8::t_f93eba37412218 29
+docs/boards.md
+  s_1c1a3e293d98a8::t_009a0a6d7d4b4a 3
+editor/extensions/flow-view/test/board-mermaid-parse.test.mjs
+  s_1c1a3e293d98a8::t_6c1c7e49ff88f8 21
+editor/extensions/flow-view/src/board/fromFlow.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 9
+editor/extensions/flow-view/test/skeleton-paths.test.mjs
+  s_1c1a3e293d98a8::t_6c1c7e49ff88f8 21
+.claude/hooks/indent-check.mjs
+  s_1c1a3e293d98a8::t_009a0a6d7d4b4a 3
+editor/extensions/flow-view/test/skeleton-sessions.test.mjs
+  s_1c1a3e293d98a8::t_6c1c7e49ff88f8 10
+editor/extensions/flow-view/src/types/export.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 8
+editor/extensions/flow-view/src/board/fromCode/er.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 13
+editor/extensions/flow-view/src/mcp/tools.ts
+  s_1c1a3e293d98a8::t_009a0a6d7d4b4a 6
+editor/extensions/flow-view/src/board/compare.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 7
+editor/extensions/flow-view/src/board/store.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 10
+editor/extensions/flow-view/src/mcp/handlers.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 21
+editor/extensions/flow-view/test/board-mermaid-import.test.mjs
+  s_1c1a3e293d98a8::t_6c1c7e49ff88f8 9
+editor/extensions/flow-view/src/board/markdown.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 7
+editor/extensions/flow-view/src/boardPanel.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 19
+editor/extensions/flow-view/src/board/lint.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 9
+ui/src/board/board.tsx
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 11
+editor/extensions/flow-view/test/board-persist.test.mjs
+  s_1c1a3e293d98a8::t_6c1c7e49ff88f8 9
+editor/extensions/flow-view/test/types-boards.test.mjs
+  s_1c1a3e293d98a8::t_6c1c7e49ff88f8 15
+editor/extensions/flow-view/src/board/mermaid.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 9
+ui/src/board/protocol.ts
+  s_1c1a3e293d98a8::t_1a339d36f48a7d 4
+editor/extensions/flow-view/test/board-lint.test.mjs
+  s_1c1a3e293d98a8::t_6c1c7e49ff88f8 11,122
+docs/research/agent-diagrams.md
+  s_1c1a3e293d98a8::t_009a0a6d7d4b4a 16,216
+docs/design/skeleton-first.md
+  s_1c1a3e293d98a8::t_142f5f50e437eb 126
+ui/src/board/model.ts
+  s_1c1a3e293d98a8::t_78dc1aa9fc4c2c 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7393018efcde4d371ce9fbbf09511225ba514c08",
+  "prompts": {},
+  "sessions": {
+    "s_1c1a3e293d98a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a99a3dd-7db0-4ba0-882d-a4dd922189be",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}

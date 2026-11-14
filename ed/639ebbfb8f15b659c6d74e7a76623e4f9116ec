@@ -1,0 +1,50 @@
+test/arch/harness-cli.test.mjs
+  s_1c1a3e293d98a8::t_d997308bd927bf 1-33
+editor/extensions/flow-harness/tsconfig.json
+  s_1c1a3e293d98a8::t_2366e866011c5a 10
+editor/extensions/flow-harness/test/harnessLint.test.mjs
+  s_1c1a3e293d98a8::t_0c87d99c9f3993 66-70,72-74,127-131,133-136
+  s_1c1a3e293d98a8::t_4da58d3e2523c6 6,63,71,75-80,82,105-126,137-169
+  s_1c1a3e293d98a8::t_fb2add6e446d8e 1-5,7-62,64-65,81,83-104,170-192
+  s_1c1a3e293d98a8::t_d174125900c849 132
+editor/extensions/flow-harness/src/scan.ts
+  s_1c1a3e293d98a8::t_240ad0565e8ad9 2-3,8,10-11,13-14,16-17,19-20,23-25
+docs/harness-lint.md
+  s_1c1a3e293d98a8::t_0c87d99c9f3993 21
+  s_1c1a3e293d98a8::t_13f9bcc937b739 11,35-36,39,41-42,45
+  s_1c1a3e293d98a8::t_a67a4950047987 1-10,12-20,22-34,37-38,40,43-44
+editor/extensions/flow-harness/cli/harness-lint.ts
+  s_1c1a3e293d98a8::t_8483257d9c49ab 1-5,8-22,31-89,91-115
+  s_1c1a3e293d98a8::t_cf7d4b01e55013 6-7,23,28,30,90
+  s_1c1a3e293d98a8::t_0c87d99c9f3993 24-27,29
+.dependency-cruiser.cjs
+  s_1c1a3e293d98a8::t_81987c8734edc8 85-86,108,117
+editor/extensions/flow-harness/src/scanFsHost.ts
+  s_1c1a3e293d98a8::t_8483257d9c49ab 1-11,14-29,31-59
+  s_1c1a3e293d98a8::t_cf7d4b01e55013 13,30
+  s_1c1a3e293d98a8::t_bab4299fe026d8 12
+package.json
+  s_1c1a3e293d98a8::t_81987c8734edc8 23-25
+editor/extensions/flow-harness/esbuild.mjs
+  s_1c1a3e293d98a8::t_8483257d9c49ab 16-26
+editor/extensions/flow-harness/src/scanCore.ts
+  s_1c1a3e293d98a8::t_f474e35e94cd70 99-106,110-119,208-211,272-274,305-307,596,601-602,620-622
+  s_1c1a3e293d98a8::t_0fe165c65e88ba 353-357,368-371,444-447
+  s_1c1a3e293d98a8::t_240ad0565e8ad9 1-98,107-109,120-207,212-271,275-304,308-352,358-367,372-443,448-595,597-600,603-619,623-630
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ed639ebbfb8f15b659c6d74e7a76623e4f9116ec",
+  "prompts": {},
+  "sessions": {
+    "s_1c1a3e293d98a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a99a3dd-7db0-4ba0-882d-a4dd922189be",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}

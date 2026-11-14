@@ -1,0 +1,22 @@
+editor/extensions/flow-agent/src/chatCore.ts
+  s_1c1a3e293d98a8::t_6e068d23027a3e 80-88,94
+  s_1c1a3e293d98a8::t_cb06676a21236f 79
+editor/extensions/flow-agent/test/chatCore.test.mjs
+  s_1c1a3e293d98a8::t_3f208810f6acad 109-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "bbb6375d6d53c56121053b186a40a912dfe4e819",
+  "prompts": {},
+  "sessions": {
+    "s_1c1a3e293d98a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a99a3dd-7db0-4ba0-882d-a4dd922189be",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}

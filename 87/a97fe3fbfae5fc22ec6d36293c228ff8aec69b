@@ -1,0 +1,50 @@
+editor/extensions/flow-agent/test/dockMessage.test.mjs
+  s_1c1a3e293d98a8::t_5104bb44741c23 51,53,57-58
+editor/extensions/flow-agent/package.json
+  s_1c1a3e293d98a8::t_2cd6d5bb615ecb 282
+editor/extensions/flow-agent/src/extension.ts
+  s_1c1a3e293d98a8::t_9a7e62b8725c70 23
+  s_1c1a3e293d98a8::t_c0eafe8221eb2d 83
+editor/extensions/flow-agent/src/dockPage.ts
+  s_1c1a3e293d98a8::t_89987d58e46f0a 165,334-335,347
+editor/extensions/flow-agent/test/dockPage.test.mjs
+  s_1c1a3e293d98a8::t_5104bb44741c23 205-219
+editor/extensions/flow-agent/src/agents.ts
+  s_1c1a3e293d98a8::t_d152b4ea8826be 803
+  s_1c1a3e293d98a8::t_9a7e62b8725c70 33
+editor/extensions/flow-agent/src/agentsPanel.ts
+  s_1c1a3e293d98a8::t_89987d58e46f0a 11-12
+  s_1c1a3e293d98a8::t_9a7e62b8725c70 143-144
+  s_1c1a3e293d98a8::t_8ff7aa2975c396 76,145-147,190
+editor/extensions/flow-agent/src/dockMessage.ts
+  s_1c1a3e293d98a8::t_d152b4ea8826be 13-17
+  s_1c1a3e293d98a8::t_00e5a5416c122b 59
+editor/extensions/flow-agent/src/dock.ts
+  s_1c1a3e293d98a8::t_9a7e62b8725c70 11-12,32,82-86,109
+docs/agent-tools.md
+  s_1c1a3e293d98a8::t_2cd6d5bb615ecb 25
+editor/extensions/flow-agent/src/bypass.ts
+  s_1c1a3e293d98a8::t_9a7e62b8725c70 26
+  s_1c1a3e293d98a8::t_dd634313fcb78f 15-25,29-31,42-44
+  s_1c1a3e293d98a8::t_d152b4ea8826be 1-14,27-28,32-41,45-48
+editor/extensions/flow-agent/src/agentsData.ts
+  s_1c1a3e293d98a8::t_9a7e62b8725c70 96-97
+editor/extensions/flow-agent/src/agentsPage.ts
+  s_1c1a3e293d98a8::t_b62bb4cd9b51c3 340
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "87a97fe3fbfae5fc22ec6d36293c228ff8aec69b",
+  "prompts": {},
+  "sessions": {
+    "s_1c1a3e293d98a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a99a3dd-7db0-4ba0-882d-a4dd922189be",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}
