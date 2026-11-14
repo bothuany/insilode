@@ -1,0 +1,44 @@
+editor/extensions/flow-harness/cli/harness-lint.ts
+  s_1c1a3e293d98a8::t_30913bf5544c8a 5,32-37,93
+docs/harness-lint.md
+  s_1c1a3e293d98a8::t_30913bf5544c8a 13
+editor/extensions/flow-harness/test/harnessLint.test.mjs
+  s_1c1a3e293d98a8::t_30913bf5544c8a 8-9,190-197
+  s_1c1a3e293d98a8::t_8efff79b425541 116
+  s_1c1a3e293d98a8::t_6afdea90f59f44 198-199
+editor/extensions/flow-agent/src/chatSessions.ts
+  s_1c1a3e293d98a8::t_333093be27d0cb 17,132
+editor/extensions/flow-agent/test/sessionIndex.test.mjs
+  s_1c1a3e293d98a8::t_739186afe277fb 45-46
+editor/extensions/flow-view/test/changes-in-flow.test.mjs
+  s_1c1a3e293d98a8::t_2b835bb7135dc6 113,127
+editor/extensions/flow-agent/test/chatCore.test.mjs
+  s_1c1a3e293d98a8::t_92ae1932b5efc5 106-107
+  s_1c1a3e293d98a8::t_8efff79b425541 130
+  s_1c1a3e293d98a8::t_17532b9bc212c2 150-157
+editor/extensions/flow-agent/test/chatSessions.test.mjs
+  s_1c1a3e293d98a8::t_8efff79b425541 154,172
+editor/extensions/flow-agent/src/chatCore.ts
+  s_1c1a3e293d98a8::t_333093be27d0cb 41-43
+  s_1c1a3e293d98a8::t_92ae1932b5efc5 79-82,84
+.gitattributes
+  s_1c1a3e293d98a8::t_9254a8507fb991 16-18
+editor/extensions/flow-agent/test/sessionSearch.test.mjs
+  s_1c1a3e293d98a8::t_739186afe277fb 30-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "7d3f7e912d683f833148b17b10893728b24bd7a8",
+  "prompts": {},
+  "sessions": {
+    "s_1c1a3e293d98a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a99a3dd-7db0-4ba0-882d-a4dd922189be",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}
