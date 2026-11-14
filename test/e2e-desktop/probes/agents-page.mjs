@@ -1,11 +1,11 @@
 // The title bar's Agents button: VS Code's own "Open in Agents" button is gone, Insilode's Agents page button stands in its place
 // (editor/patches/flow-core.patch adds the `titleBar/center` menu, flow-agent contributes the button), and it opens the page: a sidebar of
 // projects and their sessions (this window's project first), the board and the detail pane. On the desktop the page opens in a window of
-// its own by default; this probe cannot drive a second window, so it asks for the editor tab (flowAgent.agentsPage.location = "tab").
+// its own by default; this probe cannot drive a second window, so it asks for the editor tab (flow.agents.page.location = "tab").
 //   npm run docker:e2e -- --probe test/e2e-desktop/probes/agents-page.mjs
 import { startInsilode, shot, tabTitles, until, sleep } from '/work/insilode/test/e2e-desktop/lib/probe.mjs'
 
-const { app, page } = await startInsilode({ settings: { 'flowAgent.agentsPage.location': 'tab' } })
+const { app, page } = await startInsilode({ settings: { 'flow.agents.page.location': 'tab' } })
 const failures = []
 try {
 	const bar = page.locator('.titlebar .center-adjacent-toolbar-container')

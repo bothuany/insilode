@@ -35,12 +35,12 @@ test('with the setting on, bypass permissions is offered, never started in', () 
 
 test('the setting is off by default, machine-scoped and described', () => {
 	const props = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).contributes.configuration.properties
-	const s = props['flowAgent.claude.allowBypassPermissions']
+	const s = props['flow.agents.claude.allowBypassPermissions']
 	assert.equal(s.type, 'boolean')
 	assert.equal(s.default, false)
 	assert.equal(s.scope, 'machine', 'a workspace cannot turn it on')
 	assert.ok((s.markdownDescription || s.description).length > 40)
-	const loc = props['flowAgent.agentsPage.location']
+	const loc = props['flow.agents.page.location']
 	assert.deepEqual(loc.enum, ['window', 'tab'])
 	assert.equal(loc.default, 'window')
 })

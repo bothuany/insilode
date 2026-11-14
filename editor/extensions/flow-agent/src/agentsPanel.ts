@@ -42,7 +42,7 @@ export class AgentsPanel implements vscode.Disposable {
 	constructor(private readonly agents: Agents, private readonly worktrees?: WorktreeRows, private readonly peers?: Peers, private readonly chats?: ChatSessions) {}
 
 	/**
-	 * Opens the page, or brings the open one to the front. On the desktop it opens in a window of its own (flowAgent.agentsPage.location,
+	 * Opens the page, or brings the open one to the front. On the desktop it opens in a window of its own (flow.agents.page.location,
 	 * default "window"); in the web UI, which has no second window, and with "tab" it stays an editor tab. One panel, so a second
 	 * call reveals the same page wherever it lives now.
 	 */
@@ -52,7 +52,7 @@ export class AgentsPanel implements vscode.Disposable {
 			return;
 		}
 		this.create();
-		if (vscode.env.uiKind === vscode.UIKind.Desktop && vscode.workspace.getConfiguration('flowAgent.agentsPage').get<string>('location', 'window') !== 'tab') {
+		if (vscode.env.uiKind === vscode.UIKind.Desktop && vscode.workspace.getConfiguration('flow.agents.page').get<string>('location', 'window') !== 'tab') {
 			void this.intoWindow(this.panel);
 		}
 	}

@@ -1,12 +1,12 @@
 /*---------------------------------------------------------------------------------------------
  *  Insilode: the switch for offering Claude Code's bypass permissions mode in terminal Claude sessions
- *  (flowAgent.claude.allowBypassPermissions). It is machine-scoped, so a repository cannot turn it on; the menu of the
+ *  (flow.agents.claude.allowBypassPermissions). It is machine-scoped, so a repository cannot turn it on; the menu of the
  *  Claude start button turns it on (after a warning) or off.
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
 
-const SECTION = 'flowAgent.claude';
+const SECTION = 'flow.agents.claude';
 const KEY = 'allowBypassPermissions';
 export const BYPASS_SETTING = `${SECTION}.${KEY}`;
 

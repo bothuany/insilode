@@ -23,13 +23,30 @@ import { PrEvents } from './prEvents';
 import { startOrResume } from './resume';
 import { toggleBypass } from './bypass';
 import { sweepLeftoverCopies } from './swap';
+import { settingMoves } from './legacySettings';
 import { AgentSessionType } from './sessionType';
 import { WorktreeRows } from './worktreeActions';
 import { cleanupWorktrees, runWorktreeSetup } from './worktreeCleanup';
 
-export function activate(context: vscode.ExtensionContext) {
+/** Moves the two settings that were named `flowAgent.*` to their `flow.agents.*` names, in the user's settings (see legacySettings.ts). */
+async function migrateSettings(log: vscode.LogOutputChannel) {
+	const config = vscode.workspace.getConfiguration();
+	for (const m of settingMoves(key => config.inspect(key))) {
+		try {
+			await config.update(m.to, m.value, vscode.ConfigurationTarget.Global);
+			await config.update(m.from, undefined, vscode.ConfigurationTarget.Global);
+			log.info(`Moved the setting ${m.from} to ${m.to}.`);
+		} catch (e) {
+			log.warn(`Could not move the setting ${m.from} to ${m.to}: ${(e as Error).message}`);
+		}
+	}
+}
+
+export async function activate(context: vscode.ExtensionContext) {
 	const log = vscode.window.createOutputChannel('Insilode Agents', { log: true });
 	context.subscriptions.push(log, registerPlaceholderModels());
+	// Before anything reads a setting (the Agents page's location, the bypass toggle). Never throws: a failed move is only logged.
+	await migrateSettings(log).catch(e => log.warn(`Could not move the renamed settings: ${(e as Error).message}`));
 	// Claude Code's and Codex's own extensions, from Open VSX on the first start (agentExtensions.ts); after the window is
 	// up, so the start is not slower for it.
 	const installLater = setTimeout(() => void installAgentExtensions(context, log).catch(e => log.warn(`Agents: agent extensions: ${(e as Error).message}`)), 5000);

@@ -267,7 +267,7 @@
     "configuration": {
       "title": "Insilode Agents",
       "properties": {
-        "flowAgent.agentsPage.location": {
+        "flow.agents.page.location": {
           "type": "string",
           "enum": [
             "window",
@@ -280,7 +280,7 @@
           "default": "window",
           "description": "Where the Agents page opens on the desktop. In the web UI it is always an editor tab."
         },
-        "flowAgent.claude.allowBypassPermissions": {
+        "flow.agents.claude.allowBypassPermissions": {
           "type": "boolean",
           "default": false,
           "scope": "machine",
