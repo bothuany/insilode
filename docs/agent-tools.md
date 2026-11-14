@@ -7,7 +7,7 @@ Claude Code over `/ide` only shows its model the `getDiagnostics` tool, so Insil
 | Tool | What it does |
 |---|---|
 | `open` | Opens a file at a line or range, without taking focus |
-| `open_diff` | Opens git changes (modified, staged, deleted, new) in the multi-file diff view, optionally also on the flow canvas; `base` picks what they are measured against: uncommitted (HEAD), the whole branch, or the last commit |
+| `open_diff` | Opens git changes (modified, staged, deleted, new) in the multi-file diff view, optionally also on the flow canvas; `base` picks what they are measured against: uncommitted (HEAD), the whole branch, the last commit, a commit or branch you name (`ref`), or where the calling agent session started (`session`; only for agents started from the Agents dock, otherwise use `branch` or `ref`; only the repository the session ran in is compared) |
 | `get_diagnostics` | The errors and warnings the language servers report now, for a file or the whole workspace |
 | `find_symbol` | Searches classes, methods, functions and fields by name |
 | `go_to_definition`, `find_references` | Where a symbol is defined (with its signature), and every place that uses it |
@@ -44,6 +44,8 @@ Claude Code over `/ide` only shows its model the `getDiagnostics` tool, so Insil
 - **Uncommitted changes**: against HEAD. Cards offer Undo and Keep.
 - **This branch**: everything since the branch left `main` or `master`, committed or not. On `main` itself, the commits not pushed yet.
 - **Last commit**: the last commit plus anything uncommitted on top.
+- **A commit or branch**: everything since the one you name, committed or not.
+- **An agent session**: everything since that session started (committed along the way or not). Uncommitted work that was already in the same files before it started shows up too. Agents started from the Agents dock only.
 
 A branch or last-commit card says "Changed since main" and has no Undo, because Insilode does not undo commits.
 

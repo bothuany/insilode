@@ -191,6 +191,10 @@ test('tool arguments: the flow to play on', () => {
 	assert.deepEqual(parse(args({ flow: { file: 'src/OrderService.cs', method: 'OrderService.Place' } })).flow, { file: join(work, 'src', 'OrderService.cs'), method: 'OrderService.Place' })
 	assert.deepEqual(parse(args({ flow: { changes: true, base: 'branch' } })).flow, { changes: true, base: 'branch' })
 	fails(args({ flow: { changes: true, base: 'tomorrow' } }), /flow\.base must be one of/)
+	assert.deepEqual(parse(args({ flow: { changes: true, base: 'ref', ref: 'feature/x' } })).flow, { changes: true, base: 'ref', ref: 'feature/x' })
+	fails(args({ flow: { changes: true, base: 'ref' } }), /flow\.base "ref" needs flow\.ref/)
+	fails(args({ flow: { changes: true, base: 'branch', ref: 'main' } }), /flow\.ref is only used with flow\.base "ref"/)
+	fails(args({ flow: { changes: true, ref: 'main' } }), /flow\.ref is only used/)
 	fails(args({ flow: { file: '../x.cs' } }), /flow\.file/)
 })
 

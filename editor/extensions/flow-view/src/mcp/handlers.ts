@@ -70,6 +70,8 @@ export interface ToolDeps {
 	tours: TourPlayer;
 	/** Who an agent session is (its name and colour in the dock), for the tour's cursor; nothing when the session is not known. */
 	describeAgent(session: string): Promise<{ label: string; color: string } | undefined>;
+	/** Where an agent session began (the root it works in and that root's HEAD then), for the diff "since this session started"; nothing when the session is not known. */
+	sessionStart(session: string): Promise<{ root: string; head: string } | undefined>;
 	/** Skeleton first: the answer of check_skeleton, and the boards agents draw. */
 	skeleton?: SkeletonTools;
 	/** The type graph: the architecture and state boards of board_from_code, and the relations of its ER boards. */
@@ -108,9 +110,16 @@ interface GitRepo {
 	getMergeBase(ref1: string, ref2: string): Promise<string | undefined>;
 	getCommit(ref: string): Promise<{ hash: string }>;
 }
-/** What the changes are measured against: HEAD (uncommitted work), the branch's fork point, or the commit before HEAD. */
-export type DiffBase = 'uncommitted' | 'branch' | 'last_commit';
-const DIFF_BASES: readonly DiffBase[] = ['uncommitted', 'branch', 'last_commit'];
+/**
+ * What the changes are measured against: HEAD (uncommitted work), the branch's fork point, the commit before HEAD, a commit or
+ * branch the caller names (`ref`), or where the calling agent session began (`session`).
+ */
+export type DiffBase = 'uncommitted' | 'branch' | 'last_commit' | 'ref' | 'session';
+const DIFF_BASES: readonly DiffBase[] = ['uncommitted', 'branch', 'last_commit', 'ref', 'session'];
+/** A base `collectChanges` can measure against: a fixed name, a commit already resolved, or a ref to resolve in each repository. */
+type ChangeBase = Exclude<DiffBase, 'ref' | 'session'> | { hash: string; name: string } | { ref: string };
+/** A branch name or commit hash that is safe to hand to git: no leading dash (an option), no `..` (a range), no shell characters. */
+export const isSafeRef = (ref: string) => /^[A-Za-z0-9._/-]{1,200}$/.test(ref) && !ref.startsWith('-') && !ref.includes('..');
 /** The branches a feature branch is cut from, in the order they are tried; never a name an agent chose. */
 const MAIN_BRANCHES = ['main', 'master', 'origin/HEAD', 'origin/main', 'origin/master'];
 interface GitApi {
@@ -156,7 +165,7 @@ export class AgentTools {
 		try {
 			switch (tool) {
 				case 'open': return await this.open(a);
-				case 'open_diff': return await this.openDiff(a);
+				case 'open_diff': return await this.openDiff(a, ctx);
 				case 'get_diagnostics': return await this.getDiagnostics(a);
 				case 'find_symbol': return await this.findSymbol(a);
 				case 'go_to_definition': return await this.definition(a);
@@ -319,13 +328,17 @@ export class AgentTools {
 		}
 	}
 
-	private async openDiff(a: Record<string, unknown>): Promise<ToolResult> {
+	private async openDiff(a: Record<string, unknown>, ctx: CallContext): Promise<ToolResult> {
 		const only = Array.isArray(a.files) && a.files.length ? await Promise.all(a.files.map(f => this.safeFile(f, false))) : undefined;
 		if (a.base !== undefined && !DIFF_BASES.includes(a.base as DiffBase)) {
 			throw new Error(`base must be one of ${DIFF_BASES.join(', ')}.`);
 		}
 		const base = (a.base as DiffBase | undefined) ?? 'uncommitted';
-		const changes = await this.collectChanges(only, base);
+		if (a.ref !== undefined && base !== 'ref') {
+			throw new Error(`\`ref\` is only used with base 'ref'.`);
+		}
+		const { change, single } = await this.changeBase(base, a.ref, ctx.session);
+		const changes = await this.collectChanges(only, change, single);
 		const { list, repos, since, notes } = changes;
 		if (!list.length) {
 			const none = only ? 'No changes in the given files' : `No ${since ? `changes since ${since}` : 'uncommitted changes'} in ${repos} git repositor${repos === 1 ? 'y' : 'ies'} of this workspace`;
@@ -347,8 +360,30 @@ export class AgentTools {
 		return text(out.join('\n'));
 	}
 
-	changesOf(only?: string[], base: DiffBase = 'uncommitted') {
-		return this.collectChanges(only, base);
+	async changesOf(only?: string[], base: DiffBase = 'uncommitted', ref?: string, session?: string) {
+		const { change, single } = await this.changeBase(base, ref, session);
+		return this.collectChanges(only, change, single);
+	}
+
+	/** Turns what the caller asked for into a base `collectChanges` takes (and the one repository it applies to, if it has one), or says what is missing. */
+	private async changeBase(base: DiffBase, ref: unknown, session: string | undefined): Promise<{ change: ChangeBase; single?: GitRepo }> {
+		if (base === 'ref') {
+			if (typeof ref !== 'string' || !isSafeRef(ref)) {
+				throw new Error(`base 'ref' needs \`ref\`: a commit hash or branch name (letters, digits and . _ / - only, no "..", not starting with "-"), got ${JSON.stringify(ref)}.`);
+			}
+			return { change: { ref } };
+		}
+		if (base === 'session') {
+			const start = session ? await this.d.sessionStart(session).catch(() => undefined) : undefined;
+			if (!start || !/^[0-9a-f]{7,64}$/i.test(start.head)) {
+				throw new Error("There is no agent session to diff against; pass base 'ref' with a commit.");
+			}
+			// shortcut: the base is the session's HEAD, so uncommitted work that was already in the same files before the session started
+			// shows up as session changes; snapshotting the working tree at start would fix it, when that noise is reported.
+			// The head is a commit of the agent's own repository (its worktree, a nested repo): another repository may not even have it.
+			return { change: { hash: start.head, name: 'session start' }, single: await this.sessionRepo(start.root) };
+		}
+		return { change: base };
 	}
 
 	/** The changes in VS Code's multi-file diff editor (nothing opens when there are none). */
@@ -367,16 +402,8 @@ export class AgentTools {
 		}
 	}
 
-	/**
-	 * The changes of an agent worktree flow-agent made (`<repo>/.insilode/worktrees/<slug>`) since its branch left `base`. Only a
-	 * linked worktree of a repository the Git extension already has open for this window is accepted: its git folder must be
-	 * `<that repo's .git>/worktrees/<name>`, so it shares that repository's config (already trusted by opening it) and
-	 * opening it cannot run anything new. `base` is a branch name, checked here and resolved to a commit before use.
-	 */
-	async worktreeChanges(root: string, base: string): Promise<Changes> {
-		if (!/^[A-Za-z0-9._/-]{1,200}$/.test(base) || base.startsWith('-') || base.includes('..')) {
-			throw new Error(`"${base}" is not a branch name.`);
-		}
+	/** The repository of a linked agent worktree (see `worktreeChanges` for what is accepted). */
+	private async worktreeRepo(root: string): Promise<GitRepo> {
 		const dir = resolveInWorkspace(root, this.folders);
 		if (!dir) {
 			throw new Error('That worktree is outside this workspace.');
@@ -399,18 +426,66 @@ export class AgentTools {
 		if (!repo) {
 			throw new Error(`The Git extension could not open ${dir}.`);
 		}
+		return repo;
+	}
+
+	/**
+	 * The one repository an agent session ran in: the nearest folder above its cwd (the cwd may be a subfolder) that has a `.git`.
+	 * A linked worktree is checked like `worktreeChanges` does; any other repository must be one the Git extension has open or
+	 * `nestedRepos` finds, so asking it for its status cannot run anything new.
+	 */
+	private async sessionRepo(root: string): Promise<GitRepo> {
+		let dir = path.resolve(root);
+		let dot: Awaited<ReturnType<typeof fs.lstat>> | undefined;
+		while (!(dot = await fs.lstat(path.join(dir, '.git')).catch(() => undefined))) {
+			const up = path.dirname(dir);
+			if (up === dir) {
+				throw new Error(`The agent session's folder ${root} is not in a git repository.`);
+			}
+			dir = up;
+		}
+		// A linked worktree's git dir is `<repo>/.git/worktrees/<name>`; a submodule inside one has `.../worktrees/<name>/modules/<m>`, which is not.
+		const link = dot.isFile() ? /^gitdir:\s*(.+)$/m.exec(await fs.readFile(path.join(dir, '.git'), 'utf8').catch(() => '')) : null;
+		if (link && path.basename(path.dirname(path.resolve(dir, link[1].trim()))) === 'worktrees') {
+			return this.worktreeRepo(dir);
+		}
+		const same = (a: string, b: string) => process.platform === 'win32' ? a.toLowerCase() === b.toLowerCase() : a === b;
+		const api = await this.gitApi();
+		const open = api.repositories.find(r => same(r.rootUri.fsPath, dir));
+		if (open) {
+			return open;
+		}
+		const nested = (await this.nestedRepos()).includes(vscode.Uri.file(dir).fsPath);
+		const opened = nested ? await api.openRepository(vscode.Uri.file(dir)).catch(() => null) : null;
+		if (!opened) {
+			throw new Error(`The agent session's repository ${dir} is not one this window has open.`);
+		}
+		return opened;
+	}
+
+	/**
+	 * The changes of an agent worktree flow-agent made (`<repo>/.insilode/worktrees/<slug>`) since its branch left `base`. Only a
+	 * linked worktree of a repository the Git extension already has open for this window is accepted: its git folder must be
+	 * `<that repo's .git>/worktrees/<name>`, so it shares that repository's config (already trusted by opening it) and
+	 * opening it cannot run anything new. `base` is a branch name, checked here and resolved to a commit before use.
+	 */
+	async worktreeChanges(root: string, base: string): Promise<Changes> {
+		if (!isSafeRef(base)) {
+			throw new Error(`"${base}" is not a branch name.`);
+		}
+		const repo = await this.worktreeRepo(root);
 		const hash = await within(repo.getMergeBase('HEAD', base), 15_000, 'finding the base commit').catch(() => undefined);
 		if (!hash || !/^[0-9a-f]{7,64}$/i.test(hash)) {
-			throw new Error(`${path.basename(dir)} has no common commit with ${base}.`);
+			throw new Error(`${path.basename(repo.rootUri.fsPath)} has no common commit with ${base}.`);
 		}
 		return this.collectChanges(undefined, { hash, name: base }, repo);
 	}
 
 	/**
-	 * The commit `base` stands for in one repository, and what to call it. Only fixed names reach git (no agent-chosen ref),
-	 * resolved to a hash here. On the main branch itself, "branch" means the commits not pushed yet.
+	 * The commit `base` stands for in one repository, and what to call it. Only fixed names reach git here; a ref an agent chose
+	 * goes through `refCommit`, which checks its spelling first. On the main branch itself, "branch" means the commits not pushed yet.
 	 */
-	private async baseCommit(repo: GitRepo, base: Exclude<DiffBase, 'uncommitted'>): Promise<{ hash: string; name: string } | string> {
+	private async baseCommit(repo: GitRepo, base: Exclude<ChangeBase, 'uncommitted' | object>): Promise<{ hash: string; name: string } | string> {
 		if (base === 'last_commit') {
 			const parent = await repo.getCommit('HEAD~1').catch(() => undefined);
 			return parent ? { hash: parent.hash, name: 'HEAD~1' } : 'it has only one commit';
@@ -428,10 +503,19 @@ export class AgentTools {
 	}
 
 	/**
+	 * A ref the caller named, resolved to a hash in one repository. It is accepted because `changeBase` already checked its
+	 * spelling (isSafeRef), so it cannot be read by git as an option or a range, and git only reads it, never runs it.
+	 */
+	private async refCommit(repo: GitRepo, ref: string): Promise<{ hash: string; name: string } | string> {
+		const commit = await repo.getCommit(ref).catch(() => undefined);
+		return commit && /^[0-9a-f]{7,64}$/i.test(commit.hash) ? { hash: commit.hash, name: ref } : `no commit or branch "${ref}"`;
+	}
+
+	/**
 	 * The working-tree changes of every git repository of this workspace against HEAD (or `base`), narrowed to `only` (files
 	 * or folders). A repository whose base cannot be found is left out, with a note saying why.
 	 */
-	private async collectChanges(only?: string[], base: DiffBase | { hash: string; name: string } = 'uncommitted', single?: GitRepo): Promise<Changes> {
+	private async collectChanges(only?: string[], base: ChangeBase = 'uncommitted', single?: GitRepo): Promise<Changes> {
 		const api = await this.gitApi();
 		// `single`: one repository against a commit already resolved (an agent worktree), no others.
 		const repos = new Map<string, GitRepo>(single ? [[single.rootUri.fsPath, single]] : api.repositories.map(r => [r.rootUri.fsPath, r]));
@@ -458,7 +542,9 @@ export class AgentTools {
 			// With git.untrackedChanges "separate" the new files are not in workingTreeChanges.
 			let all = [...repo.state.workingTreeChanges, ...(repo.state.untrackedChanges ?? []), ...repo.state.indexChanges, ...repo.state.mergeChanges];
 			if (base !== 'uncommitted') {
-				const found = typeof base === 'object' ? base : await within(this.baseCommit(repo, base), 15_000, 'finding the base commit').catch(e => (e as Error).message);
+				const found = typeof base === 'object'
+					? 'ref' in base ? await within(this.refCommit(repo, base.ref), 15_000, 'finding the base commit').catch(e => (e as Error).message) : base
+					: await within(this.baseCommit(repo, base), 15_000, 'finding the base commit').catch(e => (e as Error).message);
 				if (typeof found === 'string') {
 					notes.push(`${path.basename(root)}: left out, ${found}.`);
 					continue;
@@ -498,6 +584,9 @@ export class AgentTools {
 					repo: path.basename(root),
 				});
 			}
+		}
+		if (typeof base === 'object' && 'ref' in base && !names.size) {
+			throw new Error(`"${base.ref}" is not a commit or branch of any git repository of this workspace.`);
 		}
 		const since = base === 'uncommitted' ? undefined : [...names].join(', ') || (base === 'branch' ? 'the main branch' : 'HEAD~1');
 		return { list: [...rows.values()].sort((x, y) => x.uri.fsPath.localeCompare(y.uri.fsPath)), repos: repos.size, since, notes };
@@ -1014,9 +1103,9 @@ export class AgentTools {
 	// ── tours ───────────────────────────────────────────────────────────────
 
 	/** Opens the flow a tour plays on: the one it names, the changes, the canvas the user already has, or the flow of its first step. */
-	private async tourFlow(flow: TourFlow | undefined, steps: TourStep[]): Promise<{ target: FlowTarget; label: string }> {
+	private async tourFlow(flow: TourFlow | undefined, steps: TourStep[], session?: string): Promise<{ target: FlowTarget; label: string }> {
 		if (flow?.changes) {
-			const r = await this.changesInFlow(await this.changesOf(undefined, flow.base ?? 'uncommitted'));
+			const r = await this.changesInFlow(await this.changesOf(undefined, flow.base ?? 'uncommitted', flow.ref, session));
 			const target = this.d.shownTarget();
 			if (!r.opened || !target) {
 				throw new Error(r.message);
@@ -1055,7 +1144,7 @@ export class AgentTools {
 		if (look) {
 			tour.agent = look;
 		}
-		const { target, label } = await this.tourFlow(flow, tour.steps);
+		const { target, label } = await this.tourFlow(flow, tour.steps, ctx.session);
 		const provider = this.d.providerFor(target);
 		const [root, callers] = await Promise.all([within(provider.graph(target), 60_000, 'the flow'), within(provider.callers(target), 20_000, 'the callers').catch(() => null)]);
 		const off = markOffFlow(tour.steps, drawnOf(root, callers));

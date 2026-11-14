@@ -28,10 +28,10 @@ export class AgentBridge implements vscode.Disposable {
 	}
 
 	/** The changes since `base` on the flow canvas (one canvas for all of them); `only` narrows them to files or folders. */
-	async showChangesInFlow(only?: string[], base: DiffBase = 'uncommitted') {
+	async showChangesInFlow(only?: string[], base: DiffBase = 'uncommitted', ref?: string, session?: string) {
 		const tools = this.tools;
 		try {
-			return await tools.changesInFlow(await tools.changesOf(only, base));
+			return await tools.changesInFlow(await tools.changesOf(only, base, ref, session));
 		} catch (e) {
 			return { ok: false, opened: false, message: (e as Error).message };
 		}

@@ -98,6 +98,14 @@ export function activate(context: vscode.ExtensionContext) {
 			const s = typeof id === 'string' ? agents.sessions.get(id) : undefined;
 			return s && s.state !== 'ended' ? agentLook(s) : undefined;
 		}),
+		// Called by flow-view for the diff "since this session started": with a session id, the folder it works in and that folder's HEAD
+		// when it began; with none, every session whose start is known (id and name), for the picker. Nothing for a session this window does not know.
+		vscode.commands.registerCommand('flow.agent.sessionChanges', (id: unknown) => {
+			if (id === undefined) {
+				return [...agents.sessions.values()].filter(s => s.start).map(s => ({ id: s.id, name: s.name }));
+			}
+			return typeof id === 'string' ? agents.sessions.get(id)?.start : undefined;
+		}),
 		// Called by core when the user clicks an agent in the desktop status overlay (desktop.ts): only a live agent this
 		// window knows is shown, so a stale or made-up id does nothing (and never resumes an ended session).
 		vscode.commands.registerCommand('flow.agents.reveal', (id: unknown) => {

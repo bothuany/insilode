@@ -32,7 +32,9 @@ export interface TourFlow {
 	method?: string;
 	changes?: boolean;
 	/** With `changes`: what the changes are measured against. */
-	base?: 'uncommitted' | 'branch' | 'last_commit';
+	base?: 'uncommitted' | 'branch' | 'last_commit' | 'ref' | 'session';
+	/** With base `ref`: the commit or branch (checked when the tour opens). */
+	ref?: string;
 }
 
 export class TourFileError extends Error { }
@@ -76,10 +78,10 @@ function tooLong(what: string, text: string, max: number) {
 	}
 }
 
-const FLOW_KEYS = ['http', 'id', 'file', 'method', 'line', 'changes', 'base'];
+const FLOW_KEYS = ['http', 'id', 'file', 'method', 'line', 'changes', 'base', 'ref'];
 const STEP_KEYS = ['title', 'caption', 'file', 'method', 'line', 'lines', 'table', 'anchor', 'hash', 'notes', 'marks', 'wait'];
 const TOUR_KEYS = ['id', 'title', 'flow', 'steps', 'start', 'followUps'];
-const BASES: readonly string[] = ['uncommitted', 'branch', 'last_commit'];
+const BASES: readonly string[] = ['uncommitted', 'branch', 'last_commit', 'ref', 'session'];
 
 /** In a tool call a field Insilode does not know is a mistake the agent should hear about; in a file it is dropped. */
 function noStrangers(what: string, raw: Record<string, unknown>, known: readonly string[], strict: boolean) {
@@ -123,6 +125,19 @@ function parseFlow(raw: unknown, host: TourFileHost, strict: boolean): TourFlow 
 			flow.base = raw.base as TourFlow['base'];
 		} else if (strict && raw.base !== undefined) {
 			throw new TourFileError(`flow.base must be one of: ${BASES.join(', ')}.`);
+		}
+		const ref = plain(raw.ref);
+		// A ref only means something with base "ref", and that base is nothing without one: a tool call hears about it, a file is cleaned up.
+		if (strict && ref && flow.base !== 'ref') {
+			throw new TourFileError(`flow.ref is only used with flow.base "ref".`);
+		}
+		if (strict && flow.base === 'ref' && !ref) {
+			throw new TourFileError(`flow.base "ref" needs flow.ref: a commit hash or branch name.`);
+		}
+		if (ref && flow.base === 'ref') {
+			flow.ref = ref.slice(0, 200);
+		} else if (flow.base === 'ref') {
+			delete flow.base;
 		}
 	}
 	return Object.keys(flow).length ? flow : undefined;

@@ -30,6 +30,7 @@ import { legacySettingUpdates } from './legacySettings';
 import { PolyLenses, RoslynLenses } from './lenses';
 import { LspLenses, LspProvider } from './lsp';
 import { AgentBridge } from './mcp/bridge';
+import { isSafeRef } from './mcp/handlers';
 import { planResolvers } from './mcp/planHost';
 import { registerMcpCommands } from './mcp/register';
 import { TableIndex } from './mcp/tableIndex';
@@ -453,6 +454,10 @@ function wireAgentBridge(flow: Flow) {
 			const look = await Promise.resolve(vscode.commands.executeCommand<{ label?: unknown; color?: unknown } | undefined>('flow.agent.describe', session)).catch(() => undefined);
 			return typeof look?.label === 'string' && typeof look.color === 'string' && /^#[0-9a-f]{3,8}$/i.test(look.color) ? { label: look.label.slice(0, 40), color: look.color } : undefined;
 		},
+		sessionStart: async session => {
+			const start = await Promise.resolve(vscode.commands.executeCommand<{ root?: unknown; head?: unknown } | undefined>('flow.agent.sessionChanges', session)).catch(() => undefined);
+			return typeof start?.root === 'string' && typeof start.head === 'string' ? { root: start.root, head: start.head } : undefined;
+		},
 		trackChanges: async (entries, base) => {
 			await flow.changes.trackAgainst(base ? `Changes since ${base}` : 'Git changes', GIT_AGENT, entries, base);
 			panel.refreshSoon();
@@ -562,15 +567,35 @@ function wireAgentBridge(flow: Flow) {
 		// what a finished development is reviewed by.
 		vscode.commands.registerCommand('flow.diff.showInFlow', async (resource?: unknown) => {
 			const only = resource instanceof vscode.Uri && resource.scheme === 'file' ? [resource.fsPath] : undefined;
+			// flow-agent answers with the sessions that have a known start; the item is left out when there are none (or flow-agent is off).
+			const sessions = await Promise.resolve(vscode.commands.executeCommand<{ id: string; name: string }[] | undefined>('flow.agent.sessionChanges')).catch(() => undefined);
+			const known = Array.isArray(sessions) ? sessions.filter(s => typeof s?.id === 'string' && typeof s.name === 'string') : [];
 			const pick = await vscode.window.showQuickPick([
 				{ label: 'Uncommitted changes', description: 'against HEAD', base: 'uncommitted' as const },
 				{ label: 'This branch', description: 'everything since it left main, committed or not', base: 'branch' as const },
 				{ label: 'Last commit', description: 'the last commit and anything uncommitted on top', base: 'last_commit' as const },
+				{ label: 'A commit or branch…', description: 'everything since the one you name', base: 'ref' as const },
+				...(known.length ? [{ label: 'An agent session…', description: 'everything since it started', base: 'session' as const }] : []),
 			], { title: 'Show Changes in Flow', placeHolder: 'Which changes?' });
 			if (!pick) {
 				return;
 			}
-			const r = await bridge.showChangesInFlow(only, pick.base);
+			let ref: string | undefined;
+			let session: string | undefined;
+			if (pick.base === 'ref') {
+				ref = await vscode.window.showInputBox({ title: 'Show Changes in Flow', prompt: 'A commit hash or branch name', validateInput: v => isSafeRef(v.trim()) ? undefined : 'Letters, digits and . _ / - only, not starting with "-", no ".."' });
+				if (!ref) {
+					return;
+				}
+				ref = ref.trim();
+			} else if (pick.base === 'session') {
+				const chosen = await vscode.window.showQuickPick(known.map(s => ({ label: s.name, id: s.id })), { title: 'Show Changes in Flow', placeHolder: 'Changes since which session started?' });
+				if (!chosen) {
+					return;
+				}
+				session = chosen.id;
+			}
+			const r = await bridge.showChangesInFlow(only, pick.base, ref, session);
 			if (!r.opened) {
 				void vscode.window.showInformationMessage(`Insilode: ${r.message}`);
 			}
