@@ -1,0 +1,44 @@
+editor/extensions/flow-view/src/settingsModel.ts
+  s_1c1a3e293d98a8::t_0ee1402c6b2a54 81-82
+test/e2e-desktop/probes/agents-page.mjs
+  s_1c1a3e293d98a8::t_0ee1402c6b2a54 4,8
+editor/extensions/flow-agent/src/extension.ts
+  s_1c1a3e293d98a8::t_f93eba37412218 45,48-49
+  s_1c1a3e293d98a8::t_c71bc42f973f60 26,31-44
+editor/extensions/flow-agent/test/launch.test.mjs
+  s_1c1a3e293d98a8::t_0ee1402c6b2a54 38,43
+editor/extensions/flow-agent/test/legacySettings.test.mjs
+  s_1c1a3e293d98a8::t_c71bc42f973f60 1-7,12-60
+  s_1c1a3e293d98a8::t_90024136ebb442 8-11
+docs/agent-tools.md
+  s_1c1a3e293d98a8::t_0ee1402c6b2a54 25
+editor/extensions/flow-agent/src/agentsData.ts
+  s_1c1a3e293d98a8::t_0ee1402c6b2a54 96
+editor/extensions/flow-agent/src/bypass.ts
+  s_1c1a3e293d98a8::t_0ee1402c6b2a54 3,9
+editor/extensions/flow-agent/package.json
+  s_1c1a3e293d98a8::t_0ee1402c6b2a54 270,283
+editor/extensions/flow-agent/src/launch.ts
+  s_1c1a3e293d98a8::t_0ee1402c6b2a54 16
+editor/extensions/flow-agent/src/legacySettings.ts
+  s_1c1a3e293d98a8::t_f93eba37412218 6-8
+  s_1c1a3e293d98a8::t_0ee1402c6b2a54 1-5,9-45
+editor/extensions/flow-agent/src/agentsPanel.ts
+  s_1c1a3e293d98a8::t_0ee1402c6b2a54 45,55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2ef46f4068c9e6e7a3fd3dbabe56172560cc1efe",
+  "prompts": {},
+  "sessions": {
+    "s_1c1a3e293d98a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a99a3dd-7db0-4ba0-882d-a4dd922189be",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}
