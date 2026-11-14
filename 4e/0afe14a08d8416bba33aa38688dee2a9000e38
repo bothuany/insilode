@@ -1,0 +1,67 @@
+editor/extensions/flow-harness/src/scanCore.ts
+  s_c2897d6f2cc16d::t_b6c3cac4da29eb 311,405-406,515-516,558-559,561,707,894-896
+  s_c2897d6f2cc16d::t_463996a8ea6735 319-324
+  s_c2897d6f2cc16d::t_af53e6e838fbe4 21
+  s_c2897d6f2cc16d::t_8ac7483a19acaf 92-93,133-137,140,204
+  s_c2897d6f2cc16d::t_fdfd1e5a14df0c 283,285-286,289,293,297-300,305-306,310,317,325-333,340-341
+  s_c2897d6f2cc16d::t_77c86a60f7479f 698-700,901-909
+editor/extensions/flow-harness/test/summaryHostile.test.mjs
+  s_c2897d6f2cc16d::t_c3bc9c17e9645f 299
+  s_c2897d6f2cc16d::t_01987ac18f3aed 43-45,133,207,386-388
+  s_c2897d6f2cc16d::t_9d1da3ecb3266e 382
+  s_c2897d6f2cc16d::t_321f5d10109cfe 125
+  s_c2897d6f2cc16d::t_fb63b41796f1e6 305-307,328
+  s_c2897d6f2cc16d::t_fa33d31a39382d 297-298,300-304,308,318-327,329-342,349-350
+editor/extensions/flow-harness/src/summary.ts
+  s_c2897d6f2cc16d::t_f0f92d78c78023 123,166
+  s_c2897d6f2cc16d::t_958bbc94df43a6 30-32,106,121-122,124-125,128-133,135-141,150,154
+  s_c2897d6f2cc16d::t_af53e6e838fbe4 16
+editor/extensions/flow-harness/test/summary.test.mjs
+  s_c2897d6f2cc16d::t_53aeddd779b911 89
+editor/extensions/flow-harness/test/scanTrusted.test.mjs
+  s_c2897d6f2cc16d::t_1280f387f8e771 75
+  s_c2897d6f2cc16d::t_9f8401f7f560ce 99
+  s_c2897d6f2cc16d::t_c4cf9c3005415c 135
+  s_c2897d6f2cc16d::t_fb63b41796f1e6 147-183
+  s_c2897d6f2cc16d::t_50c2702984e58e 1-74,76-98,100-134,136-146
+editor/extensions/flow-harness/src/summaryCore.ts
+  s_c2897d6f2cc16d::t_f0f92d78c78023 144,193-194
+editor/extensions/flow-harness/src/scanFsHost.ts
+  s_c2897d6f2cc16d::t_e1a77febadc38a 19,24-25,32-37,42-47,58-62,64,68,82
+  s_c2897d6f2cc16d::t_170e7668a5048f 65,69-70,75
+  s_c2897d6f2cc16d::t_af53e6e838fbe4 7
+editor/extensions/flow-harness/src/harnessLint.ts
+  s_c2897d6f2cc16d::t_f0f92d78c78023 38
+editor/extensions/flow-harness/src/lint.ts
+  s_c2897d6f2cc16d::t_c977a045cd6233 542,548
+  s_c2897d6f2cc16d::t_77c86a60f7479f 52,54,243,248-249,252,254,256,271,276-277,282-284,529-530
+  s_c2897d6f2cc16d::t_806ae9aae4b0c0 55,77,538-541,543-547,549-551
+editor/extensions/flow-harness/src/redact.ts
+  s_c2897d6f2cc16d::t_53aeddd779b911 54
+  s_c2897d6f2cc16d::t_96b99e86a49399 20-22,25
+  s_c2897d6f2cc16d::t_cd2f84d2cf7e4a 148
+  s_c2897d6f2cc16d::t_bca718c7383451 7-8,11-12,41-42,62,66,73-98,132-137,139-143,150,154-155
+  s_c2897d6f2cc16d::t_0beff2b70fc64e 23-24,26,52-53,55-57,63-65,67-72,138
+  s_c2897d6f2cc16d::t_0ef611ec387302 43-51,58,144-147,149
+  s_c2897d6f2cc16d::t_85d836263bb463 59-61
+editor/extensions/flow-harness/src/listEntries.ts
+  s_c2897d6f2cc16d::t_af53e6e838fbe4 1-28
+editor/extensions/flow-harness/test/lint.test.mjs
+  s_c2897d6f2cc16d::t_9d1da3ecb3266e 33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4e0afe14a08d8416bba33aa38688dee2a9000e38",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
