@@ -874,9 +874,9 @@ index 0000000..9717b56
 +		}
 +	}
 +
-+	/** The windows that want the island: one whose enabled setting is left unset wants it only where a display has a camera housing. */
++	/** The windows that want the island: one whose enabled setting is left unset wants it only where the display it would sit on has a camera housing. */
 +	private wanting(): [number, IWindowAgents][] {
-+		return [...this.windows].filter(([, w]) => islandWanted(w.state.options.unset, this.notches.size > 0));
++		return [...this.windows].filter(([id, w]) => islandWanted(w.state.options.unset, this.notches.has(this.display(w.state.options.display, id).id)));
 +	}
 +
 +	/** The window that pushed last decides the options; the agents of all windows are shown together. */

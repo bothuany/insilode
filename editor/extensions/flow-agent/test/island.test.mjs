@@ -140,7 +140,7 @@ test('unset: pushed options keep it as two strict booleans, and core reads it fr
 	const service = added('src/vs/platform/insilodeDesktop/electron-main/insilodeOverlayMainService.ts')
 	// Anchored to the start of a code line, so the same words in a comment do not pass.
 	assert.match(service, /^\s*unset: readUnset\(o\?\.unset\),\s*$/m)
-	assert.match(service, /^\s*return \[\.\.\.this\.windows\]\.filter\(.*islandWanted\(w\.state\.options\.unset, this\.notches\.size > 0\)/m)
+	assert.match(service, /^\s*return \[\.\.\.this\.windows\]\.filter\(.*islandWanted\(w\.state\.options\.unset, this\.notches\.has\(this\.display\(w\.state\.options\.display, id\)\.id\)\)/m)
 })
 
 test('unset: a window whose enabled setting is unset gets the island only where a display has a camera housing', () => {

@@ -12,19 +12,20 @@ index 0767bb78..d3153534 100644
  	readonly webEndpointUrlTemplate?: string;
  	readonly webviewContentExternalBaseUrlTemplate?: string;
 diff --git a/src/vs/platform/update/electron-main/abstractUpdateService.ts b/src/vs/platform/update/electron-main/abstractUpdateService.ts
-index 2749d7be..1bda736c 100644
+index 2749d7be..e82edce8 100644
 --- a/src/vs/platform/update/electron-main/abstractUpdateService.ts
 +++ b/src/vs/platform/update/electron-main/abstractUpdateService.ts
-@@ -22,6 +22,8 @@ import { StorageScope, StorageTarget } from '../../storage/common/storage.js';
+@@ -22,6 +22,9 @@ import { StorageScope, StorageTarget } from '../../storage/common/storage.js';
  import { IApplicationStorageMainService } from '../../storage/electron-main/storageMainService.js';
  import { ITelemetryService } from '../../telemetry/common/telemetry.js';
  import { AvailableForDownload, DisablementReason, IUpdate, IUpdateService, State, StateType, UpdateType } from '../common/update.js';
-+import { asJson, IRequestContext } from '../../request/common/request.js';
++import { asJson } from '../../request/common/request.js';
++import { IRequestContext } from '../../../base/parts/request/common/request.js';
 +import { createInsilodeUpdateURL, parseInsilodeUpdate, resolveInsilodeUpdateBaseUrl } from './insilodeUpdate.js';
  
  const LAST_KNOWN_VERSION_STORAGE_KEY = 'abstractUpdateService/lastKnownVersion';
  
-@@ -30,16 +32,12 @@ export interface IUpdateURLOptions {
+@@ -30,16 +33,12 @@ export interface IUpdateURLOptions {
  	readonly internalOrg?: string;
  }
  
@@ -47,7 +48,7 @@ index 2749d7be..1bda736c 100644
  }
  
  /**
-@@ -668,10 +666,10 @@ export abstract class AbstractUpdateService extends Disposable implements IUpdat
+@@ -668,10 +667,10 @@ export abstract class AbstractUpdateService extends Disposable implements IUpdat
  
  		try {
  			const context = await this.requestService.request({ url, headers, callSite: 'updateService.isLatestVersion' }, token);
@@ -62,7 +63,7 @@ index 2749d7be..1bda736c 100644
  
  		} catch (error) {
  			this.logService.error('update#isLatestVersion(): failed to check for updates');
-@@ -701,6 +699,16 @@ export abstract class AbstractUpdateService extends Disposable implements IUpdat
+@@ -701,6 +700,16 @@ export abstract class AbstractUpdateService extends Disposable implements IUpdat
  		return UpdateType.Archive;
  	}
  
