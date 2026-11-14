@@ -1,0 +1,96 @@
+editor/extensions/flow-agent/src/peersCore.ts
+  s_c2897d6f2cc16d::t_1412aba277536f 37-38,44,78
+editor/extensions/flow-agent/src/agentsPanel.ts
+  s_c2897d6f2cc16d::t_0fab7c915ab986 31-33,61-68,114-123,140-141,158-159,181,255-294,318,321-326
+editor/extensions/flow-agent/src/agentsData.ts
+  s_c2897d6f2cc16d::t_0299de493a8318 129-139,145
+  s_c2897d6f2cc16d::t_1412aba277536f 45-46
+editor/extensions/flow-agent/test/projectIndex.test.mjs
+  s_c2897d6f2cc16d::t_4209a1e77448d1 103
+  s_c2897d6f2cc16d::t_1091a18066584b 92-102,104-120
+editor/extensions/flow-agent/test/agentsMessage.test.mjs
+  s_c2897d6f2cc16d::t_af85029d74a4a1 25-30
+editor/extensions/flow-agent/src/agentsWorkspace.ts
+  s_c2897d6f2cc16d::t_04f1dbe573e0ef 63-69,573-580,687-688,698,705,718,759,762-767,781-791,794,797-799
+  s_c2897d6f2cc16d::t_478106d57e01c4 119,166,183,188-189,193,198,201,203-211,525,536,879
+editor/extensions/flow-agent/test/agentsPage.test.mjs
+  s_c2897d6f2cc16d::t_f10504f9da14aa 1378-1523,1547-1598,1603,1608-1609,1611-1631,1633-1647
+  s_c2897d6f2cc16d::t_6d2853d898ae8c 84,89,95,1524-1546
+  s_c2897d6f2cc16d::t_916a9db3f6148e 1599-1602,1604-1607,1610,1632
+editor/extensions/flow-agent/test/paneLayout.test.mjs
+  s_c2897d6f2cc16d::t_8e1420ed878659 258
+  s_c2897d6f2cc16d::t_6d2853d898ae8c 217
+site/src/agentsPage.ts
+  s_c2897d6f2cc16d::t_e37a31d131e778 4-5,146-170,198-200,215
+editor/extensions/flow-agent/src/liveSessions.ts
+  s_c2897d6f2cc16d::t_0299de493a8318 17-18,188
+  s_c2897d6f2cc16d::t_09df7b4032f619 1-16,19-179,181-182,184-187,189-192,194-209
+  s_c2897d6f2cc16d::t_716dbcef7f2117 180,183,193
+editor/extensions/flow-agent/test/agentsPanel.test.mjs
+  s_c2897d6f2cc16d::t_e044bd75aa1a5e 265-267
+  s_c2897d6f2cc16d::t_a20631597c1116 134-135
+  s_c2897d6f2cc16d::t_de3356b3717512 320,322,324-326,328
+  s_c2897d6f2cc16d::t_05cad6806e8f19 250-264,268-319,321,323,327,329-350
+editor/extensions/flow-agent/src/termBridge.ts
+  s_c2897d6f2cc16d::t_0c5d7365735c40 55-56,101-105,111-116,124,190-194,209
+editor/extensions/flow-agent/test/spawnGuard.test.mjs
+  s_c2897d6f2cc16d::t_1afa96990c79dd 1-32
+docs/agent-tools.md
+  s_c2897d6f2cc16d::t_7def6c4e662f5e 61-62,66
+editor/extensions/flow-agent/test/termHost.test.mjs
+  s_c2897d6f2cc16d::t_3a62d42bfcbdb7 157-172,174-196
+  s_c2897d6f2cc16d::t_78abfc24586c13 47,66,173
+editor/extensions/flow-agent/src/paneLayout.ts
+  s_c2897d6f2cc16d::t_f87d5eb82200f4 31-32,82
+docs/privacy.md
+  s_c2897d6f2cc16d::t_1412aba277536f 11
+  s_c2897d6f2cc16d::t_7def6c4e662f5e 12
+editor/extensions/flow-agent/src/agents.ts
+  s_c2897d6f2cc16d::t_1afa96990c79dd 33
+  s_c2897d6f2cc16d::t_a418857f0a6f42 763-767
+editor/extensions/flow-agent/src/spawnGuard.ts
+  s_c2897d6f2cc16d::t_a418857f0a6f42 1-12
+editor/extensions/flow-agent/test/peers.test.mjs
+  s_c2897d6f2cc16d::t_1412aba277536f 77-86
+editor/extensions/flow-agent/src/agentsMessage.ts
+  s_c2897d6f2cc16d::t_6f0b537665d762 22-26,67-70
+editor/extensions/flow-agent/src/projectIndex.ts
+  s_c2897d6f2cc16d::t_0fab7c915ab986 63-67
+  s_c2897d6f2cc16d::t_1d2a71fd275193 12,23-24,26-30,32,49-62,68-71
+  s_c2897d6f2cc16d::t_e4822189c50634 77
+site/try/index.html
+  s_c2897d6f2cc16d::t_e37a31d131e778 98
+site/test/e2e.test.mjs
+  s_c2897d6f2cc16d::t_1eaeb02a4927fa 368-384
+editor/extensions/flow-agent/src/extension.ts
+  s_c2897d6f2cc16d::t_1412aba277536f 88
+  s_c2897d6f2cc16d::t_6f0b537665d762 25,87,89-90
+editor/extensions/flow-agent/src/agentsShell.ts
+  s_c2897d6f2cc16d::t_478106d57e01c4 756,759-762
+  s_c2897d6f2cc16d::t_21454574e555a9 703
+  s_c2897d6f2cc16d::t_94f829959f2e1e 63-74,212-226,272-279,427-435,508-516
+  s_c2897d6f2cc16d::t_e9a41bde738e31 536-537,541,549,664-702,704-714,721
+editor/extensions/flow-agent/src/termHost.ts
+  s_c2897d6f2cc16d::t_78abfc24586c13 20-21,34-35,96-102,106-110
+editor/extensions/flow-agent/test/termBridge.test.mjs
+  s_c2897d6f2cc16d::t_0c5d7365735c40 38,203-234
+editor/extensions/flow-agent/test/liveSessions.test.mjs
+  s_c2897d6f2cc16d::t_1412aba277536f 19
+  s_c2897d6f2cc16d::t_d94c05d4af1a07 1-18,20-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "4e204fa32fdb3c52568121edd0f7ac562fede24b",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
