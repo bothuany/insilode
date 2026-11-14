@@ -1,0 +1,98 @@
+editor/extensions/flow-agent/src/paneLayout.ts
+  s_c2897d6f2cc16d::t_6088e4502d74fa 1-511
+editor/extensions/flow-agent/test/agentsMessage.test.mjs
+  s_c2897d6f2cc16d::t_98350e6f3a4bed 12,23,30,39-40,48,70,77,81,83-84,88,147-173
+editor/extensions/flow-agent/src/agentsPanel.ts
+  s_c2897d6f2cc16d::t_05122395efd8d8 8,15,17,19,23,32-47,59,95,138-140,168,171-174,219,225,233-234,238-243
+editor/extensions/flow-agent/src/agentsShell.ts
+  s_c2897d6f2cc16d::t_cb2b0d90017811 398,430
+  s_c2897d6f2cc16d::t_7f8b7f172ffc24 1-397,399-429,431-699,701-703
+  s_c2897d6f2cc16d::t_abd42e2f231aa3 700
+editor/extensions/flow-agent/src/layoutStore.ts
+  s_c2897d6f2cc16d::t_7d6babdb50bb41 1-70
+editor/extensions/flow-agent/test/agentsPanel.test.mjs
+  s_c2897d6f2cc16d::t_98350e6f3a4bed 1-2,57-58,70-73,75-76,78-80,82,85,87-88,97-124,138
+  s_c2897d6f2cc16d::t_c2f96e67e87784 6,32-42,45-48,62-63,65,67,125-137
+  s_c2897d6f2cc16d::t_9e4749b550e7bf 52
+  s_c2897d6f2cc16d::t_54f197823c3e74 139
+editor/extensions/flow-agent/test/paneLayout.test.mjs
+  s_c2897d6f2cc16d::t_3a79d0359b1313 1-293
+editor/extensions/flow-agent/package.json
+  s_c2897d6f2cc16d::t_6edc9d0031b274 725-726
+editor/extensions/flow-agent/src/agentsData.ts
+  s_c2897d6f2cc16d::t_2810116b32aec6 10-11,125,127,141-142,214-218
+  s_c2897d6f2cc16d::t_8e1635f7870c66 116,221
+  s_c2897d6f2cc16d::t_2594b43d32dd1f 219-220
+editor/extensions/flow-agent/src/agentsMessage.ts
+  s_c2897d6f2cc16d::t_8e1635f7870c66 22
+  s_c2897d6f2cc16d::t_407c940195838b 9-10,28,44-51,62,86-98
+editor/extensions/flow-agent/src/agentsPage.ts
+  s_c2897d6f2cc16d::t_0ba93bf6009f93 7-11,16-24,34,46,55-57,60-62,64-66,69-73,75-78
+editor/extensions/flow-agent/test/projectIndex.test.mjs
+  s_c2897d6f2cc16d::t_5081624c0e14c5 1-91
+site/src/agentsPage.ts
+  s_c2897d6f2cc16d::t_c0310fc4ce666b 3,167,176-178
+site/try/index.html
+  s_c2897d6f2cc16d::t_c0310fc4ce666b 97-98
+editor/extensions/flow-agent/test/agentsPage.test.mjs
+  s_c2897d6f2cc16d::t_0ca2837d0684c1 1014,1019,1300
+  s_c2897d6f2cc16d::t_012ba85cb8ba4a 307-308,311,313,316-317,319
+  s_c2897d6f2cc16d::t_fc04bfc634f871 1226-1228,1232-1233,1235,1237
+  s_c2897d6f2cc16d::t_dff51cb2108fd8 545,563
+  s_c2897d6f2cc16d::t_41f9500ba5167a 508,510-522,976,979
+  s_c2897d6f2cc16d::t_852330393c5212 296-301,303,305-306,309,312,314-315
+  s_c2897d6f2cc16d::t_9ecc2fc55152ba 1-4,8,15-16,24-25,29-30,34,45-46,49,54,57-69,86-88,90-92,94,97-101,103-109,114,118-119,125-126,128-145,155,162-177,179,181,183-191,194,196-202,205-210,213-214,218-230,233,235-251,254,256-269,272,275-284,286-287,290,293-295,302,304,310,318,322,325-328,330-337,340,343-351,353,355-359,362,365-373,376,379-380,382-387,390-406,409-424,427,429-437,439-446,449,451-475,477-494,496-505,525-533,535,537-544,546-562,564-565,568,570-573,575-671,673-675,678-683,687-708,710,714,717-720,722,725-726,728-747,750-821,824-837,840-867,869,871-884,887-888,890-894,897,899-901,905-926,930-962,964-975,977-978,980-983,986,988-998,1000,1002-1006,1008-1009,1011-1013,1015-1018,1020,1023,1028-1033,1036,1041-1046,1049,1051,1053-1056,1060-1061,1063,1069,1071,1076,1078,1080-1088,1091-1092,1094-1120,1122-1130,1133,1135-1139,1142,1144-1177,1180-1225,1229-1231,1234,1236,1238-1248,1255,1265,1269,1275,1284,1289,1303,1308,1313,1319,1325,1330,1336,1340,1345,1350,1354,1356,1361,1366,1368
+  s_c2897d6f2cc16d::t_f462d5688a796c 146-153,711,886,889,902-904,927-929,1001,1007,1010
+  s_c2897d6f2cc16d::t_44e9e2f3eaebb6 1059,1062,1064-1068,1070,1072-1075
+  s_c2897d6f2cc16d::t_86a665a194a5f0 1077
+docs/agent-tools.md
+  s_c2897d6f2cc16d::t_18641a4102e96a 56-65
+docs/privacy.md
+  s_c2897d6f2cc16d::t_c4eb1183ea103f 12
+editor/extensions/flow-agent/src/folderTrust.ts
+  s_c2897d6f2cc16d::t_61bb23cf514159 2,18
+editor/extensions/flow-agent/src/extension.ts
+  s_c2897d6f2cc16d::t_61bb23cf514159 6,14,25,85-86,88
+editor/extensions/flow-agent/src/projectIndex.ts
+  s_c2897d6f2cc16d::t_7d6babdb50bb41 1-52
+editor/extensions/flow-agent/esbuild.mjs
+  s_c2897d6f2cc16d::t_1ed0062af2a70b 3-4,7,19-39,41
+  s_c2897d6f2cc16d::t_83507fbc46517a 6,40
+editor/extensions/flow-agent/src/agentsWorkspace.ts
+  s_c2897d6f2cc16d::t_abd42e2f231aa3 122-123,277,359
+  s_c2897d6f2cc16d::t_9166a4c47da641 133
+  s_c2897d6f2cc16d::t_dff51cb2108fd8 310-311,321-327
+  s_c2897d6f2cc16d::t_5c06cf9d704fa4 507,667-694,701-702,704-705,707,709,711-722,724,731,741,743,747-751,758-761
+  s_c2897d6f2cc16d::t_d246c6d93e8c4c 1-121,124-132,134-276,278-309,312-320,328-358,360-397,399-445,451-506,508-527,530-601,603-639,641-666,695-696,698-700,703,706,708,710,723,725-730,732-740,742,744,752-753,762-849
+  s_c2897d6f2cc16d::t_0ba93bf6009f93 398
+  s_c2897d6f2cc16d::t_41f9500ba5167a 446-450,640
+  s_c2897d6f2cc16d::t_44e9e2f3eaebb6 528-529,602,697,745-746,754-757
+editor/extensions/flow-agent/src/sessionIndex.ts
+  s_c2897d6f2cc16d::t_cade40490de01c 4
+editor/extensions/flow-agent/test/termHost.test.mjs
+  s_c2897d6f2cc16d::t_effd8689b76b06 6,21,71,199-231,233,240
+  s_c2897d6f2cc16d::t_069d5d0b52f27b 24,72,198,232,234-239
+  s_c2897d6f2cc16d::t_f81b3ea1fc1f93 241
+editor/extensions/flow-agent/src/chatCore.ts
+  s_c2897d6f2cc16d::t_5b7412b6523b8b 2
+editor/extensions/flow-agent/test/layoutStore.test.mjs
+  s_c2897d6f2cc16d::t_5081624c0e14c5 1-81
+editor/extensions/flow-agent/package-lock.json
+  s_c2897d6f2cc16d::t_71d5807b4e57f7 17-18,854-870
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "8ce5826ab8238df3f6e72445c336daf79a7c0b50",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
