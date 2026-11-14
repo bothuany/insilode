@@ -1,0 +1,25 @@
+editor/patches/flow-desktop.patch
+  s_1c1a3e293d98a8::t_f9ad6320f9ae71 877,879
+editor/patches/flow-settings.patch
+  s_1c1a3e293d98a8::t_f9ad6320f9ae71 42
+editor/patches/flow-update.patch
+  s_1c1a3e293d98a8::t_f9ad6320f9ae71 15,18,22-23,28,51,66
+editor/extensions/flow-agent/test/island.test.mjs
+  s_1c1a3e293d98a8::t_7a123fa0a72105 143
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1ab9dd51668769fe46a7f6f16b916a6458290b03",
+  "prompts": {},
+  "sessions": {
+    "s_1c1a3e293d98a8": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0a99a3dd-7db0-4ba0-882d-a4dd922189be",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "tcrdikmen <batuhan.dikmen@turkcell.com.tr>"
+    }
+  }
+}
