@@ -52,7 +52,8 @@ module.exports = { AgentHost, explain: (k, e) => String(e?.message ?? e) }`
 let tmp
 let mod
 before(async () => {
-	tmp = realpathSync(mkdtempSync(join(tmpdir(), 'flow-chatsessions-')))
+	// Native: the product resolves folders with libuv's realpath, which expands a Windows 8.3 name (`RUNNER~1`) that the JS realpathSync keeps.
+	tmp = realpathSync.native(mkdtempSync(join(tmpdir(), 'flow-chatsessions-')))
 	const outfile = join(tmp, 'chatSessions.cjs')
 	await build({
 		entryPoints: [join(ROOT, 'src', 'chatSessions.ts')], bundle: true, platform: 'node', format: 'cjs', outfile, logLevel: 'silent', external: ['@agentclientprotocol/sdk'],
