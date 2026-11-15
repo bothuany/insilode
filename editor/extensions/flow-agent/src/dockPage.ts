@@ -46,7 +46,7 @@ body { margin: 0; padding: 8px 10px 16px 8px; color: var(--text); font: 13px/1.4
 .new button { display: flex; align-items: center; justify-content: center; gap: 6px; height: 28px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; cursor: pointer; }
 .new button:hover { background: var(--hover); }
 .new button:focus-visible, .agent button:focus-visible { outline: 1.5px solid var(--vscode-focusBorder, var(--working)); outline-offset: -1.5px; }
-.new button.go { flex: 1; }
+.new button.go { flex: 1; min-width: 0; padding: 0 8px; white-space: nowrap; overflow: hidden; }
 /* One launcher: every way to start an agent is in its menu. The link beside it opens the Agents page. */
 .new button.link { flex: none; padding: 0 4px; border: 0; color: var(--vscode-textLink-foreground); white-space: nowrap; }
 .new button.link:hover { background: transparent; text-decoration: underline; }
