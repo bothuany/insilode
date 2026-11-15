@@ -1,0 +1,22 @@
+editor/extensions/flow-agent/src/agentsPanel.ts
+  s_c2897d6f2cc16d::t_302c62e919ebd1 304-306,308-317
+editor/extensions/flow-agent/test/agentsPanel.test.mjs
+  s_c2897d6f2cc16d::t_06bf6a3d7c66f4 175,607-618
+  s_c2897d6f2cc16d::t_b64a1e305b86ca 619
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "1a2e4082e0c9935d61fd55dde3f9017a4a66d028",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
