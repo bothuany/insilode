@@ -12,7 +12,7 @@ AI writes so much code that developers lose the know-how of their own system. Sk
 
 1. **Variant A order.** After a plan is approved, the agent draws the target design (class or ER) with `draw_board`. The developer then writes the skeleton in the editor: types, entities, interfaces, signatures, empty bodies.
 2. **The diagram is corrected by talking.** "Make DiscountPolicy an interface", "remove the repository": the agent redraws the same board. This repeats until the developer accepts it. Nothing is edited by dragging.
-3. **An on/off switch, never imposed, per agent.** Each agent row in the dock has one "Skeleton" button (pressed when on), explained in its tooltip, and nothing else. The setting `insilode.skeletonFirst.enabled` (default off) is only the starting value for an agent nobody has switched. When it is on for an agent, the mode is offered only when the plan adds or changes types, entities or interfaces. "Just do it" is always one sentence to the agent. Turning it off takes effect at once.
+3. **An on/off switch, never imposed, per agent.** Each agent row in the dock has one "Skeleton first" icon button, a bone (pressed when on), explained in its tooltip, and nothing else. The setting `insilode.skeletonFirst.enabled` (default off) is only the starting value for an agent nobody has switched. When it is on for an agent, the mode is offered only when the plan adds or changes types, entities or interfaces. "Just do it" is always one sentence to the agent. Turning it off takes effect at once.
 4. **Live plan vs actual.** While the developer writes, the board is recomputed from the real type index on every save. Each type and member is marked **matches**, **missing** or **differs**; a type or member that was already in the code when the design was drawn is **existing** (neutral). The diagram is the plan and the code is the truth; nothing round-trips.
 5. **Check.** The developer says "check"; the MCP tool `check_skeleton` returns the structured diff. The agent explains each difference with a reason and does not fix the code. When the developer answers "mine is better", the agent argues its case or updates the plan.
 6. **Hand over.** The agent fills the bodies. There is **no lock, only a warning**: if the agent changes a signature, a name or a relation the developer wrote, a passive warning shows on the board and in the agent's own reply, with the before and after text; keep or revert is the developer's call.
@@ -159,7 +159,7 @@ Fixed after the probe:
 
 ## The dock: one button per agent
 
-At the user's request the dock row has a single "Skeleton" button and nothing else.
+At the user's request the dock row has a single "Skeleton first" icon button (a bone, labelled for screen readers) next to the stage word, and nothing else.
 - It is pressed (`aria-pressed`, filled) when skeleton first is on for that agent.
 - Its tooltip explains what it does and what to say to the agent.
 - It is reachable with the keyboard; Enter and Space press it.
