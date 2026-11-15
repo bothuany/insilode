@@ -1,0 +1,83 @@
+editor/extensions/flow-agent/src/agents.ts
+  s_c2897d6f2cc16d::t_ef5f46196852aa 36
+  s_c2897d6f2cc16d::t_2527773a237f2f 27,834
+editor/extensions/flow-agent/src/agentsMessage.ts
+  s_c2897d6f2cc16d::t_f44c9f2f6e4bbc 46,50-54,71-78,89-90,134-135
+editor/extensions/flow-agent/test/termHost.test.mjs
+  s_c2897d6f2cc16d::t_f8c41ec3aea0aa 2,24,32,45-54,61,80,87-89,231-233,237-238,240-242,245,247-248,250-254,256-282,285-295,297-312,321,325,329,332,336,340-342
+  s_c2897d6f2cc16d::t_51be1018cdd97f 16-18,319-320
+editor/extensions/flow-agent/src/launch.ts
+  s_c2897d6f2cc16d::t_2527773a237f2f 2,24-40
+editor/extensions/flow-agent/src/agentsPanel.ts
+  s_c2897d6f2cc16d::t_f44c9f2f6e4bbc 13,16,134,170,237-238,304-308,377,382-384,439-440,450
+editor/extensions/flow-agent/package.json
+  s_c2897d6f2cc16d::t_a78b62eeb2363c 254,303-306
+  s_c2897d6f2cc16d::t_a5dca04ada1319 307
+  s_c2897d6f2cc16d::t_e920d37c47f9eb 308
+editor/extensions/flow-agent/src/dock.ts
+  s_c2897d6f2cc16d::t_f44c9f2f6e4bbc 12,34,85,90-92,115
+editor/extensions/flow-agent/src/dockPage.ts
+  s_c2897d6f2cc16d::t_f44c9f2f6e4bbc 360,364-365,377
+editor/extensions/flow-agent/test/agentsPage.test.mjs
+  s_c2897d6f2cc16d::t_4f901968544d41 261,263,1037,1039,1043-1045,1047-1057,1063,1070-1123,1508
+  s_c2897d6f2cc16d::t_6d2ec2330c6dc5 979
+editor/extensions/flow-agent/test/dockMessage.test.mjs
+  s_c2897d6f2cc16d::t_4f901968544d41 57,59,63,65-66
+editor/extensions/flow-agent/test/agentsMessage.test.mjs
+  s_c2897d6f2cc16d::t_4f901968544d41 130-137
+editor/extensions/flow-agent/src/agentsShell.ts
+  s_c2897d6f2cc16d::t_6d2ec2330c6dc5 452
+  s_c2897d6f2cc16d::t_5ac2744930b133 392-401,417,442-444,446-451,453-475,501-503,989-990
+editor/extensions/flow-agent/src/dockMessage.ts
+  s_c2897d6f2cc16d::t_f44c9f2f6e4bbc 15-16,18,62
+editor/extensions/flow-agent/src/bypass.ts
+  s_c2897d6f2cc16d::t_7eda6ef4989ff2 71
+  s_c2897d6f2cc16d::t_ef5f46196852aa 3-4,15-20,22,24,27,55-70,72-80
+  s_c2897d6f2cc16d::t_1117dd35e4c497 81
+editor/extensions/flow-agent/src/folderTrust.ts
+  s_c2897d6f2cc16d::t_5ee62752067c00 2-5,11-12,14,17-20,22-23,25,40-41,43-63,76,79-82,84
+editor/extensions/flow-agent/src/extension.ts
+  s_c2897d6f2cc16d::t_5ee62752067c00 29,94,118
+editor/extensions/flow-view/src/settingsModel.ts
+  s_c2897d6f2cc16d::t_a5dca04ada1319 83
+docs/agent-tools.md
+  s_c2897d6f2cc16d::t_208bc68b8b423c 26,63-64
+editor/extensions/flow-agent/test/dockPage.test.mjs
+  s_c2897d6f2cc16d::t_4f901968544d41 211,213,223,234-241
+editor/extensions/flow-agent/test/launch.test.mjs
+  s_c2897d6f2cc16d::t_4f901968544d41 36-68
+editor/extensions/flow-agent/src/termHost.ts
+  s_c2897d6f2cc16d::t_5ee62752067c00 4,9,27-28,61-65,139
+editor/extensions/flow-agent/node_modules
+  s_aab2d8ccd404e3::t_dc9efc3b772f07 1
+editor/extensions/flow-harness/node_modules
+  s_aab2d8ccd404e3::t_a28f11d829fb93 1
+editor/extensions/flow-import/node_modules
+  s_aab2d8ccd404e3::t_37ca94d14933b6 1
+editor/extensions/flow-view/node_modules
+  s_aab2d8ccd404e3::t_94976ed8725102 1
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3fcfa1001c99af8f7fcb0c5066172da72b413f39",
+  "prompts": {},
+  "sessions": {
+    "s_aab2d8ccd404e3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-aa594812e4a35ce2d",
+        "model": "unknown"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    },
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
