@@ -81,8 +81,8 @@ export const isPagePath = (v: unknown, platform: NodeJS.Platform = process.platf
 	typeof v === 'string' && v.length > 0 && v.length <= MAX_PATH && !v.includes('\0') && (platform === 'win32' ? path.win32 : path.posix).isAbsolute(v);
 
 /**
- * Whether `v` names a network share (or a device path) on Windows. The folder of a `termOpen` is resolved and stat'ed before the user is
- * asked about it, and on Windows that alone opens a connection to the server named: a page must not be able to cause one.
+ * Whether `v` names a network share (or a device path) on Windows. The folder of a `termOpen` is resolved and stat'ed before folderTrust.ts decides
+ * about it, and on Windows that alone opens a connection to the server named: a page must not be able to cause one.
  */
 export const isNetworkPath = (v: string, platform: NodeJS.Platform = process.platform): boolean => platform === 'win32' && /^[\\/]{2}/.test(v);
 

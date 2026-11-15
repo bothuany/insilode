@@ -755,8 +755,8 @@ export class Agents implements vscode.Disposable {
 	/**
 	 * Starts a CLI in a new terminal. Claude gets a session id we chose, so every hook maps to its terminal. `place` puts a new
 	 * agent in a git worktree of its own or in this checkout; left out, the flow.agents.worktree setting decides. A resumed
-	 * agent goes back to where it ran. `opts.cwd` runs it in that folder instead of this window's (the caller has asked the user about
-	 * a folder outside the workspace: folderTrust.ts), with no worktree of its own; `opts.quiet` leaves the terminal hidden and
+	 * agent goes back to where it ran. `opts.cwd` runs it in that folder instead of this window's (the caller has checked that folderTrust.ts allows
+	 * a folder outside the workspace), with no worktree of its own; `opts.quiet` leaves the terminal hidden and
 	 * the focus where it is, for a terminal that a page shows itself. `opts.confirmed`: the user was already asked about a session another process runs.
 	 */
 	async spawn(cli: AgentCli, resume?: AgentSession, custom?: CustomAgent, place?: 'worktree' | 'here', opts?: { cwd?: string; quiet?: boolean; confirmed?: boolean }): Promise<AgentSession | undefined> {
