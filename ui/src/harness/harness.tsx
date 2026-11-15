@@ -10,6 +10,7 @@ import type { HarnessAgent, HarnessCanvasToHost, HarnessFlowMode, HarnessFlowMod
 import { sampleModel } from './fixture'
 import { layout } from './layout'
 import { nodeTypes } from './nodes'
+import { navProps } from '../nav'
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void }
 
@@ -253,6 +254,7 @@ function App() {
           minZoom={0.15}
           maxZoom={1.6}
           fitView
+          {...navProps()}
           fitViewOptions={{ padding: 0.08 }}
           proOptions={{ hideAttribution: true }}
         >

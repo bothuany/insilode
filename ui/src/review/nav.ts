@@ -109,10 +109,10 @@ export function findAfterReload<T extends { key: string; label: string }>(
   return { query: finding.query, index: Math.max(0, Math.min(finding.index, findCards(cards, finding.query).length - 1)) }
 }
 
-export type NavAction = 'next' | 'prev' | 'viewed' | 'find'
+export type NavAction = 'next' | 'prev' | 'viewed' | 'find' | 'left' | 'right' | 'up' | 'down' | 'open' | 'full' | 'edit'
 
 /** What each key does. The letters need no AltGr, so every layout can type them; `]`, `[` and `/` are kept for those who can. */
-const NAV_BINDINGS: Record<string, NavAction> = { ']': 'next', j: 'next', n: 'next', '[': 'prev', k: 'prev', p: 'prev', v: 'viewed', '/': 'find', f: 'find' }
+const NAV_BINDINGS: Record<string, NavAction> = { ']': 'next', j: 'next', n: 'next', '[': 'prev', k: 'prev', p: 'prev', v: 'viewed', '/': 'find', f: 'find', ArrowLeft: 'left', ArrowRight: 'right', ArrowUp: 'up', ArrowDown: 'down', Enter: 'open', ' ': 'full', e: 'edit' }
 
 /**
  * The action of a key press, or nothing. Ctrl and Alt are shortcuts, except as AltGr: Chromium on Windows reports AltGr as Ctrl+Alt
@@ -124,10 +124,48 @@ export function navKeyAction(e: { key: string; ctrlKey: boolean; altKey: boolean
   return NAV_BINDINGS[e.key.length === 1 ? e.key.toLowerCase() : e.key]
 }
 
+/** A card as the canvas draws it: where it is and how large. */
+export interface CardBox { key: string; x: number; y: number; w: number; h: number }
+
+/**
+ * The card an arrow key moves to: the nearest one whose centre lies in that direction from the current card's centre. Distance across
+ * the direction counts double, so Right from a caller reaches the method it calls on the same row before one further down. With no
+ * current card the walk starts at `start` (the flow's root). Nothing when no card lies that way: the view stays where it is.
+ */
+export function stepByArrow(cards: readonly CardBox[], current: string | null, dir: 'left' | 'right' | 'up' | 'down', start?: string): string | undefined {
+  const from = cards.find(c => c.key === current)
+  if (!from) return cards.find(c => c.key === start)?.key ?? cards[0]?.key
+  const cx = from.x + from.w / 2, cy = from.y + from.h / 2
+  let best: string | undefined, bestScore = Infinity
+  for (const c of cards) {
+    if (c.key === from.key) continue
+    const dx = c.x + c.w / 2 - cx, dy = c.y + c.h / 2 - cy
+    const along = dir === 'left' ? -dx : dir === 'right' ? dx : dir === 'up' ? -dy : dy
+    const across = Math.abs(dir === 'left' || dir === 'right' ? dy : dx)
+    // In that direction at all, and more in it than across it (a card straight below is not "to the right").
+    if (along <= 1 || across > along * 2) continue
+    const score = along + across * 2
+    if (score < bestScore) { bestScore = score; best = c.key }
+  }
+  return best
+}
+
+/** The cards from the flow's root down to `key`, by the calls that lead there (the first such path); empty when `key` is not in the tree. */
+export function pathTo<T extends { key: string; children: readonly { node: T }[] }>(root: T | null, key: string | null): T[] {
+  if (!root || key === null) return []
+  if (root.key === key) return [root]
+  for (const c of root.children) {
+    const rest = pathTo(c.node, key)
+    if (rest.length) return [root, ...rest]
+  }
+  return []
+}
+
 /** What the keys do; the rail lists the letters (every layout can type them) and the tooltips name the bracket keys. */
 export const NAV_KEYS = [
   { keys: 'j', short: 'next', label: 'Next change (also n and ])' },
   { keys: 'k', short: 'prev', label: 'Previous change (also p and [)' },
   { keys: 'v', short: 'viewed', label: 'Mark viewed, go to the next' },
   { keys: 'f', short: 'find', label: 'Find a card (also /)' },
+  { keys: '←→', short: 'move', label: 'Move to the card in that direction (all four arrows)' },
 ] as const

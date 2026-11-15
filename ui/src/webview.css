@@ -409,3 +409,19 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .sel-bar button:hover { background: var(--fl-line-strong); }
 /* React Flow makes every node unselectable; the code in a card is what the selection bar (tour/SelectionBar.tsx) works on. */
 .card .code { user-select: text; -webkit-user-select: text; }
+
+/* Where the current card is: the calls from the flow's root down to it. Top left, clear of the find box (centre) and the changes rail (right). */
+.wv-path { position: absolute; z-index: 11; top: 10px; left: 10px; max-width: calc(50% - 140px); display: flex; align-items: center; overflow: hidden; padding: 3px 6px; border: 1px solid var(--fl-line-strong); border-radius: 8px; background: var(--fl-card); font: 11.5px var(--fl-mono); white-space: nowrap; }
+.wv-path-step { display: inline-flex; align-items: center; min-width: 0; }
+.wv-path-sep { margin: 0 2px; color: var(--fl-muted); }
+.wv-path button { max-width: 180px; overflow: hidden; text-overflow: ellipsis; padding: 2px 4px; border: 0; border-radius: 4px; background: transparent; color: var(--fl-muted); font: inherit; cursor: pointer; }
+.wv-path button:hover { color: var(--fl-text); background: var(--fl-line); }
+.wv-path button.here { color: var(--fl-text); font-weight: 600; }
+.wv-path button:focus-visible { outline: 1.5px solid var(--fl-signal, currentColor); outline-offset: -1.5px; }
+@media (max-width: 720px) { .wv-path { display: none; } }
+
+/* The map of the whole flow: every card a block, the one you are on in the signal colour, the part outside the view dimmed. */
+.react-flow__minimap-node.mm-card { fill: var(--fl-muted); fill-opacity: 0.85; }
+.react-flow__minimap-node.mm-here { fill: var(--fl-signal); }
+.react-flow__minimap-node.mm-frame { fill: none; }
+.react-flow__minimap-mask { fill: var(--fl-canvas); fill-opacity: 0.55; }

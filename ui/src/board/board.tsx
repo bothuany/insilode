@@ -27,6 +27,7 @@ import { Legend } from './legend'
 import type { CanvasSpec, Overrides } from '../../../board-canvas/canvas'
 import { DARK, paintCanvas, toSvg as canvasToSvg, type Palette as CanvasPalette } from '../../../board-canvas/paint'
 import { CanvasView, type CanvasApi } from './CanvasView'
+import { navProps } from '../nav'
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void }
 declare global {
@@ -784,6 +785,7 @@ function BoardView() {
             nodesConnectable={false}
             elementsSelectable={false}
             zoomOnDoubleClick={false}
+            {...navProps()}
             proOptions={{ hideAttribution: true }}
             onMoveStart={e => { if (e) userMoved.current = true }}
             onPaneClick={() => { setSelected(undefined); setActive(undefined) }}

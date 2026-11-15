@@ -6,6 +6,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type MutableRe
 import { DIM, type CanvasElement, type CanvasSpec, type Link, type Overrides } from '../../../board-canvas/canvas'
 import { moveHash, rowBoxes, type Box } from '../../../board-canvas/layout'
 import { textWidth } from '../../../board-canvas/measure'
+import { wheelView } from '../nav'
 import { hittable, paintCanvas, type Painted, type PaintOptions, type Palette, type Primitive } from '../../../board-canvas/paint'
 
 export interface CanvasApi {
@@ -100,7 +101,7 @@ export function CanvasView({ spec, painted, palette, options, selected, apiRef, 
     return () => { apiRef.current = null }
   }, [apiRef])
 
-  // The wheel zooms around the pointer. A native listener: React's is passive and could not stop the page from scrolling.
+  // The wheel moves the view; a pinch or Ctrl/Cmd with the wheel zooms around the pointer (nav.ts). A native listener: React's is passive and could not stop the page from scrolling.
   useEffect(() => {
     const el = wrap.current
     if (!el) return
@@ -108,9 +109,7 @@ export function CanvasView({ spec, painted, palette, options, selected, apiRef, 
       e.preventDefault()
       const r = el.getBoundingClientRect()
       const v = viewRef.current
-      const k = Math.max(MIN_K, Math.min(MAX_K, v.k * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0016))))
-      const px = e.clientX - r.left, py = e.clientY - r.top
-      setView({ k, x: px - (px - v.x) * (k / v.k), y: py - (py - v.y) * (k / v.k) })
+      setView(wheelView(e, v, e.clientX - r.left, e.clientY - r.top, MIN_K, MAX_K))
       onUserMove()
     }
     el.addEventListener('wheel', onWheel, { passive: false })

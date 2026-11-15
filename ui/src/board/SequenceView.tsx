@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { BoardNode, BoardSpec } from '../../../board-canvas/spec'
 import { buildSequence, sequenceShapes, type Lit, type SeqLayout, type Shape, type Tone } from './sequence'
+import { wheelView } from '../nav'
 
 export const TONE_VAR: Record<Tone, string> = {
   text: 'var(--fl-text)',
@@ -92,10 +93,7 @@ export function SequenceView({ spec, lit, selected, onSelect, apiRef }: {
       const r = el.getBoundingClientRect()
       const px = e.clientX - r.left
       const py = e.clientY - r.top
-      setView(v => {
-        const k = Math.min(2.5, Math.max(0.1, v.k * Math.exp(-e.deltaY * 0.0015)))
-        return { k, x: px - ((px - v.x) / v.k) * k, y: py - ((py - v.y) / v.k) * k }
-      })
+      setView(v => wheelView(e, v, px, py, 0.1, 2.5))
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)

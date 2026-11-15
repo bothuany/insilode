@@ -521,13 +521,16 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
     actions.definition!(node.key, { line: no, column: fileColumn(fileLines[no - node.startLine] ?? '', shown) })
   }
 
-  const editAt = (e: MouseEvent, no: number) => {
+  // A single click only reads (it may start a selection, or follow a name with Ctrl/Cmd); a double-click on a line edits there.
+  const goAt = (e: MouseEvent, no: number) => {
     if ((e.ctrlKey || e.metaKey) && canGo) {
       e.stopPropagation()
       if (still(e)) definitionAt(e, no)
-      return
     }
-    if (!editable || !still(e)) return
+  }
+  const editAt = (e: MouseEvent, no: number) => {
+    if (!editable) return
+    e.stopPropagation()
     if (zoomedOut && actions.focusLine) return actions.focusLine(node.key, no)
     const src = srcOf(e)
     const col = src ? clickOffset(src, e) : 0
@@ -599,6 +602,11 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
               @
             </button>
           )}
+          {editable && (
+            <button className="tool" title="Edit this method here (or double-click a line)" aria-label="Edit this method here" onClick={() => actions.edit!(node.key)}>
+              ✎
+            </button>
+          )}
           {node.code && (
             <button className="tool" title="Open in the editor" aria-label="Open in the editor" onClick={() => actions.open(node.key)}>
               ↗
@@ -645,7 +653,8 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
                 data-line={l.no}
                 className={`ln${lineCalls ? ' call' : ''}${added ? ' add' : ''}`}
                 style={{ height: LINE_H, ...(callee ? ({ '--c': KIND_COLOR[callee.kind] } as CSSProperties) : {}) }}
-                onClick={e => editAt(e, l.no)}
+                onClick={e => goAt(e, l.no)}
+                onDoubleClick={e => editAt(e, l.no)}
                 onMouseEnter={callee ? () => actions.trace?.(node.key, callee.key) : undefined}
                 onMouseMove={canGo ? e => hoverCode(srcOf(e), e) : undefined}
                 onMouseLeave={() => {
