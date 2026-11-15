@@ -27,6 +27,7 @@ import { answered, asked, emptyFill, failed, messageOf, type Fill } from './impa
 import { cutNote } from './impact/cardLabel'
 import type { FlowNode, ImpactItem, ImpactResult } from './types'
 import { navProps } from './nav'
+import { MetaWheelZoom } from './navZoom'
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void }
 /** What to draw: opaque to the webview, interpreted by the host's provider for that language. */
@@ -174,8 +175,8 @@ function Flow() {
   const editingRef = useRef(editing)
   const actionsRef = useRef<CanvasActions>({ toggle() {}, toggleAll() {}, open() {}, toggleFull() {} })
   const currentRef = useRef<(key: string) => void>(undefined)
-  /** Until when a cursor echo from the editor is the canvas's own doing (a card was clicked or the keys moved the view). */
-  const ownMoveUntil = useRef(0)
+  /** The place the canvas itself last asked the editor to show: the cursor echo for exactly that place is not a reason to move the view. */
+  const ownReveal = useRef<{ file: string; line: number; until: number }>(undefined)
   editingRef.current = editing
 
   // `?` with lines selected in a card's code: ask the agent about them (without a selection, `?` is the tour's ask box).
@@ -317,7 +318,8 @@ function Flow() {
     setSelected(hit?.key ?? null)
     const card = hit && getNode(hit.key)
     // A click on a card moves the editor's cursor too, and that echo arrives a moment later: by then the keys may have moved on, and the view must not jump back.
-    if (!card || Date.now() < ownMoveUntil.current) return
+    const own = ownReveal.current
+    if (!card || (own && own.file === file && own.line === line && Date.now() < own.until)) return
     const { x, y, zoom } = getViewport()
     const el = document.querySelector('.wv-canvas') as HTMLElement
     const sx = card.position.x * zoom + x
@@ -468,12 +470,13 @@ function Flow() {
         setSelected(key)
         // The card you clicked is where the arrow keys go on from.
         currentRef.current?.(key)
-        ownMoveUntil.current = Date.now() + 1500
+        if (n?.file) ownReveal.current = { file: n.file, line: n.startLine, until: Date.now() + 1500 }
         if (n?.file) vscode.postMessage({ type: 'reveal', file: n.file, line: n.startLine })
       },
       edit: (key, at) => {
         const n = find(down, key) ?? find(up, key)
-        if (!n?.file) return
+        // A table or entity card has a file but no code: locking the view for an editor that never appears would freeze the canvas.
+        if (!n?.file || n.code == null) return
         setCaret(at)
         setSelected(key)
         setTrace(null)
@@ -646,9 +649,10 @@ function Flow() {
       if (!card || !el) return
       const w = Number(card.style?.width) || 400
       const h = Number(card.style?.height) || 200
-      ownMoveUntil.current = Date.now() + 1500
       setCenter(card.position.x + Math.min(w / 2, el.clientWidth / 2 - 24), card.position.y + Math.min(h / 2, el.clientHeight / 2 - 40), { zoom: 1, duration: 250 })
       if (!mark) return
+      // The focus goes with the current card, so Enter and Space act on the card the keys reached, not on the one clicked earlier.
+      document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(key)}"] .card`)?.focus({ preventScroll: true })
       setNavCurrent(key)
       setFlash(key)
       clearTimeout(flashTimer.current)
@@ -676,7 +680,7 @@ function Flow() {
     const after = new Map(changedRef.current.map(n => [n.key, JSON.stringify(n.diff)]))
     seenDiffs.current = after
     setViewed(v => keepViewed(v, before, after))
-    setNavCurrent(c => (c !== null && before.has(c) && before.get(c) === after.get(c) ? c : null))
+    setNavCurrent(c => (c !== null && (!before.has(c) || before.get(c) === after.get(c)) ? c : null))
     // Read now: React may run the updater after the next effect has already replaced the ref.
     const cardsBefore = seenCards.current
     setFinding(f => findAfterReload(f, cardsBefore, cardNames))
@@ -698,6 +702,8 @@ function Flow() {
       if (!s.on || !action || editingRef.current) return
       const t = e.target
       if (t instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable || t.closest('.monaco-editor'))) return
+      // A key the focused element already used (Enter on a card), or one pressed inside a popover or a menu, is not the canvas's.
+      if (e.defaultPrevented || (t instanceof HTMLElement && t.closest('[role=dialog], [role=menu], [role=listbox]'))) return
       if (action === 'find') {
         // An open box takes the focus back with its text selected, so typing replaces it.
         const box = document.querySelector<HTMLInputElement>('.find input')
@@ -710,15 +716,16 @@ function Flow() {
       } else if (action === 'left' || action === 'right' || action === 'up' || action === 'down') {
         // The arrows walk the cards as they lie on the canvas: along a call to the right, back to the caller on the left.
         const boxes = nodesRef.current.filter(n => n.type === 'card').map(n => ({ key: n.id, x: n.position.x, y: n.position.y, w: Number(n.style?.width) || 400, h: Number(n.style?.height) || 200 }))
-        const k = stepByArrow(boxes, s.current, action, s.root)
+        // Before any card is current the view rests on the root: the first arrow goes on from there (and to the root itself when nothing lies that way).
+        const k = stepByArrow(boxes, s.current ?? s.root ?? null, action, s.root) ?? (s.current === null ? s.root : undefined)
         if (k === undefined) return
         goTo(k)
       } else if (action === 'open' || action === 'full' || action === 'edit') {
         // A button or link under the focus keeps its own Enter and Space.
         if (!s.current || (t instanceof HTMLElement && t.closest('button, a, [role=button], summary'))) return
         if (action === 'open') actionsRef.current.open(s.current)
-        else if (action === 'full') actionsRef.current.toggleFull(s.current)
-        else actionsRef.current.edit?.(s.current)
+        // Space and E press the card's own buttons: a card that offers neither (a changed card, a table) is left as it is.
+        else document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(s.current)}"] button[data-key="${action}"]`)?.click()
       } else if (action === 'viewed') {
         if (!s.current || !s.keys.includes(s.current)) return
         setViewed(v => (v.has(s.current!) ? v : toggled(v, s.current!)))
@@ -923,6 +930,7 @@ function Flow() {
             proOptions={{ hideAttribution: true }}
           >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+            <MetaWheelZoom off={locked} />
             {gaze.flowLayer}
             {tour.flowLayer}
             <Controls showInteractive={false} showFitView={false} position="bottom-left">

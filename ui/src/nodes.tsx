@@ -497,7 +497,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
   const rawLines = node.code?.replace(/\t/g, '    ').replace(/\r/g, '').split('\n') ?? []
   // A tour is read, not edited: the host of the canvas leaves `edit` out while one plays.
   const editable = !!(node.code && actions.edit)
-  // Below this zoom the code is too small to aim at: the first click zooms in, the next one edits.
+  // Below this zoom the code is too small to read: the card shows fewer details.
   const zoomedOut = useStore(st => st.transform[2] < 0.75)
   const changed = !!(touched || node.diff || node.tableChange)
 
@@ -521,20 +521,12 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
     actions.definition!(node.key, { line: no, column: fileColumn(fileLines[no - node.startLine] ?? '', shown) })
   }
 
-  // A single click only reads (it may start a selection, or follow a name with Ctrl/Cmd); a double-click on a line edits there.
+  // A click on the code only reads: it may start a selection (a double-click selects a name), or follow a name with Ctrl/Cmd. Editing is the card's Edit button, or E.
   const goAt = (e: MouseEvent, no: number) => {
     if ((e.ctrlKey || e.metaKey) && canGo) {
       e.stopPropagation()
       if (still(e)) definitionAt(e, no)
     }
-  }
-  const editAt = (e: MouseEvent, no: number) => {
-    if (!editable) return
-    e.stopPropagation()
-    if (zoomedOut && actions.focusLine) return actions.focusLine(node.key, no)
-    const src = srcOf(e)
-    const col = src ? clickOffset(src, e) : 0
-    actions.edit!(node.key, { line: no, column: fileColumn(fileLines[no - node.startLine] ?? '', indentOf(no) + col) })
   }
 
   return (
@@ -567,7 +559,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
         style={{ height: headerH(node) }}
         onClick={e => still(e) && (node.code || schema?.file) && actions.reveal?.(node.key)}
         onDoubleClick={() => (node.code || schema?.file) && actions.open(node.key)}
-        title={node.code ? 'Click to show in the editor, double-click to open it' : schema?.file ? 'Click to show the entity, double-click to open it' : undefined}
+        title={node.code ? 'Click to select (an editor beside the canvas shows it), double-click to open it' : schema?.file ? 'Click to select the entity, double-click to open it' : undefined}
       >
         <KindGlyph kind={node.kind} />
         <div className="titles" title={node.tableChange ? [node.label, node.sub, changeNote(node.tableChange).replace(/^ · /, '')].filter(Boolean).join('\n') : undefined}>
@@ -588,7 +580,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
             </button>
           )}
           {compactable && !node.diff && !editing && (
-            <button className="tool" title={full ? 'Show only the flow lines' : 'Show every line'} aria-label={full ? 'Show only the flow lines' : 'Show every line'} onClick={() => actions.toggleFull(node.key)}>
+            <button className="tool" data-key="full" title={full ? 'Show only the flow lines (Space)' : 'Show every line (Space)'} aria-label={full ? 'Show only the flow lines' : 'Show every line'} onClick={() => actions.toggleFull(node.key)}>
               {full ? '⇤' : '⇥'}
             </button>
           )}
@@ -603,7 +595,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
             </button>
           )}
           {editable && (
-            <button className="tool" title="Edit this method here (or double-click a line)" aria-label="Edit this method here" onClick={() => actions.edit!(node.key)}>
+            <button className="tool" data-key="edit" title="Edit this method here (E)" aria-label="Edit this method here" onClick={() => actions.edit!(node.key)}>
               ✎
             </button>
           )}
@@ -654,7 +646,6 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
                 className={`ln${lineCalls ? ' call' : ''}${added ? ' add' : ''}`}
                 style={{ height: LINE_H, ...(callee ? ({ '--c': KIND_COLOR[callee.kind] } as CSSProperties) : {}) }}
                 onClick={e => goAt(e, l.no)}
-                onDoubleClick={e => editAt(e, l.no)}
                 onMouseEnter={callee ? () => actions.trace?.(node.key, callee.key) : undefined}
                 onMouseMove={canGo ? e => hoverCode(srcOf(e), e) : undefined}
                 onMouseLeave={() => {

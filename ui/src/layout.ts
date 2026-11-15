@@ -321,8 +321,8 @@ export function layoutCallers(up: FlowNode, rootKey: string, rootY: number, hidd
         type: 'card',
         position: { x, y: cy },
         style: { width: w, height: h },
-      initialWidth: w,
-      initialHeight: h,
+        initialWidth: w,
+        initialHeight: h,
         zIndex: 1000,
         data: {
           node: { ...caller, children: [] },

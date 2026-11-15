@@ -118,6 +118,9 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 /* The tools stay faintly visible: a row at opacity 0 cannot be found by eye or by keyboard. */
 .tools { display: flex; gap: 1px; opacity: .35; transition: opacity .1s; }
 .card:hover .tools, .card.selected .tools, .card:focus-within .tools, .tools:focus-within { opacity: 1; }
+/* Edit shows only on the card you are on: at rest the header keeps its room for the method's name. */
+.tool[data-key="edit"] { display: none; }
+.card:hover .tool[data-key="edit"], .card.selected .tool[data-key="edit"], .card:focus-within .tool[data-key="edit"] { display: inline-block; }
 .card:focus-visible { outline: 1.5px solid var(--fl-signal); outline-offset: 2px; }
 /* The cut note comes first on the sub line, so a long file name never pushes it out of the card. */
 .sub.has-cut { display: flex; gap: 6px; }
@@ -222,7 +225,6 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 @media (max-width: 720px) {
   .react-flow__minimap { display: none; }
 }
-.card.zoomable .ln:not(.gap):not(.del) { cursor: zoom-in; }
 
 /* ---- agent edits: prompt timeline and review tour ------------------------------------------- */
 .chip.agent { color: var(--fl-signal); border-color: color-mix(in srgb, var(--fl-signal) 40%, transparent); }

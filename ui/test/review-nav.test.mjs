@@ -181,3 +181,9 @@ test('the path to a card is the calls from the root down to it', () => {
   assert.deepEqual(pathTo(root, 'zz'), [])
   assert.deepEqual(pathTo(null, 'a'), [])
 })
+
+test('E is a navigation key too; a key with Ctrl is not', () => {
+  assert.equal(press('e'), 'edit')
+  assert.equal(press('E'), 'edit')
+  assert.equal(press('e', { ctrlKey: true }), undefined)
+})

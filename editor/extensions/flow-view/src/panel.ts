@@ -427,8 +427,6 @@ export class FlowPanel implements vscode.Disposable {
 			if (!file) {
 				return;
 			}
-			const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
-			const start = new vscode.Position(Math.max(0, Number(m.line) - 1 || 0), 0);
 			// The file goes beside the canvas, never over it: with the canvas in the first column, another open group takes the file; with none,
 			// a click on a card (reveal) only selects it and an explicit open makes a group beside. Before, one click replaced the canvas you were reading.
 			const own = this.panel?.viewColumn;
@@ -437,6 +435,8 @@ export class FlowPanel implements vscode.Disposable {
 			if (column === undefined) {
 				return;
 			}
+			const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(file));
+			const start = new vscode.Position(Math.max(0, Number(m.line) - 1 || 0), 0);
 			await vscode.window.showTextDocument(doc, { viewColumn: column, selection: new vscode.Range(start, start), preview: true, preserveFocus: m.type === 'reveal' });
 			return;
 		}
