@@ -231,13 +231,22 @@ export function rank<T extends Rankable>(list: T[]): T[] {
 }
 
 /**
- * The next agent that waits for you (an approval, a question, an error), for the "next agent that needs you" key: the most urgent
- * first, then round the others in that order, starting after `after` (the one you were just shown). Nothing when nobody waits.
+ * The agents that wait for you (an approval, a question, an error you have not seen), the most urgent first: what Home lists and what
+ * the "next agent that needs you" key walks. An ended session is left out even when it crashed: showing one would start its CLI again,
+ * so the dock's badge may count a crash that neither of these offers.
  */
-export function nextWaiting<T extends Rankable & { id: string }>(list: T[], after?: string): T | undefined {
-	const waiting = rank(list.filter(s => { const k = s.state === 'ended' ? undefined : attentionKind(s); return k === 'approval' || k === 'question' || k === 'error'; }));
-	const at = waiting.findIndex(s => s.id === after);
-	return waiting[(at + 1) % (waiting.length || 1)];
+export function waitingForYou<T extends Rankable>(list: T[]): T[] {
+	return rank(list.filter(s => { const k = s.state === 'ended' ? undefined : attentionKind(s); return k === 'approval' || k === 'question' || k === 'error'; }));
+}
+
+/**
+ * The next agent for the "next agent that needs you" key: the most urgent one not shown in this round (`seen`), and when every waiting
+ * one was shown, the most urgent again (the caller then starts a new round). An index would not do: looking at an error marks it read,
+ * so the list shrinks under the round. Nothing when nobody waits.
+ */
+export function nextWaiting<T extends Rankable & { id: string }>(list: T[], seen: ReadonlySet<string> = new Set()): T | undefined {
+	const waiting = waitingForYou(list);
+	return waiting.find(s => !seen.has(s.id)) ?? waiting[0];
 }
 
 /** A key that changes exactly when a session starts needing you anew: notify once per key. */

@@ -269,8 +269,8 @@
       },
       {
         "command": "flow.agents.nextNeedsYou",
-        "key": "alt+shift+n",
-        "mac": "ctrl+alt+n"
+        "key": "alt+shift+w",
+        "mac": "ctrl+alt+w"
       },
       {
         "command": "-workbench.action.openAgentsWindow",
@@ -722,7 +722,10 @@
       ]
     },
     "configurationDefaults": {
-      "chat.titleBar.openInAgentsWindow.enabled": false
+      "chat.titleBar.openInAgentsWindow.enabled": false,
+      "terminal.integrated.commandsToSkipShell": [
+        "flow.agents.nextNeedsYou"
+      ]
     }
   },
   "scripts": {
