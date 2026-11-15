@@ -1,0 +1,40 @@
+ui/src/nav.ts
+  s_c2897d6f2cc16d::t_868a7caf23c6f6 23-24,26-28
+editor/extensions/flow-view/src/panel.ts
+  s_c2897d6f2cc16d::t_84ecc43dbbdcf5 438-439
+ui/src/navZoom.tsx
+  s_c2897d6f2cc16d::t_3d0dfbeb4c2b5a 1-29
+ui/src/webview.tsx
+  s_c2897d6f2cc16d::t_868a7caf23c6f6 178-179,321-322,473,478-479,654-655,683,705-706,719-720,727-728
+  s_c2897d6f2cc16d::t_3d0dfbeb4c2b5a 30,933
+ui/src/layout.ts
+  s_c2897d6f2cc16d::t_868a7caf23c6f6 324-325
+ui/src/board/board.tsx
+  s_c2897d6f2cc16d::t_3d0dfbeb4c2b5a 31
+  s_c2897d6f2cc16d::t_84ecc43dbbdcf5 794
+ui/src/harness/harness.tsx
+  s_c2897d6f2cc16d::t_3d0dfbeb4c2b5a 14
+  s_c2897d6f2cc16d::t_84ecc43dbbdcf5 262
+ui/test/review-nav.test.mjs
+  s_c2897d6f2cc16d::t_84ecc43dbbdcf5 184-189
+ui/src/nodes.tsx
+  s_c2897d6f2cc16d::t_5646202a2a7131 500,524,562,583,598
+ui/src/webview.css
+  s_c2897d6f2cc16d::t_31d5e3ee24fb04 121-123
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "a189402f8464bc28f9276cbd459c9d60d8846f37",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
