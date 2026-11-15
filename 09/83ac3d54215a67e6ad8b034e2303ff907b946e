@@ -1,0 +1,29 @@
+editor/extensions/flow-view/src/home.ts
+  s_c2897d6f2cc16d::t_9777581a7f38c6 22-23,98-120,244-246,254-255,298,322-328,377,402-416,451,460,526-537,599,625-626,680-685
+editor/extensions/flow-view/test/home-agents.test.mjs
+  s_c2897d6f2cc16d::t_ffb1229f736d55 1-80
+editor/extensions/flow-view/src/settingsPage.ts
+  s_c2897d6f2cc16d::t_af39161aa6d698 342-346,352-355
+  s_c2897d6f2cc16d::t_adf5a75f90ac21 75-77
+  s_c2897d6f2cc16d::t_99d41f7c5d3531 431-432
+  s_c2897d6f2cc16d::t_74766886adce32 190,192
+  s_c2897d6f2cc16d::t_2051317c530a3c 202-235
+editor/extensions/flow-view/test/settings-description.test.mjs
+  s_c2897d6f2cc16d::t_44119d7351b8a3 1-85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "0983ac3d54215a67e6ad8b034e2303ff907b946e",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
