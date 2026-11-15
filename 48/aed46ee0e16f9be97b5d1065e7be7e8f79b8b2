@@ -1,0 +1,52 @@
+editor/extensions/flow-agent/test/agentsMessage.test.mjs
+  s_c2897d6f2cc16d::t_e58413985a34c2 37
+  s_c2897d6f2cc16d::t_c0acdb8f35aad7 76,78
+editor/extensions/flow-agent/src/agentsShell.ts
+  s_c2897d6f2cc16d::t_dd39a6f55e9380 449
+  s_c2897d6f2cc16d::t_ceca652a24da81 357,506,528-529,534,536-542,564,578,594-604,606-607,610-612,614,616-619,621,623,627-631,655,660-668,673,675,677-678,680-683,686-688,690-693,697-698,700-704,706,709-710,715-723,731-734,738-739,746-748,750-751,868,976,999-1001
+  s_c2897d6f2cc16d::t_6f1fa106f0dfb3 749
+  s_c2897d6f2cc16d::t_8d8e10d7fb5804 3,10-14,16,45,63,76-98,220-221,227,255-263,388-448,450-488
+  s_c2897d6f2cc16d::t_282da61245c61a 489-490,1002
+editor/extensions/flow-agent/test/agentsPage.test.mjs
+  s_c2897d6f2cc16d::t_bf4c31174dd253 797,840,1272,1356
+  s_c2897d6f2cc16d::t_957288ab6256d3 1189-1190,1195-1199
+  s_c2897d6f2cc16d::t_d722fd5a7ae670 40-41
+  s_c2897d6f2cc16d::t_7640de6928cee9 1680,1685,1689-1693,1695-1696,1703-1723,1789,1791,1885,1901,1906,1908-1912,1914,1916-1917,1919-1920,1922-1924,1928-1955,1971,1973,1975,1977,1979-1980,2144-2145
+  s_c2897d6f2cc16d::t_52694dd416b234 1541,1593-1595
+  s_c2897d6f2cc16d::t_94b546a1265dee 256,534,536,540
+  s_c2897d6f2cc16d::t_d5751cb6c2ffad 1391,1394
+  s_c2897d6f2cc16d::t_e10db3476bf48f 975
+  s_c2897d6f2cc16d::t_cba38e87022e7f 151,153,158-170,742-743,745-746,750,753-754,760-764,782,792,801,808,826-827,838,842,845
+  s_c2897d6f2cc16d::t_32ca742c887ae1 171-172,1412,1417-1421,1424,1430-1440,1443-1446,1465,1471-1478,1480-1481,1490,1497
+  s_c2897d6f2cc16d::t_d94fbd3ed89094 893-974,976-1141
+docs/agent-tools.md
+  s_c2897d6f2cc16d::t_be0cf5a759efc4 58,62,64,66,68-69
+  s_c2897d6f2cc16d::t_2fd99a373e2272 65
+editor/extensions/flow-agent/src/agentsWorkspace.ts
+  s_c2897d6f2cc16d::t_59b23f36cdb2b2 36,101-109,712,720-724,729-730,735,741-751
+  s_c2897d6f2cc16d::t_ceca652a24da81 890-891
+  s_c2897d6f2cc16d::t_5022650c7305ce 4,37-45,123,209,224,227,408,431,619
+  s_c2897d6f2cc16d::t_f8fbd49d375a0f 752
+editor/extensions/flow-agent/src/agentsData.ts
+  s_c2897d6f2cc16d::t_086a9ffc5c008e 103,105
+editor/extensions/flow-agent/src/agentsMessage.ts
+  s_c2897d6f2cc16d::t_8ab2f326b63b45 150,152
+editor/extensions/flow-agent/src/agentsPage.ts
+  s_c2897d6f2cc16d::t_cf77f5e829fd38 11,17,67
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "48aed46ee0e16f9be97b5d1065e7be7e8f79b8b2",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
