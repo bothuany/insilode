@@ -28,8 +28,6 @@ export interface CanvasActions {
   reveal?: (nodeKey: string) => void
   keep?: (nodeKey: string) => void
   undo?: (nodeKey: string) => void
-  /** Zoomed out: bring this line to a readable size instead of editing it straight away. */
-  focusLine?: (nodeKey: string, line: number) => void
   /** A call line is hovered: light the wire from `source` to `target` (null clears). */
   trace?: (source: string | null, target?: string) => void
   /** Hooks set to run after every agent edit in this workspace (shown on the review bar). */
@@ -334,14 +332,6 @@ export function useColorized(text: string, lang: string) {
   return colorCache.get(key) ?? (done?.key === key ? done.lines : null)
 }
 
-/** Character offset of a click inside a (colorized) line, counting text across its spans. */
-function clickOffset(src: HTMLElement, e: MouseEvent) {
-  const doc = document as Document & { caretRangeFromPoint?(x: number, y: number): Range | null }
-  const range = doc.caretRangeFromPoint?.(e.clientX, e.clientY)
-  if (!range || !src.contains(range.startContainer)) return src.textContent?.length ?? 0
-  return offsetIn(src, range.startContainer, range.startOffset)
-}
-
 /** The DOM's Node (`Node` here is the canvas library's). */
 type DomNode = InstanceType<typeof globalThis.Node>
 
@@ -501,7 +491,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
   const zoomedOut = useStore(st => st.transform[2] < 0.75)
   const changed = !!(touched || node.diff || node.tableChange)
 
-  // A press that moved is a pan, not a click: only a still click starts editing.
+  // A press that moved is a pan, not a click: only a still click selects a card or follows a name.
   const press = useRef<{ x: number; y: number } | null>(null)
   const onDown = (e: PointerEvent) => (press.current = { x: e.clientX, y: e.clientY })
   const still = (e: MouseEvent) => !press.current || Math.hypot(e.clientX - press.current.x, e.clientY - press.current.y) < 4
@@ -531,16 +521,17 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
 
   return (
     <div
-      className={`card kind-${node.kind}${selected ? ' selected' : ''}${changed ? ' changed' : ''}${editing ? ' editing' : ''}${editable ? (zoomedOut ? ' zoomable' : ' editable') : ''}`}
+      className={`card kind-${node.kind}${selected ? ' selected' : ''}${changed ? ' changed' : ''}${editing ? ' editing' : ''}${editable ? ' editable' : ''}`}
       style={{ '--k': color } as CSSProperties}
       // A card is a stop for the keyboard and has a name for a screen reader; Enter on the card itself does what a click on its header does.
       tabIndex={0}
       role="group"
       aria-label={cardLabel(node, KIND_NAME[node.kind])}
       onKeyDown={e => {
+        // Enter opens the card in the editor: the arrow keys bring the focus here, and a reveal would do nothing when the canvas is the only editor group.
         if (e.key === 'Enter' && e.target === e.currentTarget && (node.code || schema?.file)) {
           e.preventDefault()
-          actions.reveal?.(node.key)
+          actions.open(node.key)
         }
       }}
       onPointerDown={onDown}

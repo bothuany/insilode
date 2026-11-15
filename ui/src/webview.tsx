@@ -319,7 +319,7 @@ function Flow() {
     const card = hit && getNode(hit.key)
     // A click on a card moves the editor's cursor too, and that echo arrives a moment later: by then the keys may have moved on, and the view must not jump back.
     const own = ownReveal.current
-    if (!card || (own && own.file === file && own.line === line && Date.now() < own.until)) return
+    if (!card || (own && samePath(own.file, file) && own.line === line && Date.now() < own.until)) return
     const { x, y, zoom } = getViewport()
     const el = document.querySelector('.wv-canvas') as HTMLElement
     const sx = card.position.x * zoom + x
@@ -497,16 +497,6 @@ function Flow() {
         const n = find(down, key) ?? find(up, key)
         if (n?.file) void definitionInFile(n.file, at.line, at.column)
       },
-      focusLine: (key, line) => {
-        const n = find(down, key) ?? find(up, key)
-        const card = getNode(key)
-        if (!n || !card) return
-        setSelected(key)
-        const el = document.querySelector('.wv-canvas') as HTMLElement
-        const w = Number(card.style?.width) || 400
-        const chipsH = (card.data as { chipsH?: number }).chipsH ?? 0
-        setCenter(card.position.x + Math.min(w / 2, el.clientWidth / 2 - 24), card.position.y + HEADER_H + chipsH + CODE_PAD + (line - n.startLine) * LINE_H, { zoom: 1, duration: 260 })
-      },
       chipToggle: (key, path, typeId) => {
         setChipOpen(o => {
           const cur = new Set(o[key] ?? [])
@@ -680,9 +670,12 @@ function Flow() {
     const after = new Map(changedRef.current.map(n => [n.key, JSON.stringify(n.diff)]))
     seenDiffs.current = after
     setViewed(v => keepViewed(v, before, after))
-    setNavCurrent(c => (c !== null && (!before.has(c) || before.get(c) === after.get(c)) ? c : null))
     // Read now: React may run the updater after the next effect has already replaced the ref.
     const cardsBefore = seenCards.current
+    // The current card is kept across a reload only when the same cards are drawn (their keys are positions in the tree, so a call added
+    // earlier in the flow moves every key), and a changed card only with the same diff.
+    const sameCards = cardsBefore.size === cardNames.length && cardNames.every(c => cardsBefore.has(c.key))
+    setNavCurrent(c => (c !== null && sameCards && (!before.has(c) || before.get(c) === after.get(c)) ? c : null))
     setFinding(f => findAfterReload(f, cardsBefore, cardNames))
   }, [down, up]) // eslint-disable-line react-hooks/exhaustive-deps
   // The cards drawn are recorded whenever they change, for any reason (a reload, an expanded or folded card, callers shown): the
@@ -690,6 +683,8 @@ function Flow() {
   useEffect(() => {
     seenCards.current = new Set(cardNames.map(c => c.key))
   }, [cardNames])
+  // Another flow has cards with the same keys: nothing in it is current until the keys or a click say so.
+  useEffect(() => setNavCurrent(null), [down?.symbolId])
   useEffect(() => {
     if (!down) return
     const t = setTimeout(() => goTo((target.target.kind === 'changes' ? changedRef.current[0]?.key : undefined) ?? down.key, false), 50)

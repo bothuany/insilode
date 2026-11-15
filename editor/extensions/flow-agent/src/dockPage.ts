@@ -309,12 +309,13 @@ function render() {
 				+ '<button type="button" class="open" data-act="open" title="' + esc(s.name + (sized ? ' · context ' + pct + '% full' : '')) + '"><span class="name">' + esc(s.name) + '</span><span class="state">' + esc(state) + '</span></button>'
 				+ '<button type="button" class="tog" data-act="toggle" aria-expanded="' + isOpen + '" aria-controls="d-' + esc(s.id) + '" aria-label="Details of ' + esc(s.name) + '" title="Context, to-dos, worktree and the other controls"></button>'
 				+ '<div class="sub">' + line2 + (sk ? '<span class="side">' + sk + '</span>' : '') + '</div></div>'
+				// What the turn touched is always in view, not in the details: it is the way from an agent to the flows it changed.
+				+ impact
 				+ '<div class="details" id="d-' + esc(s.id) + '"' + (isOpen ? '' : ' hidden') + '>'
 				+ (s.prompt ? '<span class="prompt">' + esc(s.prompt) + '</span>' : '')
 				+ more
 				+ todos
 				+ clash
-				+ impact
 				+ explain
 				+ wt
 				+ ctx
