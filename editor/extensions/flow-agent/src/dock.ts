@@ -9,7 +9,7 @@ import * as vscode from 'vscode';
 import type { Agents } from './agents';
 import { buildRows, skeletonStages } from './agentRows';
 import { readAvatar } from './desktopModel';
-import { bypassAllowed, BYPASS_SETTING } from './bypass';
+import { bypassAllowed, BYPASS_SETTING, neverAskAllowed, NEVER_ASK_SETTING } from './bypass';
 import { dockAction, type StartHow } from './dockMessage';
 import { dockHtml } from './dockPage';
 import { OPEN_AGENTS_PAGE } from './agentsPanel';
@@ -31,7 +31,7 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 			agents.onDidChange(() => this.post()),
 			...(peers ? [peers.onDidChange(() => this.post())] : []),
 			...(worktrees ? [worktrees.onDidChange(() => this.post())] : []),
-			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst') || e.affectsConfiguration(BYPASS_SETTING)) && this.post()),
+			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst') || e.affectsConfiguration(BYPASS_SETTING) || e.affectsConfiguration(NEVER_ASK_SETTING)) && this.post()),
 		];
 	}
 
@@ -82,10 +82,13 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 		});
 	}
 
-	/** "In a worktree", "Resume a session…" and Claude's bypass switch of the launcher's menu. */
+	/** "In a worktree", "Resume a session…" and the permissions switch (Claude's bypass, Codex's never ask) of the launcher's menu. */
 	private start(cli: 'claude' | 'codex', how: StartHow) {
 		if (how === 'bypass') {
 			return vscode.commands.executeCommand('flow.agents.claudeBypass');
+		}
+		if (how === 'neverAsk') {
+			return vscode.commands.executeCommand('flow.agents.codexNeverAsk');
 		}
 		if (how === 'worktree') {
 			return cli === 'claude' ? vscode.commands.executeCommand('flow.agents.newClaudeWorktree') : vscode.commands.executeCommand('flow.agents.newCodexWorktree');
@@ -109,7 +112,7 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 			}
 			const list = buildRows(this.agents, this.worktrees, stages, savedAgents());
 			const avatar = readAvatar(vscode.workspace.getConfiguration('flow.agents').get('avatar'));
-			void this.view?.webview.postMessage({ type: 'data', list, now: Date.now(), avatar, peers: this.peers?.view().peers ?? [], bypass: bypassAllowed() });
+			void this.view?.webview.postMessage({ type: 'data', list, now: Date.now(), avatar, peers: this.peers?.view().peers ?? [], bypass: bypassAllowed(), neverAsk: neverAskAllowed() });
 		}, 60);
 	}
 }

@@ -33,6 +33,39 @@ test('with the setting on, bypass permissions is offered, never started in', () 
 	assert.match(l.claudeCommand({ resume: true, id, allowBypass: true }), /^claude --resume \S+ --allow-dangerously-skip-permissions$/)
 })
 
+test('Codex: with the setting off the command is what it always was; resume keeps the uuid rule', () => {
+	assert.equal(l.codexStartCommand({ resume: false, profile: 'insilode', neverAsk: false }), 'codex -p insilode')
+	assert.equal(l.codexStartCommand({ resume: false, neverAsk: false }), 'codex')
+	assert.equal(l.codexStartCommand({ resume: true, id, profile: 'insilode', neverAsk: false }), `codex resume -p insilode ${id}`)
+	assert.equal(l.codexStartCommand({ resume: true, profile: 'insilode', neverAsk: false }), 'codex resume -p insilode', 'no id: Codex\'s own picker')
+	for (const bad of ['not-a-uuid', '$(rm -rf ~)', `${id}; ls`, `${id} --last`, '']) {
+		assert.equal(l.codexStartCommand({ resume: true, id: bad, profile: 'insilode', neverAsk: true }), 'codex resume -p insilode --ask-for-approval never --sandbox workspace-write', JSON.stringify(bad))
+	}
+	assert.equal(l.codexStartCommand({ resume: false, id, neverAsk: false }), 'codex', 'a new session takes no id')
+})
+
+test('Codex: with the setting on, sessions never ask but the sandbox stays; the dangerous flags never appear', () => {
+	const flags = ' --ask-for-approval never --sandbox workspace-write'
+	assert.equal(l.codexStartCommand({ resume: false, profile: 'insilode', neverAsk: true }), `codex -p insilode${flags}`)
+	assert.equal(l.codexStartCommand({ resume: false, neverAsk: true }), `codex${flags}`)
+	assert.equal(l.codexStartCommand({ resume: true, id, profile: 'insilode', neverAsk: true }), `codex resume -p insilode${flags} ${id}`)
+	for (const o of [{ resume: false }, { resume: true, id }, { resume: true, id, profile: 'insilode' }]) {
+		for (const neverAsk of [false, true]) {
+			assert.doesNotMatch(l.codexStartCommand({ ...o, neverAsk }), /dangerously|danger-full-access|read-only|-a never|--yolo/)
+		}
+	}
+})
+
+test('the Codex setting is off by default, machine-scoped and described', () => {
+	const props = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).contributes.configuration.properties
+	const s = props['flow.agents.codex.neverAsk']
+	assert.equal(s.type, 'boolean')
+	assert.equal(s.default, false)
+	assert.equal(s.scope, 'machine', 'a workspace cannot turn it on')
+	assert.ok((s.markdownDescription || s.description).length > 40)
+	assert.match(s.markdownDescription, /workspace-write/)
+})
+
 test('the setting is off by default, machine-scoped and described', () => {
 	const props = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).contributes.configuration.properties
 	const s = props['flow.agents.claude.allowBypassPermissions']

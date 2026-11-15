@@ -127,6 +127,14 @@ test('pane messages without an id, with oversize input or with a size out of ran
 	}
 })
 
+test('pickFolder carries a request id and nothing else: no path, whatever the page adds', TT, () => {
+	assert.deepEqual(a.agentsAction({ type: 'pickFolder', requestId: 'f1' }), { type: 'pickFolder', requestId: 'f1' })
+	assert.deepEqual(a.agentsAction({ type: 'pickFolder', requestId: 'f1', path: '/etc', cwd: '/etc', folder: '/etc' }), { type: 'pickFolder', requestId: 'f1' }, 'a path in it is dropped')
+	for (const bad of [{}, { requestId: '' }, { requestId: 7 }, { requestId: ['a'] }, { requestId: 'r'.repeat(101) }]) {
+		assert.equal(a.agentsAction({ type: 'pickFolder', ...bad }), undefined, JSON.stringify(bad))
+	}
+})
+
 test('termOpen names a CLI, optionally a session by uuid and an absolute folder, and always a request id', TT, () => {
 	const cwd = process.platform === 'win32' ? 'C:\\work\\app' : '/work/app'
 	assert.deepEqual(a.agentsAction({ type: 'termOpen', requestId: 'r1', kind: 'claude' }), { type: 'termOpen', requestId: 'r1', kind: 'claude' })

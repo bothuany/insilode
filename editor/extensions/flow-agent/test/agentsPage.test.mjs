@@ -258,9 +258,9 @@ test('a start that fails shows the host\'s sentence with Retry, which asks again
 	assert.equal(first.kind, 'codex')
 	p.send({ type: 'termFailed', requestId: 'someone-elses', message: 'ignored' })
 	assert.match(p.text(), /Starting…/)
-	p.send({ type: 'termFailed', requestId: first.requestId, message: 'Not started: the agent was not allowed to run in that folder.' })
+	p.send({ type: 'termFailed', requestId: first.requestId, message: 'Not started: /x is not one of your projects. Choose that folder with Change… first.' })
 	assert.match(p.text(), /Could not start/)
-	assert.match(p.text(), /not allowed to run in that folder/)
+	assert.match(p.text(), /Choose that folder with Change… first/)
 	p.body.button('Retry').fire('click')
 	const second = p.all('termOpen')[1]
 	assert.equal(second.kind, 'codex')
@@ -976,7 +976,7 @@ test('the launcher\'s folder is the focused pane\'s project, else this window\'s
 	const pop = openLauncher(p)
 	assert.equal(pop.byClass('pfold')[0].textContent, 'other', 'the project of the focused pane')
 	const sel = pop.find(n => n.tagName === 'SELECT')[0]
-	assert.deepEqual(sel.children.map(o => o.attrs.value), ['/work/app', '/work/other'])
+	assert.deepEqual(sel.children.map(o => o.attrs.value), ['/work/app', '/work/other', '::other-folder::'], 'the projects, then Other folder…')
 	assert.equal(sel.className.includes('hidden'), true)
 	popItem(pop, 'change').fire('click')
 	assert.equal(sel.className.includes('hidden'), false)
@@ -1034,26 +1034,93 @@ test('Resume a session… posts the resume of the chosen CLI and Start an Agent�
 	assert.equal(p.body.byClass('pop')[0].className.includes('hidden'), true)
 })
 
-test('permissions: Claude\'s bypass switch is the host\'s setting, so the row shows it and flips it; only Claude has it', T, () => {
+test('permissions: each agent\'s "do not ask" switch is the host\'s setting, so the row shows it and flips it, for Claude and for Codex; a custom agent has none', T, () => {
 	const p = boot()
-	p.data([])
+	p.data([], { customs: ['Gemini'] })
 	let pop = openLauncher(p)
 	assert.equal(popItem(pop, 'bypass'), undefined, 'bypass is not offered where the host does not allow it')
 	assert.equal(popItem(pop, 'ask').attrs['aria-checked'], 'true')
+	const group = cli => pop.find(n => n.attrs['data-cli'] === cli && n.attrs.role === 'radiogroup')[0]
+	assert.equal(group('claude').className.includes('hidden'), false)
+	assert.equal(group('codex').className.includes('hidden'), true, 'only the chosen agent\'s row shows')
 	pop.button('Codex').fire('click')
-	assert.equal(pop.byClass('perms')[0].className.includes('hidden'), true, 'Codex has no such setting')
+	assert.equal(pop.byClass('perms')[0].className.includes('hidden'), false)
+	assert.equal(group('claude').className.includes('hidden'), true)
+	assert.equal(group('codex').className.includes('hidden'), false)
+	assert.equal(popItem(pop, 'cask').attrs['aria-checked'], 'true')
+	assert.equal(popItem(pop, 'neverask'), undefined)
+	p.posted.length = 0
+	popItem(pop, 'callow').fire('click')
+	assert.deepEqual(p.posted, [{ type: 'start', cli: 'codex', how: 'neverAsk' }])
+	pop = openLauncher(p)
+	pop.button('Gemini').fire('click')
+	assert.equal(pop.byClass('perms')[0].className.includes('hidden'), true, 'a custom agent has no such setting')
 	pop.button('Claude Code').fire('click')
 	p.posted.length = 0
 	popItem(pop, 'allow').fire('click')
 	assert.deepEqual(p.posted, [{ type: 'start', cli: 'claude', how: 'bypass' }])
 	// Allowed: the choice shows as the current one and "Ask each time" turns it off again.
-	p.data([], { bypass: true })
+	p.data([], { bypass: true, neverAsk: true })
 	pop = openLauncher(p)
 	assert.equal(popItem(pop, 'bypass').attrs['aria-checked'], 'true')
 	assert.equal(popItem(pop, 'ask').attrs['aria-checked'], 'false')
 	p.posted.length = 0
 	popItem(pop, 'ask').fire('click')
 	assert.deepEqual(p.posted, [{ type: 'start', cli: 'claude', how: 'bypass' }])
+	pop = openLauncher(p)
+	pop.button('Codex').fire('click')
+	assert.equal(popItem(pop, 'neverask').attrs['aria-checked'], 'true')
+	assert.equal(popItem(pop, 'neverask').textContent, 'Never ask (sandboxed)on')
+	assert.equal(popItem(pop, 'cask').attrs['aria-checked'], 'false')
+	p.posted.length = 0
+	popItem(pop, 'cask').fire('click')
+	assert.deepEqual(p.posted, [{ type: 'start', cli: 'codex', how: 'neverAsk' }])
+})
+
+test('Other folder… sends a pickFolder with a request id and no path; only the answer to that request becomes the launcher\'s folder', T, () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'app', cwd: '/work/app' } })
+	p.send(index())
+	let pop = openLauncher(p)
+	const sel = pop.find(n => n.tagName === 'SELECT')[0]
+	assert.equal(sel.children.at(-1).textContent, 'Other folder…')
+	popItem(pop, 'change').fire('click')
+	p.posted.length = 0
+	sel.value = sel.children.at(-1).attrs.value
+	sel.fire('change')
+	const ask = p.last('pickFolder')
+	assert.deepEqual(Object.keys(ask).sort(), ['requestId', 'type'], 'the page names no path')
+	assert.ok(ask.requestId.length > 0 && ask.requestId.length <= 100)
+	assert.equal(pop.byClass('pfold')[0].textContent, 'app', 'the folder stays until the host answers')
+	// An answer to another request and a malformed one change nothing.
+	p.send({ type: 'folderPicked', requestId: 'someone-elses', path: '/evil', name: 'evil' })
+	p.send({ type: 'folderPicked', requestId: ask.requestId, path: 7, name: 'x' })
+	assert.equal(pop.byClass('pfold')[0].textContent, 'app')
+	// A request is answered once: the malformed answer above used it up, so ask again.
+	sel.value = sel.children.at(-1).attrs.value
+	sel.fire('change')
+	const again = p.last('pickFolder')
+	assert.notEqual(again.requestId, ask.requestId)
+	p.send({ type: 'folderPicked', requestId: ask.requestId, path: '/work/stale', name: 'stale' })
+	assert.equal(pop.byClass('pfold')[0].textContent, 'app', 'the earlier request is not the pending one')
+	p.send({ type: 'folderPicked', requestId: again.requestId, path: '/work/picked', name: 'picked' })
+	assert.equal(pop.byClass('pfold')[0].textContent, 'picked')
+	assert.match(pop.textContent, /\/work\/picked/)
+	assert.deepEqual(sel.children.map(o => o.attrs.value).slice(0, 3), ['/work/app', '/work/other', '/work/picked'])
+	p.send({ type: 'folderPicked', requestId: again.requestId, path: '/work/twice', name: 'twice' })
+	assert.equal(pop.byClass('pfold')[0].textContent, 'picked', 'a second answer to one request is ignored')
+	p.posted.length = 0
+	pop.button('Start').fire('click')
+	assert.deepEqual({ ...p.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'claude', cwd: '/work/picked' })
+	// An answer that comes after the launcher was closed is not used.
+	pop = openLauncher(p)
+	const sel2 = pop.find(n => n.tagName === 'SELECT')[0]
+	sel2.value = sel2.children.at(-1).attrs.value
+	sel2.fire('change')
+	const late = p.last('pickFolder')
+	openLauncher(p)
+	p.send({ type: 'folderPicked', requestId: late.requestId, path: '/work/late', name: 'late' })
+	assert.doesNotMatch(p.body.byClass('pop')[0].textContent, /late/)
 })
 
 test('the sidebar "+" gets the focus back after the launcher closes, even after the sidebar was drawn again', T, () => {
@@ -1438,7 +1505,7 @@ test('the launcher\'s worktree and custom starts open the new session in a pane 
 	popItem(q, 'worktree').fire('click')
 	q.button('Start').fire('click')
 	assert.deepEqual(p.last('start'), { type: 'start', cli: 'codex', how: 'worktree' })
-	// The bypass switch is Claude's own and starts nothing.
+	// The permissions switches start nothing.
 	p.posted.length = 0
 	const r = openLauncher(p)
 	r.button('Allow bypass permissions mode…').fire('click')

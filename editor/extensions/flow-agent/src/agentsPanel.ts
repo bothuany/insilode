@@ -10,10 +10,10 @@ import * as path from 'path';
 import * as vscode from 'vscode';
 import { buildRows, skeletonStages } from './agentRows';
 import type { Agents } from './agents';
-import { bypassAllowed, BYPASS_SETTING } from './bypass';
+import { bypassAllowed, BYPASS_SETTING, neverAskAllowed, NEVER_ASK_SETTING } from './bypass';
 import type { StartHow } from './dockMessage';
 import type { AgentsPageData, AgentsPageLayouts, AgentsPageMessage, AgentsPageTail } from './agentsData';
-import { agentsAction, refusedSaveName } from './agentsMessage';
+import { agentsAction, refusedSaveName, type AgentsPageFolderPicked } from './agentsMessage';
 import { agentsHtml, type TermAssets } from './agentsPage';
 import { readAvatar } from './desktopModel';
 import { HarnessBridge } from './harnessBridge';
@@ -131,7 +131,7 @@ export class AgentsPanel implements vscode.Disposable {
 			this.agents.onDidChange(repaint),
 			...(this.worktrees ? [this.worktrees.onDidChange(repaint)] : []),
 			...(this.peers ? [this.peers.onDidChange(repaint)] : []),
-			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst') || e.affectsConfiguration('flow.agents.custom') || e.affectsConfiguration(BYPASS_SETTING)) && this.post()),
+			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.avatar') || e.affectsConfiguration('insilode.skeletonFirst') || e.affectsConfiguration('flow.agents.custom') || e.affectsConfiguration(BYPASS_SETTING) || e.affectsConfiguration(NEVER_ASK_SETTING)) && this.post()),
 			// A hidden page is not repainted (it keeps its state anyway): it catches up the moment it shows again, and looks for running sessions only while it shows.
 			panel.onDidChangeViewState(e => {
 				if (e.webviewPanel.visible) {
@@ -167,7 +167,7 @@ export class AgentsPanel implements vscode.Disposable {
 		this.listeners = [];
 	}
 
-	private send(m: AgentsPageMessage) {
+	private send(m: AgentsPageMessage | AgentsPageFolderPicked) {
 		void this.panel?.webview.postMessage(m);
 	}
 
@@ -234,6 +234,8 @@ export class AgentsPanel implements vscode.Disposable {
 			case 'termInput': return void (this.attached.has(m.id) && this.term?.input(m.id, m.data));
 			case 'termResize': return void (this.attached.has(m.id) && this.term?.resize(m.id, m.cols, m.rows));
 			case 'termOpen': return void this.termOpen(m.requestId, m.kind, m.sessionId, m.cwd, m.force);
+			// A folder dialog of this host: the page gets the chosen folder back for this request, and the host allows that folder (folderTrust.ts).
+			case 'pickFolder': return void this.pickFolder(m.requestId);
 		}
 	}
 
@@ -297,6 +299,11 @@ export class AgentsPanel implements vscode.Disposable {
 		} catch (e) {
 			this.send({ type: 'termFailed', requestId, message: (e as Error).message, ...(e instanceof ElsewhereError ? { elsewhere: true as const } : {}) });
 		}
+	}
+
+	private async pickFolder(requestId: string) {
+		const chosen = await this.term?.pickFolder().catch(() => undefined);
+		this.send({ type: 'folderPicked', requestId, ...(chosen ? { path: chosen.path, name: chosen.name } : {}) });
 	}
 
 	private async chatSearch(query: string) {
@@ -367,10 +374,13 @@ export class AgentsPanel implements vscode.Disposable {
 		}
 	}
 
-	/** "In a worktree", "Resume a session…" and Claude's bypass switch of a start button's menu. */
+	/** "In a worktree", "Resume a session…" and the permissions switch (Claude's bypass, Codex's never ask) of a start button's menu. */
 	private start(cli: 'claude' | 'codex', how: StartHow) {
 		if (how === 'bypass') {
 			return vscode.commands.executeCommand('flow.agents.claudeBypass');
+		}
+		if (how === 'neverAsk') {
+			return vscode.commands.executeCommand('flow.agents.codexNeverAsk');
 		}
 		if (how === 'worktree') {
 			return cli === 'claude' ? vscode.commands.executeCommand('flow.agents.newClaudeWorktree') : vscode.commands.executeCommand('flow.agents.newCodexWorktree');
@@ -426,7 +436,8 @@ export class AgentsPanel implements vscode.Disposable {
 				return;
 			}
 			const customs = savedAgents();
-			const data: AgentsPageData = {
+			// `neverAsk` is Codex's counterpart of `bypass` (flow.agents.codex.neverAsk), for the launcher's permissions row.
+			const data: AgentsPageData & { neverAsk: boolean } = {
 				type: 'data',
 				now: Date.now(),
 				avatar: readAvatar(vscode.workspace.getConfiguration('flow.agents').get('avatar')),
@@ -436,6 +447,7 @@ export class AgentsPanel implements vscode.Disposable {
 				limits: this.agents.latestLimits,
 				customs: customs.map(a => a.name),
 				bypass: bypassAllowed(),
+				neverAsk: neverAskAllowed(),
 				project: { name: vscode.workspace.workspaceFolders?.[0]?.name ?? 'This window', ...(vscode.workspace.workspaceFolders?.[0] ? { cwd: vscode.workspace.workspaceFolders[0].uri.fsPath } : {}) },
 				peers: this.peers?.view().peers ?? [],
 				recent: this.peers?.view().recent ?? [],
