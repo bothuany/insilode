@@ -17,6 +17,7 @@ import { DesktopStatus } from './desktop';
 import { AgentsDock } from './dock';
 import { watchGazeSetting } from './gazeHost';
 import { registerPlaceholderModels } from './models';
+import { attentionKind } from './attention';
 import { AttentionNotifier } from './notify';
 import { renameFromPalette, removeFromPalette, swapFromPalette } from './paletteActions';
 import { Peers } from './peers';
@@ -146,6 +147,12 @@ export async function activate(context: vscode.ExtensionContext) {
 				agents.show(s.id);
 			}
 		}),
+		// Called by flow-view's Home: this window's agents that wait for the user (an approval, a question, an error), the one that needs
+		// them first. Only what Home draws: a name, the CLI and why it waits; never a transcript or a path.
+		vscode.commands.registerCommand('flow.agents.needsYou', () => [...agents.sessions.values()]
+			.filter(s => s.state !== 'ended')
+			.map(s => ({ id: s.id, name: s.name, cli: s.cli, kind: attentionKind(s) }))
+			.filter(r => r.kind === 'approval' || r.kind === 'question' || r.kind === 'error')),
 		vscode.commands.registerCommand('flow.agents.chooseAskTarget', () => router.choose()),
 		vscode.commands.registerCommand('flow.agents.keptWorktrees', () => worktrees.showKept()),
 		vscode.commands.registerCommand('flow.agents.cleanupWorktrees', () => cleanupWorktrees(agents)),
