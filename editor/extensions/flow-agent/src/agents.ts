@@ -1604,16 +1604,6 @@ export class Agents implements vscode.Disposable {
 		})).catch(() => undefined);
 	}
 
-	/** The context X-ray of one agent, in the harness map: it reads the agent's transcript and the usage reported last. */
-	xray(id: string) {
-		const s = this.sessions.get(id);
-		if (s) {
-			// A click asked for it: if the harness map cannot answer, say so instead of doing nothing.
-			void Promise.resolve(vscode.commands.executeCommand('flowHarness.contextXray', { id: s.id, agent: s.name, cli: s.cli, transcript: s.transcript, usage: s.usage }))
-				.catch(e => void vscode.window.showWarningMessage(`The context X-ray is not available: ${(e as Error).message ?? e}`));
-		}
-	}
-
 	/** Opens the flow at `index` of an agent's turn impact (the dock sends an index, never an id of its own making). */
 	openImpactFlow(id: string, index: number) {
 		const flow = this.sessions.get(id)?.impact?.flows[index];

@@ -5,6 +5,7 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { AVATAR_CSS, AVATAR_SCRIPT } from './avatars';
+import { BONE_SVG } from './skeletonIcon';
 
 /** The real marks: Claude's spark (from the Claude Code extension) and the Codex cloud (lobe-icons). */
 export const ICON = {
@@ -41,38 +42,46 @@ body.vscode-light, body.vscode-high-contrast-light {
 }
 * { box-sizing: border-box; }
 body { margin: 0; padding: 8px 10px 16px 8px; color: var(--text); font: 13px/1.4 var(--vscode-font-family, -apple-system, system-ui); background: transparent; }
-.new { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
-.new button { flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; height: 28px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+.new { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.new button { display: flex; align-items: center; justify-content: center; gap: 6px; height: 28px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; cursor: pointer; }
 .new button:hover { background: var(--hover); }
 .new button:focus-visible, .agent button:focus-visible { outline: 1.5px solid var(--vscode-focusBorder, var(--working)); outline-offset: -1.5px; }
-.new button.more { flex: 0 0 auto; padding: 0 10px; color: var(--muted); }
-/* A start button and its chevron are two buttons side by side: the chevron opens the menu of the other ways to start. */
-.new .split { flex: 1; display: flex; min-width: max-content; }
-.new .split button.go { border-radius: 8px 0 0 8px; border-right: 0; }
-.new .split button.chev { flex: 0 0 auto; width: 26px; padding: 0; border-radius: 0 8px 8px 0; color: var(--muted); }
+.new button.go { flex: 1; }
+/* One launcher: every way to start an agent is in its menu. The link beside it opens the Agents page. */
+.new button.link { flex: none; padding: 0 4px; border: 0; color: var(--vscode-textLink-foreground); white-space: nowrap; }
+.new button.link:hover { background: transparent; text-decoration: underline; }
 .menu { position: absolute; z-index: 10; min-width: 190px; padding: 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--vscode-menu-background, var(--vscode-sideBar-background)); color: var(--vscode-menu-foreground, var(--text)); box-shadow: 0 6px 18px rgb(0 0 0 / .35); }
 .menu[hidden] { display: none; }
 .menu button { display: block; width: 100%; min-height: 26px; padding: 0 10px; border: 0; border-radius: 5px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.menu button[data-how="pick"], .menu button[data-cli="codex"][data-how="new"] { margin-top: 3px; border-top: 1px solid var(--line); border-radius: 0 0 5px 5px; }
 .menu button:hover, .menu button:focus-visible { background: var(--vscode-menu-selectionBackground, var(--hover)); color: var(--vscode-menu-selectionForeground, var(--text)); }
 .ico { flex: none; width: 15px; height: 15px; display: block; }
 .ico.claude { color: var(--claude); } .ico.codex { color: var(--codex); } .ico.custom { color: var(--custom); }
 
-/* The row is a group: its main button (open) and every other control are siblings, never one inside another, so Tab, Enter and Space reach each one. */
-.agent { position: relative; display: block; width: 100%; margin: 0 0 6px; padding: 9px 10px 9px 12px; border: 1px solid transparent; border-radius: 10px; background: var(--card); color: var(--text); font: inherit; text-align: left; cursor: pointer; }
-.agent:hover, .agent:focus-within { border-color: var(--line); }
+/* A row is two lines (about 56px), not a card: the avatar, then the name and state, then what it does and the skeleton switch. Its main button (open) and every other control are siblings, never one inside another, so Tab, Enter and Space reach each one. */
+.agent { position: relative; display: block; margin: 0; padding: 7px 4px 7px 6px; border: 1px solid transparent; border-bottom-color: var(--line); border-radius: 0; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.agent:hover { background: var(--hover); }
 :where(.agent button) { font: inherit; color: inherit; background: transparent; margin: 0; cursor: pointer; }
-.agent .open { display: block; width: 100%; padding: 0; border: 0; text-align: left; }
-.agent .open > span { display: block; }
-.agent .open > span.top, .agent .open > span.need { display: flex; }
-.agent .open > span.prompt { display: -webkit-box; }
+.line { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; grid-template-rows: auto auto; column-gap: 8px; row-gap: 3px; align-items: center; min-height: 40px; }
+.line > .av { grid-row: 1 / 3; margin: 0; }
+.agent .open { grid-column: 2; display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0; border: 0; text-align: left; }
+.agent .tog { grid-column: 3; display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; color: var(--muted); font-size: 10px; line-height: 1; }
+.agent .tog:hover { background: var(--hover); color: var(--text); }
+.agent .tog::before { content: '\\25B8'; }
+.agent .tog[aria-expanded="true"]::before { content: '\\25BE'; }
+.sub { grid-column: 2 / -1; display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 24px; }
+.sub .txt { flex: 1; min-width: 0; margin: 0; }
+.sub .side { flex: none; display: flex; align-items: center; gap: 6px; margin-left: auto; }
+.details { margin: 0; padding-bottom: 2px; }
+.details[hidden] { display: none; }
+.agent.blocked, .agent.question, .agent.error { margin: 4px 0; border-radius: 10px; }
 .agent.blocked { border-color: color-mix(in srgb, var(--blocked) 45%, transparent); background: color-mix(in srgb, var(--blocked) 8%, var(--card)); }
 .agent.ended { opacity: .62; }
-.top { display: flex; align-items: center; gap: 8px; min-width: 0; }
 /* The agent's avatar (src/avatars.ts): who it is and what it is doing, on a dark tile in every colour theme. */
-.av { position: relative; flex: none; display: grid; place-items: center; width: 26px; height: 26px; margin: -4px 0; border-radius: 8px; background: #000; }
+.av { position: relative; flex: none; display: grid; place-items: center; width: 26px; height: 26px; border-radius: 8px; background: #000; }
 ${AVATAR_CSS}
-.name { font-weight: 600; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.state { margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.name { flex: 1; font-weight: 600; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.state { flex: none; margin-left: auto; color: var(--muted); font-size: 11.5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .blocked .state { color: var(--blocked); font-weight: 600; }
 .unread .name::after { content: ''; display: inline-block; width: 6px; height: 6px; margin-left: 6px; border-radius: 50%; background: var(--done); vertical-align: middle; }
 .prompt { margin: 5px 0 0 34px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--text); opacity: .86; }
@@ -95,21 +104,23 @@ ${AVATAR_CSS}
 .explain { margin: 6px 0 0 34px; }
 .explain .act { display: inline-flex; align-items: center; min-height: 24px; padding: 0 8px; border: 1px solid color-mix(in srgb, var(--working) 55%, transparent); border-radius: 5px; color: var(--working); font: 11px/1.5 var(--vscode-font-family, system-ui); cursor: pointer; }
 .explain .act:hover { background: color-mix(in srgb, var(--working) 14%, transparent); }
-/* Skeleton first: one button per agent, in the Explain this style; pressed is filled. */
-.explain .act[aria-pressed="true"] { background: var(--working); color: var(--on-working); }
+/* Skeleton first: an icon button per agent, in the Explain this style; pressed is filled. */
+.skb { display: inline-grid; place-items: center; width: 24px; height: 24px; min-height: 24px; padding: 0; border: 1px solid color-mix(in srgb, var(--working) 55%, transparent); border-radius: 5px; color: var(--working); cursor: pointer; }
+.skb:hover { background: color-mix(in srgb, var(--working) 14%, transparent); }
+.skb[aria-pressed="true"] { background: var(--working); color: var(--on-working); }
+.skb svg { display: block; width: 14px; height: 14px; }
 /* Where the agent is in skeleton first: the stage word, and "skipped" when the developer chose to go without the design. */
-.stage { display: inline-flex; align-items: center; gap: 4px; margin: 0 0 0 6px; color: var(--muted); font-size: 11px; }
+.stage { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; white-space: nowrap; }
 .stage b { font-weight: 600; color: var(--text); }
 .stage .skipped { padding: 0 5px; border-radius: 5px; background: color-mix(in srgb, var(--blocked) 18%, transparent); color: var(--blocked); }
-/* Its explanation, on hover and on keyboard focus (a native title shows on neither in every host). */
-.explain.sk { position: relative; }
-.explain.sk .act:hover::after, .explain.sk .act:focus-visible::after { content: attr(data-tip); position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 5; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--vscode-editorHoverWidget-background, #252526); color: var(--text); font: 11.5px/1.45 var(--vscode-font-family, system-ui); white-space: normal; pointer-events: none; }
+/* The switch's explanation, on hover and on keyboard focus (a native title shows on neither in every host). It sits against the row, whose width the small button does not have. */
+.skb:hover::after, .skb:focus-visible::after { content: attr(data-tip); position: absolute; left: 6px; right: 4px; top: calc(100% + 2px); z-index: 5; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--vscode-editorHoverWidget-background, #252526); color: var(--text); font: 11.5px/1.45 var(--vscode-font-family, system-ui); text-align: left; white-space: normal; pointer-events: none; }
 .clash { margin: 6px 0 0 34px; padding: 4px 7px; border-radius: 6px; background: color-mix(in srgb, var(--blocked) 10%, transparent); color: var(--blocked); font-size: 11.5px; line-height: 1.45; }
 .clash.same { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger-text); }
 .clash small { display: block; color: var(--muted); }
 .todos .count { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
-/* The context bar is a button (what fills it?): 2px to look at, 24px to hit, in the row's flow so the controls strip below never covers it. */
-.ctx { position: relative; display: block; width: calc(100% - 34px); height: 2px; margin: 12px 0 0 34px; padding: 0; border: 0; border-radius: 2px; background: transparent; }
+/* The context bar: 2px, in the row's flow under the context line. */
+.ctx { display: block; width: calc(100% - 34px); height: 2px; margin: 8px 0 0 34px; border-radius: 2px; background: color-mix(in srgb, var(--idle) 25%, transparent); }
 .ctx i { display: block; height: 100%; background: color-mix(in srgb, var(--working) 55%, transparent); }
 .ctx.warn i { background: var(--blocked); } .ctx.full i { background: var(--danger); }
 /* How full the context window is: the model, used / window and the share, or only the tokens when the CLI gave no window. */
@@ -119,23 +130,21 @@ ${AVATAR_CSS}
 .ctxline.warn .pct { color: var(--blocked); } .ctxline.full .pct { color: var(--danger-text); font-weight: 600; }
 .cmp { flex: none; margin-left: auto; display: inline-flex; align-items: center; min-height: 24px; padding: 0 6px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font: 11px/1.5 var(--vscode-font-family, system-ui); cursor: pointer; }
 .cmp:hover { background: var(--hover); color: var(--text); }
-.ctx { cursor: pointer; overflow: visible; } .ctx::before { content: ''; position: absolute; left: 0; right: 0; top: -11px; bottom: -11px; } .ctx:hover i { filter: brightness(1.4); }
-/* Rename, swap, forget: their own strip under the row's content, so they never cover the state label. It takes room only while the row is hovered or has focus inside it, and it stays reachable by Tab. */
-.tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; max-height: 0; padding: 0 1px; overflow: hidden; opacity: 0; }
-.agent:hover .tools, .agent:focus-within .tools { max-height: 40px; margin-top: 6px; opacity: 1; }
+/* Rename, swap, forget: their own strip at the end of the details. */
+.tools { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px; margin-top: 6px; padding: 0 1px; }
 .tools button { min-width: 24px; min-height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); font-size: 12px; line-height: 1; }
 .tools button:hover { background: var(--hover); color: var(--text); }
-.empty { margin: 4px 2px; color: var(--muted); line-height: 1.55; }
+.empty { margin: 8px 2px 0; color: var(--muted); line-height: 1.55; }
 .empty b { color: var(--text); font-weight: 600; }
-.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 12px; color: var(--muted); font-size: 11.5px; }
-.legend span { display: inline-flex; align-items: center; gap: 5px; }
-.legend i { width: 7px; height: 7px; border-radius: 50%; }
-.foot { margin-top: 14px; color: var(--muted); font-size: 11.5px; }
+.foot { margin-top: 10px; color: var(--muted); font-size: 11.5px; }
 .foot button { all: unset; color: var(--vscode-textLink-foreground); cursor: pointer; }
 /* Why it waits for you: a chip with the kind, then the question, the permission or the error itself. */
 .need { display: flex; align-items: baseline; gap: 6px; margin: 5px 0 0 34px; min-width: 0; font-size: 11.5px; }
 .chip { flex: none; padding: 0 6px; border-radius: 5px; font: 600 10.5px/1.6 var(--vscode-font-family, system-ui); text-transform: uppercase; letter-spacing: .03em; }
 .need .t { min-width: 0; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.sub .need { align-items: center; }
+.sub .need .t { display: block; font: 11.5px/1.35 var(--mono); color: var(--muted); white-space: nowrap; text-overflow: ellipsis; }
+.agent.blocked .sub .need .t, .agent.approval .sub .need .t, .agent.question .sub .need .t { color: var(--blocked); }
 .need.approval .chip { background: color-mix(in srgb, var(--blocked) 22%, transparent); color: var(--blocked); }
 .need.question .chip { background: color-mix(in srgb, var(--working) 22%, transparent); color: var(--working); }
 .need.error .chip { background: color-mix(in srgb, var(--danger) 22%, transparent); color: var(--danger-text); }
@@ -163,9 +172,8 @@ ${AVATAR_CSS}
 .peer button:hover { background: var(--hover); }
 </style></head><body>
 <div class="new">
-	<div class="split"><button type="button" class="go" data-cli="claude" title="Start Claude Code in a new terminal, or resume an earlier session">${ICON.claude}Claude</button><button type="button" class="chev" data-menu="claude" aria-haspopup="menu" aria-expanded="false" aria-controls="menu" aria-label="More ways to start Claude Code" title="In a worktree, resume a session, or allow bypass permissions mode">&#9662;</button></div>
-	<div class="split"><button type="button" class="go" data-cli="codex" title="Start Codex in a new terminal, or resume an earlier session">${ICON.codex}Codex</button><button type="button" class="chev" data-menu="codex" aria-haspopup="menu" aria-expanded="false" aria-controls="menu" aria-label="More ways to start Codex" title="In a worktree, or resume a session">&#9662;</button></div>
-	<button type="button" class="more" data-cli="pick" title="Start another agent: Gemini, Aider, your own command…" aria-label="Start another agent">More agents…</button>
+	<button type="button" class="go" data-menu="all" aria-haspopup="menu" aria-expanded="false" aria-controls="menu" title="Start Claude Code, Codex or another agent in a new terminal, in a worktree, or resume an earlier session">+ New session</button>
+	<button type="button" class="link" data-page="1" title="Open the Agents page: every agent and its terminal side by side">Open Agents ↗</button>
 </div>
 <div id="menu" class="menu" role="menu" hidden></div>
 <div id="list"></div>
@@ -173,6 +181,8 @@ ${AVATAR_CSS}
 const vscode = acquireVsCodeApi();
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 let data = { list: [], now: Date.now(), peers: [] };
+// Rows the developer opened or closed by hand (id to open), so a repaint keeps them as they were left.
+const opened = new Map();
 ${AVATAR_SCRIPT}
 // What the avatar shows: a question, an approval or an unread error first, then the state.
 const avState = s => s.state === 'ended' ? 'idle' : s.attention === 'approval' || s.attention === 'question' || s.attention === 'error' ? s.attention : s.attention === 'done' ? 'done' : s.state === 'blocked' ? 'approval' : s.state === 'working' || s.state === 'starting' ? 'working' : 'idle';
@@ -194,6 +204,7 @@ function avatar(s, pct) {
 // Skeleton first: one toggle button per agent; what it does is in its tooltip. The stages are talked through with the agent, so
 // the row shows nothing else. The page sends only the row and the state it asks for.
 const SK_TIP = 'Skeleton first for this agent. When a change adds or changes types, entities or interfaces, the agent draws its design on a board and stops; you write the types and signatures, and the board marks them against the design as you save. Then tell the agent "check", "hand over" (it fills the bodies), "just do it" or "done".';
+const BONE = '${BONE_SVG}';
 const STAGE = { design: 'Design', skeleton: 'Skeleton', handover: 'Handover' };
 const STAGE_TIP = {
 	design: 'Design: the agent draws the types it will add or change on a board and waits for you.',
@@ -208,7 +219,7 @@ function stageHtml(s) {
 }
 function skeletonButton(s) {
 	if (!s.skeletonAvailable) { return ''; }
-	return '<div class="explain sk"><button type="button" class="act" aria-pressed="' + (s.skeletonOn ? 'true' : 'false') + '" data-act="sk" data-on="' + (s.skeletonOn ? 'off' : 'on') + '" data-tip="' + esc(SK_TIP + (s.skeletonOn ? ' On: click to turn it off.' : ' Off: click to turn it on.')) + '" aria-description="' + esc(SK_TIP) + '">Skeleton</button>' + stageHtml(s) + '</div>';
+	return '<button type="button" class="skb" aria-pressed="' + (s.skeletonOn ? 'true' : 'false') + '" data-act="sk" data-on="' + (s.skeletonOn ? 'off' : 'on') + '" data-tip="' + esc(SK_TIP + (s.skeletonOn ? ' On: click to turn it off.' : ' Off: click to turn it on.')) + '" aria-label="Skeleton first" aria-description="' + esc(SK_TIP) + '">' + BONE + '</button>';
 }
 // The agents of other open windows, grouped under their project. All text goes through esc(); the buttons name the project by the key the host sent.
 const peerDot = r => r.state === 'ended' ? 'idle' : r.attention === 'approval' || r.attention === 'question' || r.attention === 'error' ? 'needs' : r.state === 'working' || r.state === 'starting' ? 'working' : r.attention === 'done' || r.state === 'done' ? 'done' : 'idle';
@@ -222,8 +233,7 @@ function peersHtml() {
 function render() {
 	const el = document.getElementById('list');
 	if (!data.list.length) {
-		el.innerHTML = '<p class="empty"><b>No agents running.</b><br>Start one above. It runs in a terminal like always; here you see at a glance which one is working, which one waits for you and which one is done.</p>'
-			+ '<div class="legend"><span><i style="background:var(--working)"></i>Working</span><span><i style="background:var(--blocked)"></i>Needs you</span><span><i style="background:var(--done)"></i>Done</span></div>'
+		el.innerHTML = '<p class="empty"><b>No agents running.</b> Start one above.</p>'
 			+ '<p class="foot">Prefer the chat panel? <button id="chat">Turn it back on</button></p>' + peersHtml();
 		const c = document.getElementById('chat'); if (c) c.onclick = () => vscode.postMessage({ type: 'chat' });
 		return;
@@ -248,7 +258,10 @@ function render() {
 		// A need says what it waits for (an error you have seen still says what went wrong); a finished turn you have not opened only says so.
 		const chip = s.need ? s.need.kind : kind;
 		const needText = s.need ? s.need.text : kind === 'approval' ? s.activity : '';
-		const need = chip ? '<span class="need ' + esc(chip) + '"><span class="chip">' + esc(NEED[chip]) + '</span>' + (needText ? '<span class="t">' + esc(needText) + '</span>' : '') + '</span>' : '';
+		const doing = s.activity && !(kind === 'approval' && !s.need) && !(s.need && s.activity === s.need.text) ? s.activity : '';
+			// Line 2 says what the agent waits for, else what it is doing; an activity that the need does not repeat waits in the details.
+			const line2 = chip ? '<span class="need txt ' + esc(chip) + '"><span class="chip">' + esc(NEED[chip]) + '</span>' + (needText || doing ? '<span class="t">' + esc(needText || doing) + '</span>' : '') + '</span>' : doing ? '<span class="activity txt">' + esc(doing) + '</span>' : '<span class="txt"></span>';
+			const more = needText && doing ? '<span class="activity">' + esc(doing) + '</span>' : '';
 		const c = s.cost;
 		// Both lines are the same kind of estimate, so both say so. A resumed conversation counts from this CLI's start, as its dollars do.
 		const est = x => x.usd !== undefined ? ' <span class="est">est.</span>' : '';
@@ -272,7 +285,8 @@ function render() {
 		const level = pct >= 90 ? ' full' : pct >= 70 ? ' warn' : '';
 		// Only at the prompt: while the agent asks for permission, the Enter after /compact would answer its menu (slashRefusal in askTarget.ts, checked again in Agents.slash).
 		const canCompact = s.usage && s.cli !== 'custom' && (s.state === 'idle' || s.state === 'done');
-		const ctx = s.usage ? '<div class="ctxline' + level + '" title="' + esc(sized ? s.usage.used.toLocaleString() + ' of ' + s.usage.size.toLocaleString() + ' tokens in the context window' : s.usage.used.toLocaleString() + ' tokens in context; the agent has not said how large its window is') + '">'
+		const ctxbar = sized ? '<div class="ctx' + level + '" role="progressbar" aria-label="Context ' + pct + '% full" aria-valuemin="0" aria-valuemax="100" aria-valuenow="' + pct + '"><i style="width:' + pct + '%"></i></div>' : '';
+			const ctx = s.usage ? '<div class="ctxline' + level + '" title="' + esc(sized ? s.usage.used.toLocaleString() + ' of ' + s.usage.size.toLocaleString() + ' tokens in the context window' : s.usage.used.toLocaleString() + ' tokens in context; the agent has not said how large its window is') + '">'
 			+ (s.usage.model ? '<span class="model">' + esc(s.usage.model) + '</span><span>·</span>' : '')
 			+ '<span class="amt">' + (sized ? tok(s.usage.used) + ' / ' + tok(s.usage.size) + ' <span class="pct">' + pct + '%</span>' : tok(s.usage.used) + ' tokens') + '</span>'
 			+ (canCompact ? '<button type="button" class="cmp" data-act="compact" aria-label="Compact ' + esc(s.name) + '" title="Send /compact: keeps a summary, frees most of the window">Compact</button>' : '')
@@ -286,24 +300,28 @@ function render() {
 			+ (canSwap ? '<button type="button" data-act="swap" aria-label="Continue ' + esc(s.name) + ' in ' + other + '" title="Continue in ' + other + ' with this conversation">⇄</button>' : '')
 			+ (s.state === 'ended' ? '<button type="button" data-act="forget" aria-label="Remove ' + esc(s.name) + ' from the list" title="Remove from list">×</button>' : '')
 			+ '</div>';
-		return '<div class="agent ' + s.state + (kind ? ' ' + kind : '') + (s.unread ? ' unread' : '') + '" role="group" aria-label="' + esc(s.name + ', ' + state) + '" data-id="' + esc(s.id) + '">'
-			+ '<button type="button" class="open" data-act="open" title="' + esc(s.name + (sized ? ' · context ' + pct + '% full' : '')) + '">'
-			+ '<span class="top">' + avatar(s, sized ? pct : undefined) + '<span class="name">' + esc(s.name) + '</span><span class="state">' + esc(state) + '</span></span>'
-			+ (s.prompt ? '<span class="prompt">' + esc(s.prompt) + '</span>' : '')
-			+ need
-			+ (s.activity && !(kind === 'approval' && !s.need) && !(s.need && s.activity === s.need.text) ? '<span class="activity">' + esc(s.activity) + '</span>' : '')
-			+ '</button>'
-			+ todos
-			+ clash
-			+ impact
-			+ explain
-			+ skeletonButton(s)
-			+ wt
-			+ ctx
-			+ meta
-			+ (sized ? '<button type="button" class="ctx' + level + '" data-act="xray" aria-label="Context ' + pct + '% full: what fills it?" title="Context ' + pct + '% full: what fills it?"><i style="width:' + pct + '%"></i></button>' : '')
-			+ tools
-			+ '</div>';
+			// The details open by themselves for a row that needs you or has a conflict; what you toggled by hand wins from then on.
+			const auto = waits || s.state === 'blocked' || !!(s.clash && s.clash.length);
+			const isOpen = opened.has(s.id) ? opened.get(s.id) : auto;
+			const sk = s.skeletonAvailable ? stageHtml(s) + skeletonButton(s) : '';
+			return '<div class="agent ' + s.state + (kind ? ' ' + kind : '') + (s.unread ? ' unread' : '') + '" role="group" aria-label="' + esc(s.name + ', ' + state) + '" data-id="' + esc(s.id) + '">'
+				+ '<div class="line">' + avatar(s, sized ? pct : undefined)
+				+ '<button type="button" class="open" data-act="open" title="' + esc(s.name + (sized ? ' · context ' + pct + '% full' : '')) + '"><span class="name">' + esc(s.name) + '</span><span class="state">' + esc(state) + '</span></button>'
+				+ '<button type="button" class="tog" data-act="toggle" aria-expanded="' + isOpen + '" aria-controls="d-' + esc(s.id) + '" aria-label="Details of ' + esc(s.name) + '" title="Context, to-dos, worktree and the other controls"></button>'
+				+ '<div class="sub">' + line2 + (sk ? '<span class="side">' + sk + '</span>' : '') + '</div></div>'
+				+ '<div class="details" id="d-' + esc(s.id) + '"' + (isOpen ? '' : ' hidden') + '>'
+				+ (s.prompt ? '<span class="prompt">' + esc(s.prompt) + '</span>' : '')
+				+ more
+				+ todos
+				+ clash
+				+ impact
+				+ explain
+				+ wt
+				+ ctx
+				+ ctxbar
+				+ meta
+				+ tools
+				+ '</div></div>';
 	}).join('') + peersHtml();
 	el.querySelectorAll('.av[data-k]').forEach(a => { const old = kept.get(a.dataset.k); if (old) { a.replaceWith(old); } });
 }
@@ -323,6 +341,13 @@ document.getElementById('list').addEventListener('click', e => {
 	const b = e.target.closest('button[data-act]');
 	if (!b || !row.contains(b)) { vscode.postMessage({ type: 'show', id }); return; }
 	switch (b.dataset.act) {
+		case 'toggle': {
+			const open = b.getAttribute('aria-expanded') !== 'true';
+			opened.set(id, open);
+			b.setAttribute('aria-expanded', String(open));
+			row.querySelector('.details').hidden = !open;
+			break;
+		}
 		case 'sk': vscode.postMessage({ type: 'sk', id, on: b.dataset.on === 'on' }); break;
 		case 'wt': vscode.postMessage({ type: 'wt', id, action: b.dataset.wt }); break;
 		case 'flow': vscode.postMessage({ type: 'flow', id, index: Number(b.dataset.flow) }); break;
@@ -330,10 +355,13 @@ document.getElementById('list').addEventListener('click', e => {
 		default: vscode.postMessage({ type: b.dataset.act, id });
 	}
 });
-// The start buttons: one click starts; the chevron beside each opens a small menu (worktree, resume), with the keys a menu has.
+// The launcher opens one menu of every way to start an agent, with the keys a menu has; the link beside it opens the Agents page.
 const menuEl = document.getElementById('menu');
-// Claude's menu ends with the switch for offering bypass permissions mode; the host says whether it is on, and turning it on asks first.
-const menuFor = cli => [['worktree', 'In a worktree'], ['resume', 'Resume a session…']].concat(cli === 'claude' ? [['bypass', data.bypass ? '✓ Bypass permissions mode offered (turn off)' : 'Allow bypass permissions mode…']] : []);
+// [agent, how, label]. Claude's entries end with the switch for offering bypass permissions mode; the host says whether it is on, and turning it on asks first.
+// "new" starts the agent as it is, "pick" is "More agents…" (the agent name is unused); the rest go out as a start message.
+const menuItems = () => [['claude', 'new', 'Claude'], ['claude', 'worktree', 'Claude in a worktree'], ['claude', 'resume', 'Resume a Claude session…'],
+	['claude', 'bypass', data.bypass ? '✓ Bypass permissions mode offered (turn off)' : 'Allow bypass permissions mode…'],
+	['codex', 'new', 'Codex'], ['codex', 'worktree', 'Codex in a worktree'], ['codex', 'resume', 'Resume a Codex session…'], ['', 'pick', 'More agents…']];
 let menuOwner;
 function closeMenu(refocus) {
 	if (!menuOwner) { return; }
@@ -345,11 +373,11 @@ function closeMenu(refocus) {
 }
 function openMenu(btn, focusFirst) {
 	closeMenu(false);
-	menuEl.innerHTML = menuFor(btn.dataset.menu).map(m => '<button type="button" role="' + (m[0] === 'bypass' ? 'menuitemcheckbox" aria-checked="' + (data.bypass ? 'true' : 'false') : 'menuitem') + '" tabindex="-1" data-how="' + m[0] + '" data-cli="' + esc(btn.dataset.menu) + '">' + esc(m[1]) + '</button>').join('');
-	menuEl.setAttribute('aria-label', 'Start ' + (btn.dataset.menu === 'claude' ? 'Claude Code' : 'Codex'));
+	menuEl.innerHTML = menuItems().map(m => '<button type="button" role="' + (m[1] === 'bypass' ? 'menuitemcheckbox" aria-checked="' + (data.bypass ? 'true' : 'false') : 'menuitem') + '" tabindex="-1" data-how="' + m[1] + '" data-cli="' + m[0] + '">' + esc(m[2]) + '</button>').join('');
+	menuEl.setAttribute('aria-label', 'Start an agent');
 	menuEl.hidden = false;
 	const r = btn.getBoundingClientRect();
-	menuEl.style.left = Math.max(4, Math.min(r.right - menuEl.offsetWidth, window.innerWidth - menuEl.offsetWidth - 4)) + 'px';
+	menuEl.style.left = Math.max(4, Math.min(r.left, window.innerWidth - menuEl.offsetWidth - 4)) + 'px';
 	menuEl.style.top = (r.bottom + window.scrollY + 2) + 'px';
 	btn.setAttribute('aria-expanded', 'true');
 	menuOwner = btn;
@@ -361,12 +389,15 @@ document.querySelectorAll('.new button').forEach(b => {
 		b.onclick = e => menuOwner === b ? closeMenu(false) : openMenu(b, e.detail === 0);
 		b.onkeydown = e => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); openMenu(b, true); } };
 	} else {
-		b.onclick = () => vscode.postMessage(b.dataset.cli === 'pick' ? { type: 'pick' } : { type: 'new', cli: b.dataset.cli });
+		b.onclick = () => vscode.postMessage({ type: 'page' });
 	}
 });
 menuEl.addEventListener('click', e => {
 	const b = e.target.closest('button[data-how]');
-	if (b) { closeMenu(false); vscode.postMessage({ type: 'start', cli: b.dataset.cli, how: b.dataset.how }); }
+	if (!b) { return; }
+	closeMenu(false);
+	const { cli, how } = b.dataset;
+	vscode.postMessage(how === 'pick' ? { type: 'pick' } : how === 'new' ? { type: 'new', cli } : { type: 'start', cli, how });
 });
 menuEl.addEventListener('keydown', e => {
 	const items = [...menuEl.querySelectorAll('button')];

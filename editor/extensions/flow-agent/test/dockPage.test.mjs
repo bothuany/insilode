@@ -33,17 +33,16 @@ function boot() {
 	const list = { innerHTML: '', querySelectorAll: () => [], listeners: {}, addEventListener(type, f) { this.listeners[type] = f } }
 	const focus = { on: undefined }
 	const el = (dataset = {}) => ({ dataset, attrs: {}, setAttribute(k, v) { this.attrs[k] = v }, getBoundingClientRect: () => ({ left: 10, right: 120, bottom: 40 }), focus() { focus.on = this }, contains: () => false })
-	const claude = el({ cli: 'claude' })
-	const chev = el({ menu: 'claude' })
-	const more = el({ cli: 'pick' })
-	const items = [el({ how: 'worktree', cli: 'claude' }), el({ how: 'resume', cli: 'claude' })]
+	const launch = el({ menu: 'all' })
+	const page = el({ page: '1' })
+	const items = [el({ how: 'new', cli: 'claude' }), el({ how: 'worktree', cli: 'claude' }), el({ how: 'resume', cli: 'claude' }), el({ how: 'new', cli: 'codex' }), el({ how: 'pick', cli: '' })]
 	for (const i of items) { i.closest = sel => sel === 'button[data-how]' ? i : null }
 	const menu = { ...el(), hidden: true, style: {}, offsetWidth: 100, innerHTML: '', listeners: {}, addEventListener(type, f) { this.listeners[type] = f }, querySelectorAll: () => items, querySelector: () => items[0], contains: x => items.includes(x) }
 	const byId = { list, menu }
 	const docListeners = {}
 	const document = {
 		getElementById: id => byId[id],
-		querySelectorAll: sel => sel === '.new button' ? [claude, chev, more] : [],
+		querySelectorAll: sel => sel === '.new button' ? [launch, page] : [],
 		addEventListener: (type, f) => { docListeners[type] = f },
 		get activeElement() { return focus.on },
 	}
@@ -52,7 +51,7 @@ function boot() {
 	window.window = window
 	vm.runInNewContext(scriptOf(), { window, document, acquireVsCodeApi: () => ({ postMessage: m => posted.push(JSON.parse(JSON.stringify(m))) }), setInterval() { }, Math, Object, isFinite, Date, String, Number, Map })
 	posted.length = 0
-	return { list, menu, chev, claude, more, items, posted, focus, docListeners, send: (rows, extra = {}) => { onMessage({ data: { type: 'data', list: rows, now: Date.now(), avatar: 'pixel', ...extra } }); return list.innerHTML } }
+	return { list, menu, launch, page, items, posted, focus, docListeners, send: (rows, extra = {}) => { onMessage({ data: { type: 'data', list: rows, now: Date.now(), avatar: 'pixel', ...extra } }); return list.innerHTML } }
 }
 
 const agent = (over = {}) => ({ id: 'a1', cli: 'claude', name: 'Claude 2', state: 'idle', since: Date.now(), todos: [], unread: false, done: 0, ...over })
@@ -116,7 +115,7 @@ test('a row is a labelled group whose controls are sibling buttons, never a span
 	assert.doesNotMatch(out, /role="button"/, 'no span pretending to be a button')
 	// Every control is a button that says what it does; the main one is the row's text, the others name the agent.
 	const named = found.filter(a => acts(a) !== 'open' && acts(a) !== 'sk' && acts(a) !== 'flow' && acts(a) !== 'pr' && acts(a) !== 'wt')
-	for (const a of named) { assert.match(label(a) ?? '', /Claude 2|Context 40% full/, `${acts(a)} has an aria-label naming the agent`) }
+	for (const a of named) { assert.match(label(a) ?? '', /Claude 2/, `${acts(a)} has an aria-label naming the agent`) }
 	assert.equal(label(found.find(a => acts(a) === 'rename')), 'Rename Claude 2')
 	assert.equal(label(found.find(a => acts(a) === 'swap')), 'Continue Claude 2 in Codex')
 	assert.equal(label(found.find(a => acts(a) === 'compact')), 'Compact Claude 2')
@@ -124,8 +123,10 @@ test('a row is a labelled group whose controls are sibling buttons, never a span
 	assert.equal(wt.length, 4, 'open, diff, merge and remove')
 	for (const a of wt) { assert.match(label(a), /worktree of Claude 2/) }
 	assert.match(found.find(a => acts(a) === 'sk'), /aria-pressed="true"/, 'the Skeleton toggle is a real button with aria-pressed')
+	assert.doesNotMatch(out, /data-act="xray"/, 'the context bar is not a control any more')
+	assert.match(out, /role="progressbar" aria-label="Context 40% full"/, 'the bar is kept as a plain meter')
 	// Rename, swap and forget are in a strip of their own at the end (Tab order follows what the eye sees), after the content.
-	assert.ok(out.indexOf('class="tools"') > out.indexOf('data-act="xray"'), 'the strip comes last')
+	assert.ok(out.indexOf('class="tools"') > out.indexOf('role="progressbar"'), 'the strip comes last')
 	assert.ok(out.indexOf('class="tools"') > out.indexOf('data-act="open"'))
 })
 
@@ -155,13 +156,12 @@ test('the swap button names the other CLI, between turns only', () => {
 	assert.doesNotMatch(draw('custom', 'idle'), /data-act="swap"/)
 })
 
-test('the controls show on hover and on focus inside, stay out of the way of the state label and are at least 24px', () => {
+test('the controls sit in the details, stay out of the way of the state label and are at least 24px', () => {
 	const css = /<style>([\s\S]*?)<\/style>/.exec(html)[1]
-	assert.match(css, /\.agent:hover \.tools, \.agent:focus-within \.tools \{[^}]*opacity: 1/)
-	assert.match(css, /\.tools \{[^}]*max-height: 0/, 'the strip takes no room until it is shown')
-	assert.doesNotMatch(css, /\.agent:hover \.state \{ visibility: hidden/, 'the state label is no longer hidden under the controls')
+	assert.doesNotMatch(css, /\.tools \{[^}]*max-height: 0/, 'the strip is in the details now, which the disclosure shows')
+	assert.match(css, /\.details\[hidden\] \{ display: none/)
 	assert.doesNotMatch(css, /\.ren, \.swp \{ position: absolute/, 'no control is placed over the label')
-	for (const sel of ['.tools button', '.wt .act', '.explain .act', '.cmp', '.pr', '.impact .flow']) {
+	for (const sel of ['.tools button', '.wt .act', '.explain .act', '.skb', '.cmp', '.pr', '.impact .flow']) {
 		const rule = new RegExp('(^|\\n)' + sel.replace(/[.]/g, '\\.') + ' \\{([^}]*)\\}').exec(css)
 		assert.ok(rule && /min-height: 24px/.test(rule[2]), `${sel} is at least 24px high`)
 	}
@@ -175,10 +175,10 @@ test('a click goes to the control that was pressed, with the id of its row; the 
 	send([agent()])
 	const row = { dataset: { id: 'a1' }, contains: () => true }
 	const click = (act, extra = {}) => list.listeners.click({ target: { closest: sel => sel === '.agent' ? row : sel === 'button[data-act]' && act ? { dataset: { act, ...extra } } : null } })
-	click('rename'); click('swap'); click('forget'); click('compact'); click('explain'); click('pr'); click('xray')
+	click('rename'); click('swap'); click('forget'); click('compact'); click('explain'); click('pr')
 	click('wt', { wt: 'merge' }); click('flow', { flow: '2' }); click('sk', { on: 'on' }); click('sk', { on: 'off' }); click('open'); click(undefined)
-	assert.deepEqual(posted.slice(0, 7), ['rename', 'swap', 'forget', 'compact', 'explain', 'pr', 'xray'].map(type => ({ type, id: 'a1' })))
-	assert.deepEqual(posted.slice(7), [
+	assert.deepEqual(posted.slice(0, 6), ['rename', 'swap', 'forget', 'compact', 'explain', 'pr'].map(type => ({ type, id: 'a1' })))
+	assert.deepEqual(posted.slice(6), [
 		{ type: 'wt', id: 'a1', action: 'merge' }, { type: 'flow', id: 'a1', index: 2 }, { type: 'sk', id: 'a1', on: true }, { type: 'sk', id: 'a1', on: false },
 		{ type: 'show', id: 'a1' }, { type: 'show', id: 'a1' },
 	])
@@ -186,65 +186,159 @@ test('a click goes to the control that was pressed, with the id of its row; the 
 
 // ---- the start buttons and their menu --------------------------------------------------------------------------------
 
-test('Claude and Codex are split buttons with a chevron that has a menu; the last one is "More agents…"', () => {
+test('one "+ New session" launcher opens the menu, and "Open Agents ↗" sits beside it; the three old start buttons are gone', () => {
 	const start = /<div class="new">([\s\S]*?)<div id="menu"/.exec(html)[1]
 	const { found, deepest } = buttons(start)
 	assert.equal(deepest, 1)
-	const chevrons = found.filter(a => /class="chev"/.test(a))
-	assert.equal(chevrons.length, 2)
-	for (const a of chevrons) {
-		assert.match(a, /aria-haspopup="menu"/)
-		assert.match(a, /aria-expanded="false"/)
-		assert.match(a, /aria-label="More ways to start (Claude Code|Codex)"/)
-	}
-	assert.match(start, /More agents…<\/button>/)
-	assert.doesNotMatch(start, /Other…/)
+	assert.equal(found.length, 2, 'the launcher and the link, nothing else')
+	assert.match(found[0], /data-menu="all"/)
+	assert.match(found[0], /aria-haspopup="menu"/)
+	assert.match(found[0], /aria-expanded="false"/)
+	assert.match(found[0], /aria-controls="menu"/)
+	assert.match(start, /\+ New session<\/button>/)
+	assert.match(found[1], /data-page="1"/)
+	assert.match(start, /Open Agents ↗<\/button>/)
+	assert.doesNotMatch(start, /chev|More agents|data-cli|class="ico/)
 	assert.match(html, /<div id="menu" class="menu" role="menu" hidden>/)
 })
 
-test('the Claude menu ends with the bypass switch (its state from the host); the Codex menu has none', () => {
-	const { chev, menu, send } = boot()
-	chev.onclick({ detail: 1 })
+test('the launcher menu offers every way to start that the three old controls did, in the same messages', () => {
+	const { launch, menu, items, posted } = boot()
+	launch.onclick({ detail: 1 })
+	const labels = [...menu.innerHTML.matchAll(/data-how="([^"]*)" data-cli="([^"]*)">([^<]*)</g)].map(m => [m[2], m[1], m[3]])
+	assert.deepEqual(labels.map(l => l[2]), [
+		'Claude', 'Claude in a worktree', 'Resume a Claude session…', 'Allow bypass permissions mode…',
+		'Codex', 'Codex in a worktree', 'Resume a Codex session…', 'More agents…',
+	])
+	assert.deepEqual(labels.map(l => l.slice(0, 2).join(':')), ['claude:new', 'claude:worktree', 'claude:resume', 'claude:bypass', 'codex:new', 'codex:worktree', 'codex:resume', ':pick'])
+	// items[] stands in for the buttons just drawn: new Claude, worktree, resume, new Codex, More agents.
+	const sent = []
+	for (const i of [0, 1, 2, 3, 4]) { menu.listeners.click({ target: items[i] }); sent.push(posted.at(-1)); launch.onclick({ detail: 1 }) }
+	assert.deepEqual(sent, [
+		{ type: 'new', cli: 'claude' }, { type: 'start', cli: 'claude', how: 'worktree' }, { type: 'start', cli: 'claude', how: 'resume' },
+		{ type: 'new', cli: 'codex' }, { type: 'pick' },
+	])
+})
+
+test('the bypass switch is Claude\'s only entry (its state from the host); Codex has none', () => {
+	const { launch, menu, send } = boot()
+	launch.onclick({ detail: 1 })
 	assert.match(menu.innerHTML, /data-how="bypass"[^>]*>Allow bypass permissions mode…</)
 	assert.match(menu.innerHTML, /role="menuitemcheckbox" aria-checked="false"/)
 	send([], { bypass: true })
-	chev.onclick({ detail: 1 })
-	chev.onclick({ detail: 1 })
-	assert.match(menu.innerHTML, /aria-checked="true"[^>]*data-how="bypass"[^>]*>✓ Bypass permissions mode offered \(turn off\)</)
-	chev.dataset.menu = 'codex'
-	chev.onclick({ detail: 1 })
-	chev.onclick({ detail: 1 })
-	assert.doesNotMatch(menu.innerHTML, /bypass/)
+	launch.onclick({ detail: 1 })
+	launch.onclick({ detail: 1 })
+	assert.match(menu.innerHTML, /aria-checked="true"[^>]*data-how="bypass" data-cli="claude">✓ Bypass permissions mode offered \(turn off\)</)
+	assert.equal(menu.innerHTML.match(/data-how="bypass"/g).length, 1)
+	assert.doesNotMatch(menu.innerHTML, /data-how="bypass" data-cli="codex"/)
+})
+
+test('"Open Agents ↗" asks the host for the Agents page without naming a command', () => {
+	const { page, posted } = boot()
+	page.onclick()
+	assert.deepEqual(posted, [{ type: 'page' }])
 })
 
 test('the menu opens with the keyboard, moves with the arrows, closes on Escape and gives focus back', () => {
-	const { chev, menu, items, posted, focus } = boot()
-	// Enter or Space on the chevron arrive as a click with no pointer: the menu opens and focus moves into it.
-	chev.onclick({ detail: 0 })
+	const { launch, menu, items, posted, focus } = boot()
+	// Enter or Space on the launcher arrive as a click with no pointer: the menu opens and focus moves into it.
+	launch.onclick({ detail: 0 })
 	assert.equal(menu.hidden, false)
-	assert.equal(chev.attrs['aria-expanded'], 'true')
-	assert.match(menu.innerHTML, /data-how="worktree"[^>]*>In a worktree</)
-	assert.match(menu.innerHTML, /role="menuitem"[^>]*>Resume a session…</)
+	assert.equal(launch.attrs['aria-expanded'], 'true')
+	assert.match(menu.innerHTML, /data-how="worktree"[^>]*>Claude in a worktree</)
+	assert.match(menu.innerHTML, /role="menuitem"[^>]*>Resume a Codex session…</)
 	assert.equal(focus.on, items[0])
 	menu.listeners.keydown({ key: 'ArrowDown', preventDefault() { } })
 	assert.equal(focus.on, items[1])
-	menu.listeners.keydown({ key: 'ArrowDown', preventDefault() { } })
-	assert.equal(focus.on, items[0], 'wraps')
 	menu.listeners.keydown({ key: 'ArrowUp', preventDefault() { } })
-	assert.equal(focus.on, items[1])
+	menu.listeners.keydown({ key: 'ArrowUp', preventDefault() { } })
+	assert.equal(focus.on, items[4], 'wraps')
 	menu.listeners.keydown({ key: 'Escape', preventDefault() { } })
 	assert.equal(menu.hidden, true)
-	assert.equal(chev.attrs['aria-expanded'], 'false')
-	assert.equal(focus.on, chev, 'focus returns to the chevron')
-	// A mouse click opens it without stealing focus; an item sends the validated pair; ArrowDown on the chevron opens and enters it.
-	chev.onclick({ detail: 1 })
+	assert.equal(launch.attrs['aria-expanded'], 'false')
+	assert.equal(focus.on, launch, 'focus returns to the launcher')
+	// A mouse click opens it without stealing focus; an item sends the validated pair; ArrowDown on the launcher opens and enters it.
+	launch.onclick({ detail: 1 })
 	assert.equal(menu.hidden, false)
 	assert.notEqual(focus.on, items[0])
-	menu.listeners.click({ target: items[0] })
+	menu.listeners.click({ target: items[1] })
 	assert.deepEqual(posted.at(-1), { type: 'start', cli: 'claude', how: 'worktree' })
 	assert.equal(menu.hidden, true)
-	chev.onkeydown({ key: 'ArrowDown', preventDefault() { } })
+	launch.onkeydown({ key: 'ArrowDown', preventDefault() { } })
 	assert.equal(focus.on, items[0])
+})
+
+// ---- the two-line row and its details --------------------------------------------------------------------------------
+
+test('a row is two lines: the name and state, then the activity with the stage and the skeleton icon button; the rest is in the details', () => {
+	const { send } = boot()
+	const out = send([agent({
+		state: 'working', activity: 'Edit src/a.ts', prompt: 'fix the thing', skeletonAvailable: true, skeletonOn: false, skeletonStage: { stage: 'design', skipped: false },
+		usage: { used: 80000, size: 200000 }, todos: [{ status: 'completed' }], done: 1,
+	})])
+	const line = /<div class="line">([\s\S]*?)<\/div><div class="details"/.exec(out)[1]
+	assert.match(line, /<button type="button" class="open"[^>]*><span class="name">Claude 2<\/span><span class="state">Working · \d+s<\/span><\/button>/, 'line 1: name and state')
+	const sub = /<div class="sub">([\s\S]*)$/.exec(line)[1]
+	assert.match(sub, /<span class="activity txt">Edit src\/a\.ts<\/span>/, 'line 2: the activity')
+	assert.match(sub, /Stage <b>Design<\/b>/)
+	assert.match(sub, /class="skb"/)
+	// Everything else is behind the disclosure.
+	const details = /<div class="details"[^>]*>([\s\S]*)<\/div><\/div>$/.exec(out)[1]
+	for (const part of ['class="prompt"', 'class="todos"', 'class="ctxline', 'data-act="rename"']) {
+		assert.ok(details.includes(part) && !line.includes(part), `${part} is in the details only`)
+	}
+	assert.match(out, /<div class="details" id="d-a1" hidden>/, 'a working row with nothing to answer starts closed')
+})
+
+test('the skeleton switch is an icon button: aria-pressed in both states, a label, the tooltip and the same message', () => {
+	const { send } = boot()
+	for (const on of [true, false]) {
+		const out = send([agent({ skeletonAvailable: true, skeletonOn: on })])
+		const b = buttons(out).found.find(a => acts(a) === 'sk')
+		assert.match(b, new RegExp(`aria-pressed="${on}"`))
+		assert.match(b, /aria-label="Skeleton first"/)
+		assert.match(b, /data-tip="Skeleton first for this agent\./)
+		assert.match(b, new RegExp(`data-on="${on ? 'off' : 'on'}"`))
+		assert.match(out, /class="skb"[^>]*><svg viewBox="0 0 16 16"[^>]*>.*<\/svg><\/button>/, 'the bone icon, no text')
+		assert.doesNotMatch(out, />Skeleton<\/button>/)
+	}
+	assert.doesNotMatch(send([agent({ skeletonAvailable: false })]), /class="skb"/)
+})
+
+test('the details disclosure is a button with aria-expanded; it is open by itself for a row that needs you or has a conflict, and a hand toggle sticks', () => {
+	const { send, list } = boot()
+	const open = out => /class="tog" data-act="toggle" aria-expanded="(true|false)"/.exec(out)[1]
+	assert.equal(open(send([agent({ state: 'idle' })])), 'false')
+	assert.equal(open(send([agent({ state: 'blocked', attention: 'approval' })])), 'true')
+	const waiting = send([agent({ state: 'blocked', attention: 'approval', need: { kind: 'approval', text: 'Run rm -rf build?' } })])
+	assert.match(waiting, /<div class="details" id="d-a1">/, 'no hidden attribute')
+	assert.match(waiting, /aria-controls="d-a1"/)
+	assert.match(waiting, /<span class="need txt approval"><span class="chip">Approval<\/span><span class="t">Run rm -rf build\?<\/span>/, 'line 2 says what it waits for')
+	assert.equal(open(send([agent({ state: 'question', attention: 'question' })])), 'true')
+	assert.equal(open(send([agent({ state: 'working', clash: [{ text: 'b edits a.ts too', files: ['a.ts'] }] })])), 'true')
+	// Toggling by hand keeps the choice across repaints.
+	const det = { hidden: true }
+	const tog = { dataset: { act: 'toggle' }, attrs: { 'aria-expanded': 'false' }, getAttribute(k) { return this.attrs[k] }, setAttribute(k, v) { this.attrs[k] = v } }
+	const row = { dataset: { id: 'a1' }, contains: () => true, querySelector: () => det }
+	send([agent({ state: 'idle' })])
+	list.listeners.click({ target: { closest: sel => sel === '.agent' ? row : sel === 'button[data-act]' ? tog : null } })
+	assert.equal(tog.attrs['aria-expanded'], 'true')
+	assert.equal(det.hidden, false)
+	assert.equal(open(send([agent({ state: 'idle' })])), 'true', 'kept after a repaint')
+})
+
+test('the row that needs you keeps the tinted card; the others are plain rows with a line between them', () => {
+	const css = /<style>([\s\S]*?)<\/style>/.exec(html)[1]
+	assert.match(css, /\.agent \{[^}]*border-bottom-color: var\(--line\)[^}]*background: transparent/)
+	assert.match(css, /\.agent\.blocked \{[^}]*border-color: color-mix\(in srgb, var\(--blocked\) 45%[^}]*background: color-mix\(in srgb, var\(--blocked\) 8%, var\(--card\)\)/)
+	assert.match(css, /\.blocked \.state \{ color: var\(--blocked\); font-weight: 600/)
+})
+
+test('an empty dock says so in one line and keeps the link back to the chat panel', () => {
+	const { send } = boot()
+	const out = send([])
+	assert.match(out, /<p class="empty"><b>No agents running\.<\/b> Start one above\.<\/p>/)
+	assert.match(out, /Prefer the chat panel\? <button id="chat">/)
 })
 
 // ---- the skeleton-first stage ----------------------------------------------------------------------------------------

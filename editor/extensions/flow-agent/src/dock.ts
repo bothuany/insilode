@@ -12,6 +12,7 @@ import { readAvatar } from './desktopModel';
 import { bypassAllowed, BYPASS_SETTING } from './bypass';
 import { dockAction, type StartHow } from './dockMessage';
 import { dockHtml } from './dockPage';
+import { OPEN_AGENTS_PAGE } from './agentsPanel';
 import { renameFromPalette } from './paletteActions';
 import type { Peers } from './peers';
 import { savedAgents } from './pick';
@@ -53,7 +54,6 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 				case 'show': return this.agents.show(m.id);
 				case 'flow': return this.agents.openImpactFlow(m.id, m.index);
 				case 'pr': return this.agents.openPr(m.id);
-				case 'xray': return this.agents.xray(m.id);
 				// Through the worktree rows: an agent's worktree must not drop out of sight with its row.
 				case 'forget': return void (this.worktrees ? this.worktrees.forget(m.id) : this.agents.forget(m.id));
 				case 'compact': return this.agents.compact(m.id);
@@ -63,9 +63,11 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 				case 'rename': return void renameFromPalette(this.agents, m.id);
 				case 'swap': return void vscode.commands.executeCommand('flow.agents.swap', m.id);
 				case 'wt': return void this.worktrees?.act(m.id, m.action);
-				// The chevron menu: one fixed command per pair, so the page never names a command id.
+				// The launcher menu: one fixed command per pair, so the page never names a command id.
 				case 'start': return void this.start(m.cli, m.how);
 				case 'pick': return void vscode.commands.executeCommand('flow.agents.new');
+				// The Agents page: one fixed command, so the page never names a command id.
+				case 'page': return void vscode.commands.executeCommand(OPEN_AGENTS_PAGE);
 				case 'chat': return void vscode.commands.executeCommand('flow.settings', 'flow.agents.showChat');
 				case 'sk': return void this.agents.setSkeletonOn(m.id, m.on);
 				case 'peer': return void this.peers?.act(m.action, m.key, m.id);
@@ -80,7 +82,7 @@ export class AgentsDock implements vscode.WebviewViewProvider, vscode.Disposable
 		});
 	}
 
-	/** "In a worktree", "Resume a session…" and Claude's bypass switch of a start button's menu. */
+	/** "In a worktree", "Resume a session…" and Claude's bypass switch of the launcher's menu. */
 	private start(cli: 'claude' | 'codex', how: StartHow) {
 		if (how === 'bypass') {
 			return vscode.commands.executeCommand('flow.agents.claudeBypass');
