@@ -196,3 +196,22 @@ test('notifications: once per new need, never while you look at the agent or wit
 	assert.notEqual(a.attentionKey(asking), a.attentionKey({ ...asking, need: { ...asking.need, at: 9 } }), 'a new question is a new key')
 	assert.equal(a.attentionKey({ ...asking, state: 'working', need: undefined }), undefined, 'answered: nothing to notify')
 })
+
+test('the next agent that needs you: most urgent first, each once per round, never an ended or a working one', () => {
+	const s = (id, kind, at, state = 'blocked') => ({ id, state, unread: true, since: at, need: kind && { kind, at } })
+	const list = [s('work', undefined, 1, 'working'), s('q', 'question', 5), s('a2', 'approval', 9), s('a1', 'approval', 3), s('gone', 'approval', 1, 'ended')]
+	assert.deepEqual(a.waitingForYou(list).map(r => r.id), ['a1', 'a2', 'q'])
+	assert.equal(a.nextWaiting(list).id, 'a1')
+	assert.equal(a.nextWaiting(list, new Set(['a1'])).id, 'a2')
+	assert.equal(a.nextWaiting(list, new Set(['a1', 'a2'])).id, 'q')
+	assert.equal(a.nextWaiting(list, new Set(['a1', 'a2', 'q'])).id, 'a1')
+	assert.equal(a.nextWaiting([s('work', undefined, 1, 'working')]), undefined)
+})
+
+test('the round reaches every waiting agent even though looking at an error marks it read', () => {
+	const s = (id, kind, at, state) => ({ id, state, unread: true, since: at, need: { kind, at } })
+	const list = [s('a1', 'approval', 1, 'blocked'), s('e1', 'error', 2, 'idle'), s('e2', 'error', 3, 'idle'), s('q', 'question', 4, 'blocked')]
+	const seen = new Set(); const order = []
+	for (let i = 0; i < 4; i++) { const n = a.nextWaiting(list, seen); if (seen.has(n.id)) seen.clear(); seen.add(n.id); n.unread = false; order.push(n.id) }
+	assert.deepEqual(order, ['a1', 'q', 'e1', 'e2'])
+})

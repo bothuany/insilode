@@ -1,5 +1,5 @@
 // The shell of the harness's webview pages (src/page.ts): keyboard reach, a status a screen reader hears, and colours that read on a
-// light theme as well as a dark one. xray.ts and mcpManager.ts build their markup from strings, so they are read as source.
+// light theme as well as a dark one. mcpManager.ts builds its markup from strings, so it is read as source.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
@@ -21,7 +21,7 @@ before(async () => {
 after(() => rmSync(tmp, { recursive: true, force: true }))
 
 const src = file => readFileSync(join(ROOT, 'src', file), 'utf8')
-const PAGES = ['page.ts', 'xray.ts', 'mcpManager.ts']
+const PAGES = ['page.ts', 'mcpManager.ts', 'harnessPage.ts']
 
 test('no page of this part draws a link that is really a click handler', () => {
 	for (const file of PAGES) {
@@ -55,12 +55,7 @@ test('the page shell has the link-style button, the focus ring and a polite stat
 	assert.doesNotThrow(() => vm.runInNewContext('announce("x")', { ...ctx, document: { getElementById: () => null } }))
 })
 
-test('the X-ray and the MCP page say their results to a screen reader and name each button for what it acts on', () => {
-	const x = src('xray.ts')
-	assert.match(x, /announce\('Refreshing\.'\)/)
-	assert.match(x, /announce\('Context X-ray of '/)
-	assert.match(x, /'aria-label': label\.replace/, 'the waste buttons say what they act on')
-	assert.match(x, /id="bar" aria-hidden="true"/, 'the bar repeats the table below it')
+test('the MCP page says its results to a screen reader and names each button for what it acts on', () => {
 	const m = src('mcpManager.ts')
 	assert.match(m, /announce\(s\.name \+ ': '/, 'a finished check is announced')
 	for (const act of ['check', 'edit', 'toggle', 'remove', 'open']) {
@@ -98,15 +93,4 @@ test('the status colours read on a light page and its card (4.5:1 for text) and 
 	assert.match(html, /--deny: var\(--vscode-errorForeground, #ff6b7d\)/)
 	assert.match(html, /--accent: var\(--vscode-textLink-foreground, #6f86ff\)/)
 	assert.match(html, /body\.vscode-light, body\.vscode-high-contrast-light \{ --allow: #146c3a; --ask: #8a5300; --deny: #b3261e; --accent: #0b5cad;/)
-})
-
-test('the X-ray segments are 3:1 against the page in both sets, and the page picks the set from the theme class', () => {
-	assert.equal(p.SEGMENT_COLORS.dark.length, 8)
-	assert.equal(p.SEGMENT_COLORS.light.length, 8)
-	for (const c of p.SEGMENT_COLORS.light) { assert.ok(ratio(c, '#ffffff') >= 3, `light ${c}: ${ratio(c, '#ffffff').toFixed(2)}`) }
-	for (const c of p.SEGMENT_COLORS.dark) { assert.ok(ratio(c, '#1e1e1e') >= 3, `dark ${c}: ${ratio(c, '#1e1e1e').toFixed(2)}`) }
-	assert.equal(new Set(p.SEGMENT_COLORS.light).size, 8, 'distinct colours')
-	const x = src('xray.ts')
-	assert.match(x, /JSON\.stringify\(SEGMENT_COLORS\)\}\[document\.body\.classList\.contains\('vscode-light'\)/)
-	assert.doesNotMatch(x, /const COLORS = \['#/, 'no hard-coded dark list any more')
 })

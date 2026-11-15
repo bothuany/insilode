@@ -1,7 +1,7 @@
 // The review navigation outside the tour, and how a card draws its removed lines. Pure files, run under plain Node (`npm test` in ui/).
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { cycle, findAfterReload, findCards, groupByFile, keepViewed, navKeyAction, nextUnviewed, splitName, stepKey, toggled } from '../src/review/nav.ts'
+import { cycle, findAfterReload, findCards, groupByFile, keepViewed, navKeyAction, nextUnviewed, pathTo, splitName, stepByArrow, stepKey, toggled } from '../src/review/nav.ts'
 import { CHAR_W, GUTTER_W, LINE_H, toLines, toRows, layout } from '../src/layout.ts'
 import { rangesOf, removedAt, tourFromChanges } from '../src/tour/review.ts'
 
@@ -113,7 +113,7 @@ test('navigation keys: brackets, letter aliases, find on / and f', () => {
   assert.deepEqual(['k', 'p', '['].map(k => press(k)), ['prev', 'prev', 'prev'])
   assert.deepEqual([press('v'), press('/'), press('f'), press('F')], ['viewed', 'find', 'find', 'find'])
   assert.equal(press('x'), undefined)
-  assert.equal(press('ArrowRight'), undefined)
+  assert.equal(press('Tab'), undefined)
 })
 
 test('AltGr (Ctrl+Alt with the AltGraph state) types the brackets; a plain Ctrl or Alt shortcut does not', () => {
@@ -150,4 +150,40 @@ test('the change-set root wraps its summary and its card grows with the lines', 
   assert.equal(h('short'), 44)
   assert.equal(h('x'.repeat(100)), 44 + 2 * 14)
   assert.equal(h('x'.repeat(400)), 44 + 2 * 14)
+})
+
+test('the arrows walk the cards as they lie: along the row first, never to a card that is not that way', () => {
+  const b = (key, x, y) => ({ key, x, y, w: 400, h: 200 })
+  const cards = [b('root', 0, 0), b('callee', 600, 0), b('below', 600, 400), b('caller', -600, 0)]
+  assert.equal(stepByArrow(cards, 'root', 'right'), 'callee')
+  assert.equal(stepByArrow(cards, 'root', 'left'), 'caller')
+  assert.equal(stepByArrow(cards, 'callee', 'down'), 'below')
+  assert.equal(stepByArrow(cards, 'below', 'up'), 'callee')
+  assert.equal(stepByArrow(cards, 'caller', 'left'), undefined, 'nothing further left: stay')
+  assert.equal(stepByArrow(cards, 'callee', 'left'), 'root')
+  assert.equal(stepByArrow(cards, null, 'right', 'root'), 'root', 'with no current card the walk starts at the root')
+  assert.equal(stepByArrow([], null, 'right'), undefined)
+})
+
+test('the arrow keys, Enter and Space are navigation keys; with Ctrl or Cmd they are left to the editor', () => {
+  assert.equal(press('ArrowRight'), 'right')
+  assert.equal(press('ArrowUp'), 'up')
+  assert.equal(press('Enter'), 'open')
+  assert.equal(press(' '), 'full')
+  assert.equal(press('ArrowRight', { metaKey: true }), undefined)
+})
+
+test('the path to a card is the calls from the root down to it', () => {
+  const n = (key, ...children) => ({ key, children: children.map(node => ({ node })) })
+  const root = n('a', n('b', n('c')), n('d'))
+  assert.deepEqual(pathTo(root, 'c').map(x => x.key), ['a', 'b', 'c'])
+  assert.deepEqual(pathTo(root, 'a').map(x => x.key), ['a'])
+  assert.deepEqual(pathTo(root, 'zz'), [])
+  assert.deepEqual(pathTo(null, 'a'), [])
+})
+
+test('E is a navigation key too; a key with Ctrl is not', () => {
+  assert.equal(press('e'), 'edit')
+  assert.equal(press('E'), 'edit')
+  assert.equal(press('e', { ctrlKey: true }), undefined)
 })

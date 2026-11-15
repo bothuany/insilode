@@ -34,7 +34,7 @@ test('the page-only messages become one action each', T, () => {
 })
 
 test('the dock\'s row and worktree actions pass', T, () => {
-	for (const type of ['show', 'pr', 'xray', 'forget', 'compact', 'rename', 'explain', 'swap']) {
+	for (const type of ['show', 'pr', 'forget', 'compact', 'rename', 'explain', 'swap']) {
 		assert.deepEqual(a.agentsAction({ type, id: 'a1' }), { type, id: 'a1' }, type)
 	}
 	assert.deepEqual(a.agentsAction({ type: 'ready' }), { type: 'ready' })
@@ -73,8 +73,9 @@ test('a peer message names a project by storage key and a session by id, never a
 	}
 })
 
-test('the dock-only chat link and anything unknown are dropped', T, () => {
+test('the dock-only chat link, the removed X-ray and anything unknown are dropped', T, () => {
 	assert.equal(a.agentsAction({ type: 'chat' }), undefined)
+	assert.equal(a.agentsAction({ type: 'xray', id: 'a1' }), undefined, 'the context X-ray is gone from the product')
 	for (const m of [null, undefined, 'tail', 42, [], {}, { type: 1 }, { type: 'runCommand', id: 'x' }, { type: 'constructor', id: 'a' }]) {
 		assert.equal(a.agentsAction(m), undefined, JSON.stringify(m))
 	}
@@ -123,6 +124,14 @@ test('pane messages without an id, with oversize input or with a size out of ran
 	}
 	for (const [cols, rows] of [[1, 24], [501, 24], [80, 0], [80, 301], [80.5, 24], [80, 24.5], [NaN, 24], [80, Infinity], ['80', 24], [80, '24'], [undefined, 24], [80, undefined], [-80, 24]]) {
 		assert.equal(a.agentsAction({ type: 'termResize', id: 's1', cols, rows }), undefined, `${cols}x${rows}`)
+	}
+})
+
+test('pickFolder carries a request id and nothing else: no path, whatever the page adds', TT, () => {
+	assert.deepEqual(a.agentsAction({ type: 'pickFolder', requestId: 'f1' }), { type: 'pickFolder', requestId: 'f1' })
+	assert.deepEqual(a.agentsAction({ type: 'pickFolder', requestId: 'f1', path: '/etc', cwd: '/etc', folder: '/etc' }), { type: 'pickFolder', requestId: 'f1' }, 'a path in it is dropped')
+	for (const bad of [{}, { requestId: '' }, { requestId: 7 }, { requestId: ['a'] }, { requestId: 'r'.repeat(101) }]) {
+		assert.equal(a.agentsAction({ type: 'pickFolder', ...bad }), undefined, JSON.stringify(bad))
 	}
 })
 

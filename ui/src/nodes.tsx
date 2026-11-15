@@ -28,8 +28,6 @@ export interface CanvasActions {
   reveal?: (nodeKey: string) => void
   keep?: (nodeKey: string) => void
   undo?: (nodeKey: string) => void
-  /** Zoomed out: bring this line to a readable size instead of editing it straight away. */
-  focusLine?: (nodeKey: string, line: number) => void
   /** A call line is hovered: light the wire from `source` to `target` (null clears). */
   trace?: (source: string | null, target?: string) => void
   /** Hooks set to run after every agent edit in this workspace (shown on the review bar). */
@@ -334,14 +332,6 @@ export function useColorized(text: string, lang: string) {
   return colorCache.get(key) ?? (done?.key === key ? done.lines : null)
 }
 
-/** Character offset of a click inside a (colorized) line, counting text across its spans. */
-function clickOffset(src: HTMLElement, e: MouseEvent) {
-  const doc = document as Document & { caretRangeFromPoint?(x: number, y: number): Range | null }
-  const range = doc.caretRangeFromPoint?.(e.clientX, e.clientY)
-  if (!range || !src.contains(range.startContainer)) return src.textContent?.length ?? 0
-  return offsetIn(src, range.startContainer, range.startOffset)
-}
-
 /** The DOM's Node (`Node` here is the canvas library's). */
 type DomNode = InstanceType<typeof globalThis.Node>
 
@@ -497,11 +487,11 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
   const rawLines = node.code?.replace(/\t/g, '    ').replace(/\r/g, '').split('\n') ?? []
   // A tour is read, not edited: the host of the canvas leaves `edit` out while one plays.
   const editable = !!(node.code && actions.edit)
-  // Below this zoom the code is too small to aim at: the first click zooms in, the next one edits.
+  // Below this zoom the code is too small to read: the card shows fewer details.
   const zoomedOut = useStore(st => st.transform[2] < 0.75)
   const changed = !!(touched || node.diff || node.tableChange)
 
-  // A press that moved is a pan, not a click: only a still click starts editing.
+  // A press that moved is a pan, not a click: only a still click selects a card or follows a name.
   const press = useRef<{ x: number; y: number } | null>(null)
   const onDown = (e: PointerEvent) => (press.current = { x: e.clientX, y: e.clientY })
   const still = (e: MouseEvent) => !press.current || Math.hypot(e.clientX - press.current.x, e.clientY - press.current.y) < 4
@@ -521,31 +511,27 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
     actions.definition!(node.key, { line: no, column: fileColumn(fileLines[no - node.startLine] ?? '', shown) })
   }
 
-  const editAt = (e: MouseEvent, no: number) => {
+  // A click on the code only reads: it may start a selection (a double-click selects a name), or follow a name with Ctrl/Cmd. Editing is the card's Edit button, or E.
+  const goAt = (e: MouseEvent, no: number) => {
     if ((e.ctrlKey || e.metaKey) && canGo) {
       e.stopPropagation()
       if (still(e)) definitionAt(e, no)
-      return
     }
-    if (!editable || !still(e)) return
-    if (zoomedOut && actions.focusLine) return actions.focusLine(node.key, no)
-    const src = srcOf(e)
-    const col = src ? clickOffset(src, e) : 0
-    actions.edit!(node.key, { line: no, column: fileColumn(fileLines[no - node.startLine] ?? '', indentOf(no) + col) })
   }
 
   return (
     <div
-      className={`card kind-${node.kind}${selected ? ' selected' : ''}${changed ? ' changed' : ''}${editing ? ' editing' : ''}${editable ? (zoomedOut ? ' zoomable' : ' editable') : ''}`}
+      className={`card kind-${node.kind}${selected ? ' selected' : ''}${changed ? ' changed' : ''}${editing ? ' editing' : ''}${editable ? ' editable' : ''}`}
       style={{ '--k': color } as CSSProperties}
       // A card is a stop for the keyboard and has a name for a screen reader; Enter on the card itself does what a click on its header does.
       tabIndex={0}
       role="group"
       aria-label={cardLabel(node, KIND_NAME[node.kind])}
       onKeyDown={e => {
+        // Enter opens the card in the editor: the arrow keys bring the focus here, and a reveal would do nothing when the canvas is the only editor group.
         if (e.key === 'Enter' && e.target === e.currentTarget && (node.code || schema?.file)) {
           e.preventDefault()
-          actions.reveal?.(node.key)
+          actions.open(node.key)
         }
       }}
       onPointerDown={onDown}
@@ -564,7 +550,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
         style={{ height: headerH(node) }}
         onClick={e => still(e) && (node.code || schema?.file) && actions.reveal?.(node.key)}
         onDoubleClick={() => (node.code || schema?.file) && actions.open(node.key)}
-        title={node.code ? 'Click to show in the editor, double-click to open it' : schema?.file ? 'Click to show the entity, double-click to open it' : undefined}
+        title={node.code ? 'Click to select (an editor beside the canvas shows it), double-click to open it' : schema?.file ? 'Click to select the entity, double-click to open it' : undefined}
       >
         <KindGlyph kind={node.kind} />
         <div className="titles" title={node.tableChange ? [node.label, node.sub, changeNote(node.tableChange).replace(/^ · /, '')].filter(Boolean).join('\n') : undefined}>
@@ -585,7 +571,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
             </button>
           )}
           {compactable && !node.diff && !editing && (
-            <button className="tool" title={full ? 'Show only the flow lines' : 'Show every line'} aria-label={full ? 'Show only the flow lines' : 'Show every line'} onClick={() => actions.toggleFull(node.key)}>
+            <button className="tool" data-key="full" title={full ? 'Show only the flow lines (Space)' : 'Show every line (Space)'} aria-label={full ? 'Show only the flow lines' : 'Show every line'} onClick={() => actions.toggleFull(node.key)}>
               {full ? '⇤' : '⇥'}
             </button>
           )}
@@ -597,6 +583,11 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
           {node.code && actions.mention && (
             <button className="tool" title="Mention this method in Claude Code (terminal)" aria-label="Mention this method in Claude Code" onClick={() => actions.mention!(node.key)}>
               @
+            </button>
+          )}
+          {editable && (
+            <button className="tool" data-key="edit" title="Edit this method here (E)" aria-label="Edit this method here" onClick={() => actions.edit!(node.key)}>
+              ✎
             </button>
           )}
           {node.code && (
@@ -645,7 +636,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
                 data-line={l.no}
                 className={`ln${lineCalls ? ' call' : ''}${added ? ' add' : ''}`}
                 style={{ height: LINE_H, ...(callee ? ({ '--c': KIND_COLOR[callee.kind] } as CSSProperties) : {}) }}
-                onClick={e => editAt(e, l.no)}
+                onClick={e => goAt(e, l.no)}
                 onMouseEnter={callee ? () => actions.trace?.(node.key, callee.key) : undefined}
                 onMouseMove={canGo ? e => hoverCode(srcOf(e), e) : undefined}
                 onMouseLeave={() => {

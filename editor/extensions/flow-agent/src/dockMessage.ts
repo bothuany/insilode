@@ -11,10 +11,11 @@ export const WORKTREE_ACTIONS = ['open', 'diff', 'merge', 'remove'] as const;
 export type WorktreeAction = typeof WORKTREE_ACTIONS[number];
 
 /**
- * The other ways to start an agent, from the menu beside its button: in a worktree of its own, or resuming an earlier session.
- * `bypass` starts nothing: it is Claude's switch for offering bypass permissions mode (src/bypass.ts), so Codex has none.
+ * The other ways to start an agent, from the launcher's menu: in a worktree of its own, or resuming an earlier session.
+ * `bypass` and `neverAsk` start nothing: they are the permissions switches (src/bypass.ts), `bypass` Claude's (offering bypass permissions mode) and
+ * `neverAsk` Codex's (starting sessions without asking, sandbox kept), so each belongs to one agent only.
  */
-export const START_HOWS = ['worktree', 'resume', 'bypass'] as const;
+export const START_HOWS = ['worktree', 'resume', 'bypass', 'neverAsk'] as const;
 export type StartHow = typeof START_HOWS[number];
 
 export type DockAction =
@@ -23,12 +24,13 @@ export type DockAction =
 	| { type: 'new'; cli: 'claude' | 'codex' }
 	/** The chevron menu: the same two agents, started a fixed way. The page never names a command id; dock.ts maps the pair to one. */
 	| { type: 'start'; cli: 'claude' | 'codex'; how: StartHow }
-	| { type: 'show' | 'pr' | 'xray' | 'forget' | 'compact' | 'rename' | 'explain' | 'swap'; id: string }
+	| { type: 'show' | 'pr' | 'forget' | 'compact' | 'rename' | 'explain' | 'swap'; id: string }
 	/** An index into the impact list the host sent: the page never names a flow itself. */
 	| { type: 'flow'; id: string; index: number }
 	/** The page names the row and one of four actions; the folder and branches come from the host's own record. */
 	| { type: 'wt'; id: string; action: WorktreeAction }
-	| { type: 'pick' | 'chat' }
+	/** "More agents…", the chat panel's switch, and the link that opens the Agents page (dock.ts runs the one command for it). */
+	| { type: 'pick' | 'chat' | 'page' }
 	/** An agent's Skeleton button: skeleton first on or off for that agent. */
 	| { type: 'sk'; id: string; on: boolean }
 	/**
@@ -40,7 +42,7 @@ export type DockAction =
 const MAX_ID = 200;
 /** A storage folder's name under agents/: 12 hex digits, with `empty-` before it for a window without a folder (peersCore.ts isKey). */
 export const PEER_KEY = /^(?:empty-)?[0-9a-f]{12}$/;
-const ID_TYPES = new Set(['show', 'pr', 'xray', 'forget', 'compact', 'rename', 'explain', 'swap']);
+const ID_TYPES = new Set(['show', 'pr', 'forget', 'compact', 'rename', 'explain', 'swap']);
 
 export function dockAction(raw: unknown): DockAction | undefined {
 	const m = raw as Record<string, unknown> | null;
@@ -52,11 +54,12 @@ export function dockAction(raw: unknown): DockAction | undefined {
 		case 'ready':
 		case 'pick':
 		case 'chat':
+			case 'page':
 			return { type: m.type };
 		case 'new':
 			return m.cli === 'claude' || m.cli === 'codex' ? { type: 'new', cli: m.cli } : undefined;
 		case 'start':
-			return (m.cli === 'claude' || m.cli === 'codex') && START_HOWS.includes(m.how as StartHow) && (m.how !== 'bypass' || m.cli === 'claude') ? { type: 'start', cli: m.cli, how: m.how as StartHow } : undefined;
+			return (m.cli === 'claude' || m.cli === 'codex') && START_HOWS.includes(m.how as StartHow) && (m.how !== 'bypass' || m.cli === 'claude') && (m.how !== 'neverAsk' || m.cli === 'codex') ? { type: 'start', cli: m.cli, how: m.how as StartHow } : undefined;
 		case 'flow':
 			return id !== undefined && typeof m.index === 'number' && Number.isInteger(m.index) && m.index >= 0 ? { type: 'flow', id, index: m.index } : undefined;
 		case 'sk':

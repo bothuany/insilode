@@ -1,12 +1,12 @@
 /*---------------------------------------------------------------------------------------------
  *  Insilode: the vscode side of the Agents page's terminals. It feeds the bridge (termBridge.ts) with what agent terminals print
  *  (the terminalDataWriteEvent proposal) and wires its size command, and it starts an agent's terminal for the page, in this window's
- *  folder or, after the usual question (folderTrust.ts), in another project's.
+ *  folder or, when the user's own earlier actions allow it (folderTrust.ts), in another project's.
  *--------------------------------------------------------------------------------------------*/
 
 import * as vscode from 'vscode';
 import type { AgentSession, Agents } from './agents';
-import { real, trustFolder } from './folderTrust';
+import { pickFolder, real, trustFolder } from './folderTrust';
 import { confirmResumeAnyway } from './resumeAnyway';
 import { elsewhereMessage } from './spawnGuard';
 import { TermBridge, type TermAttachment, type TermSink } from './termBridge';
@@ -24,8 +24,8 @@ export class TermHost implements vscode.Disposable {
 	/** Opens in flight, by what they open: a second ask for the same session waits for the first instead of starting a second terminal. */
 	private readonly opening = new Map<string, Promise<string>>();
 
-	/** `live`: what runs a Claude session outside this window ("Claude desktop"), nothing when none does (liveSessions.ts); it asks the machine now, not the page's last list. */
-	constructor(private readonly agents: Agents, private readonly context: vscode.ExtensionContext, private readonly live?: (sessionId: string) => Promise<string | undefined>) {
+	/** `live`: what runs a Claude session outside this window ("Claude desktop"), nothing when none does (liveSessions.ts); it asks the machine now, not the page's last list. `indexed`: the folders of the sidebar's project index (the user ran an agent in them), for folderTrust.ts. */
+	constructor(private readonly agents: Agents, private readonly context: vscode.ExtensionContext, private readonly live?: (sessionId: string) => Promise<string | undefined>, private readonly indexed?: () => Promise<string[]>) {
 		this.bridge = new TermBridge({
 			terminalOf: id => agents.terminalOf(id),
 			typable: id => agents.sessions.get(id)?.state !== 'ended',
@@ -56,6 +56,11 @@ export class TermHost implements vscode.Disposable {
 				}
 			}),
 		];
+	}
+
+	/** The launcher's "Other folder…": a folder dialog of this host; the chosen folder may then be started in. */
+	pickFolder(): ReturnType<typeof pickFolder> {
+		return pickFolder();
 	}
 
 	/** What the Agents panel calls (agentsPanel.ts); the bridge itself is tested on its own. */
@@ -131,7 +136,7 @@ export class TermHost implements vscode.Disposable {
 		}
 		let folder: string | undefined;
 		if (cwd !== undefined) {
-			const { where } = await trustFolder(this.context, cwd);
+			const { where } = await trustFolder(this.context, cwd, this.indexed);
 			// Spawned as written (Claude finds a transcript by the folder's spelling), so check that the folder the user saw is still that one.
 			if (await real(cwd) !== where) {
 				throw new Error('Not started: the folder changed while it was being opened.');

@@ -172,6 +172,7 @@ function withTerm() {
 		input: (id, data) => calls.input.push([id, data]),
 		resize: (id, cols, rows) => calls.resize.push([id, cols, rows]),
 		open: async (kind, sessionId, cwd) => { calls.open.push([kind, sessionId, cwd]); if (cwd === '/nope') throw new Error('not a folder'); return sessionId ?? 'new-session' },
+		pickFolder: async () => { calls.pick = (calls.pick ?? 0) + 1; await sleep(15); return { path: '/picked/app', name: 'app' } },
 	}
 	const none = () => ({ dispose() {} })
 	const posted = []
@@ -578,7 +579,7 @@ test('the buttons run the harness extension\'s own views by name; the page never
 		t.page({ type: 'harnessGo', target: 'workbench.action.quit' })
 		t.page({ type: 'harnessGo', command: 'workbench.action.quit' })
 		await sleep(10)
-		assert.deepEqual(t.ran.map(r => r[0]), ['workbench.view.extension.flowHarness', 'flowHarness.addHook'])
+		assert.deepEqual(t.ran.map(r => r[0]), ['flowHarness.open', 'flowHarness.addHook'])
 	} finally { t.done() }
 })
 
@@ -602,4 +603,17 @@ test('the Harness panel\'s state is kept with the layout and comes back with rea
 	// What storage holds is validated on the way out too.
 	ws.m.set('flow.agents.page.harness', { open: true, width: 'wide' })
 	assert.equal(new LayoutStore(ws, gs).harness(), undefined)
+})
+
+test('one folder dialog at a time: a second pickFolder while one is open is answered with nothing chosen', TT, async () => {
+	const t = withTerm()
+	t.page({ type: 'pickFolder', requestId: 'p1' })
+	t.page({ type: 'pickFolder', requestId: 'p2' })
+	await sleep(40)
+	assert.equal(t.calls.pick, 1, 'the host opened one dialog')
+	assert.deepEqual(t.posted.filter(m => m.type === 'folderPicked'), [{ type: 'folderPicked', requestId: 'p2' }, { type: 'folderPicked', requestId: 'p1', path: '/picked/app', name: 'app' }])
+	t.page({ type: 'pickFolder', requestId: 'p3' })
+	await sleep(40)
+	assert.equal(t.calls.pick, 2, 'and another one once the first was answered')
+	t.dispose()
 })

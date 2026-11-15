@@ -15,7 +15,7 @@ import { definitionInFile, notify, registerIde } from './ide'
 import { ActionsCtx, LANG_BY_EXT, nodeTypes, recolor, type CanvasActions, type Caret } from './nodes'
 import { cardAt, samePath } from './tour/cards'
 import { ChangesRail, FindBox } from './review/ChangesRail'
-import { cycle, findAfterReload, findCards, groupByFile, keepViewed, navKeyAction, nextUnviewed, stepKey, toggled } from './review/nav'
+import { cycle, findAfterReload, findCards, groupByFile, keepViewed, navKeyAction, nextUnviewed, pathTo, stepByArrow, stepKey, toggled } from './review/nav'
 import { PointAsk, selectedLines, type Pointing } from './tour/PointAsk'
 import { SelectionBar, type Picked, type SelectionAction } from './tour/SelectionBar'
 import { useTourPlayer } from './tour/TourPlayer'
@@ -26,6 +26,8 @@ import { ImpactChip } from './impact/ImpactChip'
 import { answered, asked, emptyFill, failed, messageOf, type Fill } from './impact/fill'
 import { cutNote } from './impact/cardLabel'
 import type { FlowNode, ImpactItem, ImpactResult } from './types'
+import { navProps } from './nav'
+import { MetaWheelZoom } from './navZoom'
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void }
 /** What to draw: opaque to the webview, interpreted by the host's provider for that language. */
@@ -172,6 +174,9 @@ function Flow() {
   const { fitView, setCenter, getNode, getNodes, getViewport } = useReactFlow()
   const editingRef = useRef(editing)
   const actionsRef = useRef<CanvasActions>({ toggle() {}, toggleAll() {}, open() {}, toggleFull() {} })
+  const currentRef = useRef<(key: string) => void>(undefined)
+  /** The place the canvas itself last asked the editor to show: the cursor echo for exactly that place is not a reason to move the view. */
+  const ownReveal = useRef<{ file: string; line: number; until: number }>(undefined)
   editingRef.current = editing
 
   // `?` with lines selected in a card's code: ask the agent about them (without a selection, `?` is the tour's ask box).
@@ -312,7 +317,9 @@ function Flow() {
     const hit = cardAt([treesRef.current.down, treesRef.current.up], file, line)
     setSelected(hit?.key ?? null)
     const card = hit && getNode(hit.key)
-    if (!card) return
+    // A click on a card moves the editor's cursor too, and that echo arrives a moment later: by then the keys may have moved on, and the view must not jump back.
+    const own = ownReveal.current
+    if (!card || (own && samePath(own.file, file) && own.line === line && Date.now() < own.until)) return
     const { x, y, zoom } = getViewport()
     const el = document.querySelector('.wv-canvas') as HTMLElement
     const sx = card.position.x * zoom + x
@@ -461,11 +468,15 @@ function Flow() {
       reveal: key => {
         const n = find(down, key) ?? find(up, key)
         setSelected(key)
+        // The card you clicked is where the arrow keys go on from.
+        currentRef.current?.(key)
+        if (n?.file) ownReveal.current = { file: n.file, line: n.startLine, until: Date.now() + 1500 }
         if (n?.file) vscode.postMessage({ type: 'reveal', file: n.file, line: n.startLine })
       },
       edit: (key, at) => {
         const n = find(down, key) ?? find(up, key)
-        if (!n?.file) return
+        // A table or entity card has a file but no code: locking the view for an editor that never appears would freeze the canvas.
+        if (!n?.file || n.code == null) return
         setCaret(at)
         setSelected(key)
         setTrace(null)
@@ -485,16 +496,6 @@ function Flow() {
       definition: (key, at) => {
         const n = find(down, key) ?? find(up, key)
         if (n?.file) void definitionInFile(n.file, at.line, at.column)
-      },
-      focusLine: (key, line) => {
-        const n = find(down, key) ?? find(up, key)
-        const card = getNode(key)
-        if (!n || !card) return
-        setSelected(key)
-        const el = document.querySelector('.wv-canvas') as HTMLElement
-        const w = Number(card.style?.width) || 400
-        const chipsH = (card.data as { chipsH?: number }).chipsH ?? 0
-        setCenter(card.position.x + Math.min(w / 2, el.clientWidth / 2 - 24), card.position.y + HEADER_H + chipsH + CODE_PAD + (line - n.startLine) * LINE_H, { zoom: 1, duration: 260 })
       },
       chipToggle: (key, path, typeId) => {
         setChipOpen(o => {
@@ -622,6 +623,7 @@ function Flow() {
   // "Viewed" is kept in memory: this page keeps no persisted state of its own, and a reload is a new look at the changes anyway.
   const [viewed, setViewed] = useState<ReadonlySet<string>>(new Set())
   const [navCurrent, setNavCurrent] = useState<string | null>(null)
+  currentRef.current = setNavCurrent
   const [flash, setFlash] = useState<string | null>(null)
   const [railOpen, setRailOpen] = useState(true)
   const [finding, setFinding] = useState<{ query: string; index: number } | null>(null)
@@ -639,6 +641,8 @@ function Flow() {
       const h = Number(card.style?.height) || 200
       setCenter(card.position.x + Math.min(w / 2, el.clientWidth / 2 - 24), card.position.y + Math.min(h / 2, el.clientHeight / 2 - 40), { zoom: 1, duration: 250 })
       if (!mark) return
+      // The focus goes with the current card, so Enter and Space act on the card the keys reached, not on the one clicked earlier.
+      document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(key)}"] .card`)?.focus({ preventScroll: true })
       setNavCurrent(key)
       setFlash(key)
       clearTimeout(flashTimer.current)
@@ -650,8 +654,10 @@ function Flow() {
   const railGroups = useMemo(() => groupByFile(changed), [changed])
   const cardNames = useMemo(() => nodes.filter(n => n.type === 'card').map(n => ({ key: n.id, label: (n.data as CardData).node.label })), [nodes])
   const found = useMemo(() => findCards(cardNames, finding?.query ?? ''), [cardNames, finding?.query])
-  const navRef = useRef({ on: false, keys: changedKeys, current: navCurrent, viewed })
-  navRef.current = { on: !!down && tour.state.tour === null, keys: changedKeys, current: navCurrent, viewed }
+  const navRef = useRef<{ on: boolean; keys: string[]; current: string | null; viewed: ReadonlySet<string>; root?: string }>({ on: false, keys: changedKeys, current: navCurrent, viewed })
+  navRef.current = { on: !!down && tour.state.tour === null, keys: changedKeys, current: navCurrent, viewed, root: down?.key }
+  // Where the current card is in the flow: the calls from the root down to it, each one a way back.
+  const trail = useMemo(() => pathTo(down, navCurrent), [down, navCurrent])
   // Opening a flow lands at 100% on its root card, or on the first changed card of a change set.
   const changedRef = useRef(changed)
   changedRef.current = changed
@@ -664,9 +670,12 @@ function Flow() {
     const after = new Map(changedRef.current.map(n => [n.key, JSON.stringify(n.diff)]))
     seenDiffs.current = after
     setViewed(v => keepViewed(v, before, after))
-    setNavCurrent(c => (c !== null && before.has(c) && before.get(c) === after.get(c) ? c : null))
     // Read now: React may run the updater after the next effect has already replaced the ref.
     const cardsBefore = seenCards.current
+    // The current card is kept across a reload only when the same cards are drawn (their keys are positions in the tree, so a call added
+    // earlier in the flow moves every key), and a changed card only with the same diff.
+    const sameCards = cardsBefore.size === cardNames.length && cardNames.every(c => cardsBefore.has(c.key))
+    setNavCurrent(c => (c !== null && sameCards && (!before.has(c) || before.get(c) === after.get(c)) ? c : null))
     setFinding(f => findAfterReload(f, cardsBefore, cardNames))
   }, [down, up]) // eslint-disable-line react-hooks/exhaustive-deps
   // The cards drawn are recorded whenever they change, for any reason (a reload, an expanded or folded card, callers shown): the
@@ -674,6 +683,8 @@ function Flow() {
   useEffect(() => {
     seenCards.current = new Set(cardNames.map(c => c.key))
   }, [cardNames])
+  // Another flow has cards with the same keys: nothing in it is current until the keys or a click say so.
+  useEffect(() => setNavCurrent(null), [down?.symbolId])
   useEffect(() => {
     if (!down) return
     const t = setTimeout(() => goTo((target.target.kind === 'changes' ? changedRef.current[0]?.key : undefined) ?? down.key, false), 50)
@@ -686,6 +697,8 @@ function Flow() {
       if (!s.on || !action || editingRef.current) return
       const t = e.target
       if (t instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable || t.closest('.monaco-editor'))) return
+      // A key the focused element already used (Enter on a card), or one pressed inside a popover or a menu, is not the canvas's.
+      if (e.defaultPrevented || (t instanceof HTMLElement && t.closest('[role=dialog], [role=menu], [role=listbox]'))) return
       if (action === 'find') {
         // An open box takes the focus back with its text selected, so typing replaces it.
         const box = document.querySelector<HTMLInputElement>('.find input')
@@ -695,6 +708,19 @@ function Flow() {
         const k = stepKey(s.keys, s.current, action === 'next' ? 1 : -1)
         if (k === undefined) return
         goTo(k)
+      } else if (action === 'left' || action === 'right' || action === 'up' || action === 'down') {
+        // The arrows walk the cards as they lie on the canvas: along a call to the right, back to the caller on the left.
+        const boxes = nodesRef.current.filter(n => n.type === 'card').map(n => ({ key: n.id, x: n.position.x, y: n.position.y, w: Number(n.style?.width) || 400, h: Number(n.style?.height) || 200 }))
+        // Before any card is current the view rests on the root: the first arrow goes on from there (and to the root itself when nothing lies that way).
+        const k = stepByArrow(boxes, s.current ?? s.root ?? null, action, s.root) ?? (s.current === null ? s.root : undefined)
+        if (k === undefined) return
+        goTo(k)
+      } else if (action === 'open' || action === 'full' || action === 'edit') {
+        // A button or link under the focus keeps its own Enter and Space.
+        if (!s.current || (t instanceof HTMLElement && t.closest('button, a, [role=button], summary'))) return
+        if (action === 'open') actionsRef.current.open(s.current)
+        // Space and E press the card's own buttons: a card that offers neither (a changed card, a table) is left as it is.
+        else document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(s.current)}"] button[data-key="${action}"]`)?.click()
       } else if (action === 'viewed') {
         if (!s.current || !s.keys.includes(s.current)) return
         setViewed(v => (v.has(s.current!) ? v : toggled(v, s.current!)))
@@ -894,13 +920,12 @@ function Flow() {
             edgesFocusable={false}
             minZoom={0.1}
             maxZoom={2}
-            panOnDrag={!locked}
-            zoomOnScroll={!locked}
-            zoomOnPinch={!locked}
+            {...navProps(locked)}
             zoomOnDoubleClick={false}
             proOptions={{ hideAttribution: true }}
           >
             <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
+            <MetaWheelZoom off={locked} />
             {gaze.flowLayer}
             {tour.flowLayer}
             <Controls showInteractive={false} showFitView={false} position="bottom-left">
@@ -908,10 +933,23 @@ function Flow() {
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 30"><path d="M3.692 4.63c0-.53.4-.938.939-.938h5.215V0H4.708C2.13 0 0 2.054 0 4.63v5.216h3.692V4.631zM27.354 0h-5.2v3.692h5.17c.53 0 .984.4.984.939v5.215H32V4.631A4.624 4.624 0 0027.354 0zm.954 24.83c0 .532-.4.94-.939.94h-5.215v3.768h5.215c2.577 0 4.631-2.13 4.631-4.707v-5.139h-3.692v5.139zm-23.677.94c-.531 0-.939-.4-.939-.94v-5.138H0v5.139c0 2.577 2.13 4.707 4.708 4.707h5.138V25.77H4.631z" /></svg>
               </ControlButton>
             </Controls>
-            <MiniMap pannable zoomable position="bottom-right" maskColor="var(--fl-mask)" nodeColor={n => (n.type === 'frame' ? 'transparent' : 'var(--fl-line-strong)')} nodeBorderRadius={3} />
+            {/* The colours come from the stylesheet (webview.css): an SVG fill attribute does not resolve a CSS variable, which left the map a black box. */}
+            <MiniMap pannable zoomable position="bottom-right" style={{ width: 168, height: 112 }} nodeClassName={n => (n.type === 'frame' ? 'mm-frame' : n.id === navCurrent ? 'mm-here' : 'mm-card')} nodeBorderRadius={3} />
           </ReactFlow>
         </ActionsCtx.Provider>
         {gaze.overlay}
+        {trail.length > 1 && tour.state.tour === null && (
+          <nav className="wv-path" aria-label="Path from the flow's start to this card">
+            {trail.map((n, i) => (
+              <span key={n.key} className="wv-path-step">
+                {i > 0 && <span className="wv-path-sep" aria-hidden="true">›</span>}
+                <button className={i === trail.length - 1 ? 'here' : ''} aria-current={i === trail.length - 1 ? 'step' : undefined} onClick={() => goTo(n.key)} title={n.label}>
+                  {n.label.split('.').slice(-2).join('.')}
+                </button>
+              </span>
+            ))}
+          </nav>
+        )}
         {changed.length > 0 && tour.state.tour === null && (
           <ChangesRail
             groups={railGroups}

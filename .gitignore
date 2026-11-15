@@ -3,7 +3,8 @@
 # What `npm run installer` builds: the packaged app (next to vscode/) and the .exe in dist/
 /editor/VSCode-win32-*/
 
-node_modules/
+# No trailing slash: a worktree links its install folders, and a link named node_modules must be ignored too (a committed one replaces the real folder on merge).
+node_modules
 out/
 dist/
 dist-webview/

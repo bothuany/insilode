@@ -16,9 +16,11 @@ import { entryName, type Endpoints, type IndexStatus, type Source } from './back
 
 /** The commands the shortcut row of the Home page can run. */
 export const HOME_COMMANDS: ReadonlySet<string> = new Set([
-	'flow.showAtCursor', 'flow.pickEndpoint', 'workbench.action.quickOpen', 'workbench.view.extension.flowHarness', 'flow.agents.chooseAskTarget', 'flow.settings',
+	'flow.showAtCursor', 'flow.pickEndpoint', 'workbench.action.quickOpen', 'flowHarness.open', 'flow.agents.chooseAskTarget', 'flow.settings',
 	// The first-run strip and the rows under the lists: the sample tour, Import from VS Code (flow-import) and the boards.
 	'flow.tour.playSample', 'flow.importFromVSCode', 'flow.board.show', 'flow.board.fromCode',
+	// The Agents row, when an agent waits: its link to the Agents page.
+	'flow.agents.openPage',
 ]);
 
 /** Whether a command id from the page is one of the shortcuts it shows: a message is not a licence to run any command. */
@@ -92,6 +94,29 @@ export function askTargetSentence(value: unknown): string {
 	const name = /^custom:(.+)$/.exec(value)?.[1].trim().slice(0, 40);
 	return name ? `Prompts go to ${name}` : none;
 }
+
+/** How many agents the Home row names; the rest are "+N more". */
+const MAX_AGENT_CHIPS = 4;
+
+export interface AgentChip { id: string; name: string; kind: 'approval' | 'question' | 'error' }
+
+/**
+ * The agents that wait for the user, as the page draws them: flow-agent's answer is untrusted data, so each entry is checked
+ * (an id, a kind it knows), the name is plain text of at most 40 characters, and only a few are kept (`more` counts the rest).
+ */
+export function shapeAgents(raw: unknown): { list: AgentChip[]; more: number } {
+	const all = (Array.isArray(raw) ? raw : []).flatMap((a: { id?: unknown; name?: unknown; kind?: unknown } | null): AgentChip[] => {
+		if (typeof a?.id !== 'string' || !a.id || a.id.length > 200 || (a.kind !== 'approval' && a.kind !== 'question' && a.kind !== 'error')) {
+			return [];
+		}
+		const name = (typeof a.name === 'string' ? a.name : '').replace(/[\p{Cc}\s]+/gu, ' ').trim().slice(0, 40);
+		return [{ id: a.id, name: name || 'Agent', kind: a.kind }];
+	});
+	return { list: all.slice(0, MAX_AGENT_CHIPS), more: Math.max(0, all.length - MAX_AGENT_CHIPS) };
+}
+
+/** Whether the page's `revealAgent` names an agent this host sent it: the page is not trusted with an id of its own making. */
+export const canRevealAgent = (offered: ReadonlySet<string>, id: unknown): id is string => typeof id === 'string' && offered.has(id);
 
 /** The first-run strip shows until the user hides it or has opened a flow: after that Home is not a place that explains itself. */
 export const stripVisible = (s: { hidden: boolean; openedFlow: boolean }) => !s.hidden && !s.openedFlow;
@@ -216,6 +241,9 @@ export class FlowHome implements vscode.Disposable {
 	private branchName: string | undefined;
 	private readonly churnCache = new ChurnCache(gitChurnResult);
 	private repostTimer: NodeJS.Timeout | undefined;
+	/** The agents that wait, as last asked of flow-agent, and the ids the page may ask to reveal (the ones it was shown). */
+	private agents: { list: AgentChip[]; more: number } = { list: [], more: 0 };
+	private offeredAgents = new Set<string>();
 
 	constructor(private readonly context: vscode.ExtensionContext, private readonly endpoints: Endpoints) {
 		// The index fills in while Home is open: say so as it goes (progress comes often, so not more than a few times a second).
@@ -223,6 +251,8 @@ export class FlowHome implements vscode.Disposable {
 			endpoints.onDidChange(() => this.repostSoon()),
 			endpoints.onDidChangeStatus(() => this.repostSoon()),
 			vscode.workspace.onDidChangeConfiguration(e => e.affectsConfiguration('flow.agents.askTarget') && this.repostSoon()),
+			// An agent usually starts waiting while the user is elsewhere: ask again when the window comes back, not on a timer.
+			vscode.window.onDidChangeWindowState(s => s.focused && this.panel?.visible && void this.loadAgents()),
 		);
 		// Remember where you were: the files you open and the flows you draw.
 		this.disposables.push(vscode.window.onDidChangeActiveTextEditor(e => {
@@ -265,7 +295,7 @@ export class FlowHome implements vscode.Disposable {
 		panel.onDidChangeViewState(e => e.webviewPanel.visible && void this.post());
 	}
 
-	private async onMessage(m: { type: string; text?: string; plan?: boolean; path?: string; id?: string; label?: string; source?: Source; command?: string; line?: unknown }) {
+	private async onMessage(m: { type: string; text?: string; plan?: boolean; path?: string; agent?: unknown; id?: string; label?: string; source?: Source; command?: string; line?: unknown }) {
 		// The prompt is the user's own typing: a string, or nothing.
 		if (m.text !== undefined && typeof m.text !== 'string') {
 			return undefined;
@@ -288,6 +318,13 @@ export class FlowHome implements vscode.Disposable {
 					return undefined;
 				}
 				return Promise.resolve(vscode.commands.executeCommand(command)).then(undefined, () => void vscode.window.showInformationMessage(`Insilode: "${command}" is not available in this window.`));
+			}
+			// Only an agent this host listed in its last `data` message; flow-agent checks the id again.
+			case 'revealAgent': {
+				if (!canRevealAgent(this.offeredAgents, m.agent)) {
+					return undefined;
+				}
+				return Promise.resolve(vscode.commands.executeCommand('flow.agents.reveal', m.agent)).then(undefined, () => void vscode.window.showInformationMessage('Insilode: that agent is not available any more.'));
 			}
 			case 'hideStrip':
 				await this.context.globalState.update(STRIP_HIDDEN, true);
@@ -337,6 +374,7 @@ export class FlowHome implements vscode.Disposable {
 		await Promise.all([
 			this.loadHealth(root),
 			this.loadChurn(root),
+			this.loadAgents(),
 			this.branch().then(b => {
 				if (b !== this.branchName) {
 					this.branchName = b;
@@ -359,6 +397,21 @@ export class FlowHome implements vscode.Disposable {
 			this.healthState = 'unavailable';
 		}
 		this.send();
+	}
+
+	/** flow-agent answers `flow.agents.needsYou`; without it (the command is not there) or on an error nobody is shown as waiting. */
+	private async loadAgents() {
+		let raw: unknown;
+		try {
+			raw = await Promise.resolve(vscode.commands.executeCommand('flow.agents.needsYou'));
+		} catch {
+			raw = [];
+		}
+		const next = shapeAgents(raw);
+		if (JSON.stringify(next) !== JSON.stringify(this.agents)) {
+			this.agents = next;
+			this.send();
+		}
 	}
 
 	/** The endpoints people work on come first: git's churn, asked in the background and only kept when git answered. */
@@ -395,6 +448,7 @@ export class FlowHome implements vscode.Disposable {
 		const gaps = shapeGaps(this.health?.gaps);
 		const health = this.health && { ...this.health, gaps, label: healthLabel(this.health.score, gaps.length) };
 		this.offered = offeredFiles(files, this.health?.issues);
+		this.offeredAgents = new Set(this.agents.list.map(a => a.id));
 		const hidden = this.context.globalState.get<boolean>(STRIP_HIDDEN, false);
 		const openedFlow = this.context.globalState.get<boolean>(FLOW_OPENED, false) || flows.length > 0;
 		void Promise.resolve(panel.webview.postMessage({
@@ -403,6 +457,7 @@ export class FlowHome implements vscode.Disposable {
 			branch: this.branchName,
 			hour: new Date().getHours(),
 			files, flows, endpoints, health,
+			agents: this.agents.list, agentsMore: this.agents.more,
 			healthState: root ? this.healthState : 'nofolder',
 			total: all.length,
 			strip: stripVisible({ hidden, openedFlow }),
@@ -468,7 +523,18 @@ h1 { margin: 18px 0 18px; font-size: clamp(26px, 3.2vw, 34px); line-height: 1.15
 .send:disabled { opacity: .3; cursor: default; }
 .hint { margin: 10px 4px 0; color: var(--muted); font-size: 12px; }
 .hint .link { background: none; border: 0; padding: 0; color: var(--vscode-textLink-foreground); font: inherit; cursor: pointer; }
-.hint .link:hover { text-decoration: underline; }
+.hint .link:hover, .agentsrow .link:hover { text-decoration: underline; }
+
+/* Who waits for you: only drawn when an agent does (the row is empty, and has no height, otherwise). */
+.agentsrow { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+.agentsrow:empty { display: none; }
+.agentsrow .lbl { color: var(--muted); font-size: 12px; font-weight: 600; margin-right: 2px; }
+.agentsrow .more-n { color: var(--muted); font-size: 12px; }
+.agentsrow .link { margin-left: auto; background: none; border: 0; padding: 0; color: var(--vscode-textLink-foreground); font: inherit; font-size: 12px; cursor: pointer; }
+.chip.agent { max-width: 100%; min-width: 0; }
+.chip.agent i { flex: none; background: var(--plan); }
+.chip.agent .an { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.chip.agent .ak { flex: none; white-space: nowrap; }
 kbd { font: 11px var(--mono); padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; color: var(--text); }
 
 /* Where you left off: the last flow you opened, one click back onto its canvas. */
@@ -530,7 +596,7 @@ kbd { font: 11px var(--mono); padding: 0 5px; border: 1px solid var(--line); bor
 .keys { display: flex; flex-wrap: wrap; gap: 8px 22px; margin-top: 52px; padding-top: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 .keys button { all: unset; cursor: pointer; display: inline-flex; gap: 8px; align-items: center; }
 .keys button:hover { color: var(--text); }
-.keys button:focus-visible, .row:focus-visible, .chip:focus-visible, .more:focus-visible, .send:focus-visible { outline: 1.5px solid var(--signal); outline-offset: 2px; }
+.keys button:focus-visible, .agentsrow .link:focus-visible, .row:focus-visible, .chip:focus-visible, .more:focus-visible, .send:focus-visible { outline: 1.5px solid var(--signal); outline-offset: 2px; }
 
 @media (max-width: 760px) {
 	.cols { grid-template-columns: 1fr; gap: 28px; }
@@ -556,6 +622,8 @@ kbd { font: 11px var(--mono); padding: 0 5px; border: 1px solid var(--line); bor
 	</form>
 	<p class="hint"><kbd>Enter</kbd> sends to the agent you chose (<button class="link" data-run="flow.agents.chooseAskTarget">change</button>), <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line</p>
 
+	<div class="agentsrow" id="agents" role="group" aria-label="Agents that wait for you"></div>
+
 	<div id="resume"></div>
 
 	<section class="cols">
@@ -573,7 +641,7 @@ kbd { font: 11px var(--mono); padding: 0 5px; border: 1px solid var(--line); bor
 		<button data-run="flow.showAtCursor"><kbd data-k="mod+alt+F"></kbd> Show flow at cursor</button>
 		<button data-run="flow.pickEndpoint"><kbd data-k="mod+alt+E"></kbd> Trace an endpoint</button>
 		<button data-run="workbench.action.quickOpen"><kbd data-k="mod+P"></kbd> Go to file</button>
-		<button data-run="workbench.view.extension.flowHarness"><kbd>Harness</kbd> Open the map</button>
+		<button data-run="flowHarness.open"><kbd>Harness</kbd> Open the harness</button>
 		<button data-run="flow.settings"><kbd>Settings</kbd> Change how Insilode works</button>
 	</nav>
 </main>
@@ -609,6 +677,12 @@ window.addEventListener('message', e => {
 	$('strip').innerHTML = d.strip ? '<section class="strip" aria-label="About Insilode"><div class="strip-text"><b>Insilode draws your code&#39;s call flow on a canvas and lets an agent point at it.</b><span>' + esc(d.agent || '') + '</span></div><div class="strip-acts"><button class="chip" data-run="flow.agents.chooseAskTarget">Change</button><button class="chip primary" data-run="flow.tour.playSample">Take the tour</button><button class="chip" data-hide="1" aria-label="Hide this welcome">Hide</button></div></section>' : '';
 	document.querySelectorAll('.strip [data-run]').forEach(b => b.onclick = () => vscode.postMessage({ type: 'run', command: b.dataset.run }));
 	document.querySelectorAll('.strip [data-hide]').forEach(b => b.onclick = () => vscode.postMessage({ type: 'hideStrip' }));
+	// The agents that wait for you: nothing at all when none does. Names come from another extension: escaped, and a chip sends only the id back.
+	const waiting = Array.isArray(d.agents) ? d.agents.slice(0, 4) : [];
+	$('agents').innerHTML = waiting.length ? '<span class="lbl">Agents</span>' + waiting.map(a => '<button class="chip agent" data-agent="' + esc(a.id) + '" title="Show this agent"><i></i><span class="an">' + esc(String(a.name).slice(0, 40)) + '</span><span class="ak">· ' + (a.kind === 'error' ? 'error' : 'needs you') + '</span></button>').join('')
+		+ (num(d.agentsMore) > 0 ? '<span class="more-n">+' + num(d.agentsMore) + ' more</span>' : '') + '<button class="link" data-run="flow.agents.openPage">Open Agents</button>' : '';
+	document.querySelectorAll('#agents [data-agent]').forEach(b => b.onclick = () => vscode.postMessage({ type: 'revealAgent', agent: b.dataset.agent }));
+	document.querySelectorAll('#agents [data-run]').forEach(b => b.onclick = () => vscode.postMessage({ type: 'run', command: b.dataset.run }));
 	const ix = d.index || {};
 	$('idx').textContent = ix.state === 'indexing' ? String(ix.text || '') : '';
 	$('branch').innerHTML = d.branch ? '<span class="branch">' + esc(d.branch) + '</span>' : '';

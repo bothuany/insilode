@@ -236,6 +236,11 @@
         "enablement": "flow.agents.desktop.available"
       },
       {
+        "command": "flow.agents.nextNeedsYou",
+        "title": "Go to the Next Agent That Needs You",
+        "category": "Insilode"
+      },
+      {
         "command": "flow.agents.openPage",
         "title": "Open Agents Page",
         "category": "Insilode",
@@ -246,7 +251,7 @@
       },
       {
         "command": "flow.agents.forgetTrustedFolders",
-        "title": "Forget Folders Trusted for Agents",
+        "title": "Forget Folders Chosen for Agents",
         "category": "Insilode"
       }
     ],
@@ -261,6 +266,11 @@
         "key": "ctrl+shift+a",
         "mac": "cmd+shift+a",
         "when": "!isLinux || !editorTextFocus || editorReadonly"
+      },
+      {
+        "command": "flow.agents.nextNeedsYou",
+        "key": "alt+shift+w",
+        "mac": "ctrl+alt+w"
       },
       {
         "command": "-workbench.action.openAgentsWindow",
@@ -289,6 +299,12 @@
           "default": false,
           "scope": "machine",
           "markdownDescription": "Offer Claude Code's own **bypass permissions** mode in terminal Claude sessions: Insilode starts them with `--allow-dangerously-skip-permissions`, so you can switch to that mode with Shift+Tab. Sessions still start in their usual mode, and nothing is bypassed until you switch. In that mode Claude runs every tool without asking. Off by default; a repository's settings cannot turn it on. The menu beside the Claude button in the Agents dock turns it on (after a warning) or off. Does not change the chat panel."
+        },
+        "flow.agents.codex.neverAsk": {
+          "type": "boolean",
+          "default": false,
+          "scope": "machine",
+          "markdownDescription": "Start terminal Codex sessions with `--ask-for-approval never --sandbox workspace-write`: Codex stops asking before it edits files and runs commands, but stays inside its workspace sandbox (it can change files in the project folder, not elsewhere on this computer). Only sessions started afterwards change. Insilode never passes `--dangerously-bypass-approvals-and-sandbox`. Off by default; a repository's settings cannot turn it on. The launcher in the Agents dock and on the Agents page turns it on (after a warning) or off."
         },
         "flow.agents.showChat": {
           "type": "boolean",
@@ -712,7 +728,10 @@
       ]
     },
     "configurationDefaults": {
-      "chat.titleBar.openInAgentsWindow.enabled": false
+      "chat.titleBar.openInAgentsWindow.enabled": false,
+      "terminal.integrated.commandsToSkipShell": [
+        "flow.agents.nextNeedsYou"
+      ]
     }
   },
   "scripts": {

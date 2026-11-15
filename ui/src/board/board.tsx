@@ -27,6 +27,8 @@ import { Legend } from './legend'
 import type { CanvasSpec, Overrides } from '../../../board-canvas/canvas'
 import { DARK, paintCanvas, toSvg as canvasToSvg, type Palette as CanvasPalette } from '../../../board-canvas/paint'
 import { CanvasView, type CanvasApi } from './CanvasView'
+import { navProps } from '../nav'
+import { MetaWheelZoom } from '../navZoom'
 
 declare function acquireVsCodeApi(): { postMessage(msg: unknown): void }
 declare global {
@@ -784,10 +786,12 @@ function BoardView() {
             nodesConnectable={false}
             elementsSelectable={false}
             zoomOnDoubleClick={false}
+            {...navProps()}
             proOptions={{ hideAttribution: true }}
             onMoveStart={e => { if (e) userMoved.current = true }}
             onPaneClick={() => { setSelected(undefined); setActive(undefined) }}
           >
+            <MetaWheelZoom />
             {layout.nodes.length > 8 && <MiniMap pannable zoomable nodeStrokeWidth={0} nodeColor={n => ((n.data as CardData | undefined)?.v?.node ? KIND_COLOR[(n.data as CardData).v.node!.kind ?? 'class'] : 'var(--fl-line-strong)')} />}
           </ReactFlow>}
           {graph && <CalloutLayer layout={layout} direction={direction} />}

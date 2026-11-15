@@ -1,20 +1,19 @@
 /*---------------------------------------------------------------------------------------------
  *  Insilode: the shell of the Agents page as script text (agentsPage.ts puts it into the page): the helpers, the state the host's data
- *  fills, the sidebar of sessions (every row can be dragged into the workspace), the header, the Board and List overviews, the menus,
+ *  fills, the sidebar of sessions (every row can be dragged into the workspace), the toolbar (the launcher, the counts), the Board and List overviews, the menus,
  *  the messages from the host and the keyboard. The terminal workspace itself is agentsWorkspace.ts and runs in the same script scope.
  *  Text from a row only ever reaches the page through textContent (the h() helper): the only markup set as HTML is built from
  *  constants (the avatar, the CLI marks, the pane icons).
  *--------------------------------------------------------------------------------------------*/
 
 export const SHELL_CSS = String.raw`
-.head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
-.counts { display: flex; gap: 14px; }
-.count { display: flex; align-items: baseline; gap: 5px; color: var(--muted); }
-.count b { font-size: 18px; color: var(--text); font-variant-numeric: tabular-nums; }
-.count i { width: 8px; height: 8px; border-radius: 50%; align-self: center; }
-.totals { color: var(--muted); font-variant-numeric: tabular-nums; }
+.counts { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.count { display: inline-flex; align-items: center; gap: 5px; color: var(--muted); font-size: 12px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.count b { color: var(--text); font-weight: 600; }
+.count i { width: 8px; height: 8px; border-radius: 50%; }
+.totals { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .totals b { color: var(--text); font-weight: 600; }
-.limits { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-left: auto; }
+.limits { display: flex; flex-wrap: wrap; gap: 4px 14px; }
 .lim { display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; }
 .lim .bar { width: 90px; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
 .lim .bar i { display: block; height: 100%; background: var(--working); }
@@ -43,7 +42,7 @@ export const SHELL_CSS = String.raw`
 
 .split { display: flex; flex: 1; min-height: 0; }
 .side { flex: 0 0 236px; overflow: auto; border-right: 1px solid var(--line); padding: 10px 8px 24px; background: var(--col); }
-@media (max-width: 960px) { .side { flex-basis: 204px; } .head { padding: 8px 12px; } .tools { padding: 8px 12px; } }
+@media (max-width: 960px) { .side { flex-basis: 204px; } .tools { padding: 8px 12px; } }
 .sebox { display: flex; gap: 6px; margin: 0 4px 10px; }
 .sesearch { flex: 1; min-width: 0; box-sizing: border-box; height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--input); }
 .sresult .sact.snip { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
@@ -61,6 +60,7 @@ export const SHELL_CSS = String.raw`
 .sdot { flex: none; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--idle); }
 .sdot.working { background: var(--working); } .sdot.needs { background: var(--blocked); } .sdot.done { background: var(--done); }
 .sdot.recent { background: transparent; border: 1.5px solid var(--working); }
+.sdot.ended { background: transparent; border: 1.5px solid var(--ended); }
 .xbadge { display: inline-block; margin-right: 4px; padding: 0 6px; border: 1px solid var(--line); border-radius: 9px; font-size: 10.5px; line-height: 15px; color: var(--muted); white-space: nowrap; }
 .xbadge.est { border-style: dashed; }
 .queue { display: flex; align-items: center; gap: 8px; flex: none; padding: 6px 10px; overflow-x: auto; border-bottom: 1px solid var(--line); background: color-mix(in srgb, var(--blocked) 8%, var(--card)); }
@@ -73,12 +73,34 @@ export const SHELL_CSS = String.raw`
 @media (prefers-reduced-motion: no-preference) { .queue { animation: qin .16s ease-out; } }
 @keyframes qin { from { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; } to { max-height: 60px; opacity: 1; } }
 .sicon { flex: none; display: block; margin-top: 1px; }
-.sbody { display: flex; flex-direction: column; min-width: 0; }
+.sglyph { flex: none; margin-top: 1px; }
+.sbody { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
+.ssub { display: flex; gap: 4px; min-width: 0; color: var(--muted); font-size: 11.5px; }
+.ssub .swhere { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ssub .ssep, .ssub .sstate { flex: none; white-space: nowrap; }
+.plus { flex: none; width: 24px; padding: 0; justify-content: center; font-size: 15px; line-height: 1; }
+.pop { position: fixed; z-index: 25; width: 300px; max-width: calc(100vw - 8px); max-height: 80vh; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--vscode-menu-background, var(--bg)); color: var(--vscode-menu-foreground, var(--text)); box-shadow: 0 6px 18px rgb(0 0 0 / .35); }
+.pop .slabel { margin: 8px 2px 4px; }
+.pop .slabel:first-child { margin-top: 0; }
+.popopt { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 26px; padding: 0 8px; border: 1px solid transparent; border-radius: 6px; background: transparent; text-align: left; }
+.popopt:hover { background: var(--hover); }
+.popopt[aria-checked="true"] { border-color: var(--focus); background: color-mix(in srgb, var(--focus) 12%, transparent); }
+.popopt:disabled { opacity: .5; cursor: default; }
+.popopt .hint { margin-left: auto; color: var(--muted); font-size: 11.5px; }
+.popopt .mk { display: inline-flex; }
+.pline { display: flex; align-items: center; gap: 8px; margin: 0 2px; min-width: 0; }
+.pline .pfold { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pop select { width: 100%; margin-top: 6px; }
+.pop .pnote { margin: 4px 2px 0; color: var(--muted); font-size: 11.5px; }
+.pop .pacts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 10px 2px 0; }
+.pop .plink { padding: 0; border: 0; background: transparent; color: var(--focus); font-size: 12px; }
+.pop .plink:hover { text-decoration: underline; }
+.pop .plink:disabled { color: var(--muted); cursor: default; text-decoration: none; }
+.pop .pstart { margin-left: auto; }
 .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sact { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .srecent { margin: 0 0 8px; }
 .srecent .sact { margin: 0 4px; }
-.cstart { display: flex; gap: 6px; margin: 2px 4px 6px; }
 .cmore { margin: 2px 4px 0; }
 .main { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 12px 16px 24px; }
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
@@ -196,14 +218,14 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // other layouts). The platform is the page's own: the webview runs in the browser the user looks at, which the host cannot tell.
 const isMac = (() => { try { return typeof navigator !== 'undefined' && !!navigator && /Mac|iPhone|iPad/i.test(String(navigator.platform || navigator.userAgent || '')); } catch (x) { return false; } })();
 const MOD = isMac ? 'Ctrl+Option+' : 'Alt+Shift+';
-// Letters by the physical key (e.code): the keys that carry R D W M B S N H have the same letters on a US and a Turkish Q keyboard, and a modifier may change what e.key says. Arrows and paging by what they are called (e.key).
-const LETTER_CHORDS = new Map([['KeyR', 'splitRight'], ['KeyD', 'splitDown'], ['KeyW', 'close'], ['KeyM', 'max'], ['KeyB', 'broadcast'], ['KeyS', 'sidebar'], ['KeyN', 'needs'], ['KeyH', 'harness']]);
+// Letters by the physical key (e.code): the keys that carry R D W M S N H have the same letters on a US and a Turkish Q keyboard, and a modifier may change what e.key says. Arrows and paging by what they are called (e.key).
+const LETTER_CHORDS = new Map([['KeyR', 'splitRight'], ['KeyD', 'splitDown'], ['KeyW', 'close'], ['KeyM', 'max'], ['KeyS', 'sidebar'], ['KeyN', 'needs'], ['KeyH', 'harness']]);
 const NAMED_CHORDS = new Map([['ArrowLeft', 'left'], ['ArrowRight', 'right'], ['ArrowUp', 'up'], ['ArrowDown', 'down'], ['PageUp', 'moveBack'], ['PageDown', 'moveFwd']]);
 const chordOk = e => isMac ? !!e.ctrlKey && !!e.altKey && !e.shiftKey && !e.metaKey : !!e.altKey && !!e.shiftKey && !e.ctrlKey && !e.metaKey;
 const chordOf = e => chordOk(e) ? (NAMED_CHORDS.get(e.key) || LETTER_CHORDS.get(e.code)) : undefined;
 // What the "Keyboard shortcuts" dialog lists: the key (after the modifier) and what it does.
 const SHORTCUTS = [['Arrow keys', 'Focus the pane in that direction'], ['R', 'Split right with the selected session'], ['D', 'Split down with the selected session'], ['W', 'Close the pane (its session keeps running)'], ['M', 'Maximize or restore the pane'],
-	['PageUp / PageDown', 'Swap the pane with the previous or the next one'], ['B', 'Broadcast one line to several terminals'], ['S', 'Focus the session list'], ['N', 'Jump to the next session that needs you'], ['H', 'Show or hide the harness panel']];
+	['PageUp / PageDown', 'Swap the pane with the previous or the next one'], ['S', 'Focus the session list'], ['N', 'Jump to the next session that needs you'], ['H', 'Show or hide the harness panel']];
 
 // ---- state -----------------------------------------------------------------------------------------------------------------
 let data = { rows: [], kept: [], customs: [], peers: [], recent: [], now: Date.now(), avatar: 'gyro' };
@@ -231,7 +253,15 @@ function peerById(id) {
 }
 // The dot: the same ranking as the board's columns, for own rows and other windows' alike.
 const dotOf = s => s.state === 'ended' ? 'idle' : needKind(s) ? 'needs' : s.state === 'working' || s.state === 'starting' ? 'working' : s.state === 'done' || s.attention === 'done' ? 'done' : 'idle';
-const DOT_LABEL = { needs: 'needs you', working: 'working', done: 'done', idle: 'idle', recent: 'active recently' };
+const DOT_LABEL = { needs: 'needs you', working: 'working', done: 'done', idle: 'idle', recent: 'active recently', ended: 'ended' };
+// The sidebar's dot, one scale for every row: working, needs you, idle or done (green), ended (a ring).
+const rowDot = s => s.state === 'ended' ? 'ended' : needKind(s) ? 'needs' : s.state === 'working' || s.state === 'starting' ? 'working' : 'done';
+const ago = ms => { const m = Math.max(0, Math.floor(ms / 60000)); return m < 1 ? 'just now' : m < 60 ? m + 'm ago' : m < 2880 ? Math.floor(m / 60) + 'h ago' : Math.floor(m / 1440) + 'd ago'; };
+function rowState(s) {
+	if (s.state === 'ended') { return 'ended ' + ago(now() - s.since); }
+	const d = rowDot(s);
+	return d === 'needs' ? 'needs you' : d === 'working' ? 'working' : s.state === 'done' || s.attention === 'done' ? 'done' : 'idle';
+}
 // A session some other program runs (host: liveSessions.ts): Claude's status as that program wrote it, and for Codex only an estimate from its transcript.
 const LIVE_DOT = { working: 'working', needs: 'needs', idle: 'done', unknown: 'idle' };
 const LIVE_TEXT = { working: 'Working', needs: 'Needs you', idle: 'Idle', unknown: 'Running' };
@@ -325,6 +355,7 @@ function menuNode(it) {
 function showMenu(anchor, build) {
 	if (menuState && menuState.anchor === anchor) { return closeMenu(false); }
 	closeMenu(false);
+	closeLauncher(false);
 	menuState = { anchor };
 	anchor.setAttribute('aria-expanded', 'true');
 	menuButtons = [];
@@ -355,6 +386,148 @@ menuEl.addEventListener('keydown', e => {
 	} else if (e.key === 'Tab') { closeMenu(false); }
 });
 
+// ---- the launcher: one popover for every way to start an agent -------------------------------------------------------------
+// Built once per open and changed in place (a rebuild would detach the node a click came from, and the document's click handler would close it).
+const launchEl = h('div', { class: 'pop hidden', role: 'dialog', 'aria-label': 'New session' });
+const launch = { open: false, anchor: undefined, key: undefined, pick: undefined }; // pick: { req, apply } of the folder dialog the host was asked to open
+const OTHER_FOLDER = '::other-folder::'; // the folder list's own entry, not a path (every path is absolute)
+let pickSeq = 0;
+// The host's answer to a pickFolder: used only by the launcher that asked for it, once, and only while it is still open.
+function folderPicked(m) {
+	const p = launch.pick;
+	if (!p || !launch.open || typeof m.requestId !== 'string' || m.requestId !== p.req) { return; }
+	launch.pick = undefined;
+	if (typeof m.path === 'string' && m.path && m.path.length <= 1024 && typeof m.name === 'string') { p.apply(m.path, m.name); }
+}
+const plusEls = new Map(); // project key -> its "+" button, so the focus can come back to the one the sidebar drew last
+// The projects the sidebar knows, this window's first: a folder to start in.
+function launchProjects(extra) {
+	const out = [];
+	const seen = new Set();
+	const one = (cwd, name, where) => { if (cwd && !seen.has(cwd)) { seen.add(cwd); out.push({ cwd, name, where: where || cwd }); } };
+	if (data.project) { one(data.project.cwd, data.project.name, data.project.cwd); }
+	for (const p of chat.projects) { one(p.cwd, p.name, p.where); }
+	if (extra) { one(extra, base(extra), extra); }
+	return out;
+}
+function closeLauncher(refocus) {
+	if (!launch.open) { return; }
+	const a = (launch.key && plusEls.get(launch.key)) || launch.anchor;
+	launch.open = false;
+	launch.pick = undefined;
+	launchEl.className = 'pop hidden';
+	wipe(launchEl);
+	for (const e of [launch.anchor, a]) { if (e && e.setAttribute) { e.setAttribute('aria-expanded', 'false'); } }
+	if (refocus && a && a.focus) { a.focus(); }
+}
+// preset: { cwd, name, key } when a project's "+" opened it; otherwise the folder starts as the focused pane's project, else this window's.
+function openLauncher(anchor, preset) {
+	if (launch.open && (launch.anchor === anchor || (preset && launch.key === preset.key))) { return closeLauncher(true); }
+	closeLauncher(false);
+	closeMenu(false);
+	const winCwd = (data.project && data.project.cwd) || '';
+	const st = { cli: 'claude', cwd: preset ? preset.cwd : hFocusCwd(), worktree: false };
+	const projects = launchProjects(st.cwd);
+	const nameOf = cwd => { const p = projects.find(x => x.cwd === cwd); return p ? p.name : cwd ? base(cwd) : (data.project && data.project.name) || 'This window'; };
+	const isWin = () => !st.cwd || st.cwd === winCwd;
+	const isCustom = () => st.cli.indexOf('custom:') === 0;
+	const cliOf = () => isCustom() ? 'custom' : st.cli;
+	const harnesses = [{ k: 'claude', label: 'Claude Code' }, { k: 'codex', label: 'Codex' }].concat(data.customs.map((n, i) => ({ k: 'custom:' + i, label: n, custom: i })));
+	const hBtns = harnesses.map(x => h('button', { type: 'button', role: 'radio', class: 'popopt', 'data-k': 'h:' + x.k, onclick: () => { st.cli = x.k; sync(); } }, MARK[x.k] ? raw('span', 'mk', MARK[x.k]) : null, x.label));
+	const worktree = h('button', { type: 'button', role: 'switch', class: 'popopt', 'data-k': 'worktree', onclick: () => { st.worktree = !st.worktree; sync(); } }, 'Worktree', h('span', { class: 'hint' }));
+	const wnote = h('p', { class: 'pnote' });
+	const foldEl = h('span', { class: 'pfold' });
+	// Another project than this window's is named by its whole path: a name alone could be any folder, and the agent starts there on one click.
+	const pathEl = h('p', { class: 'pnote' });
+	const otherOpt = h('option', { value: OTHER_FOLDER }, 'Other folder…');
+	const optOf = p => h('option', { value: p.cwd }, p.name + (p.where && p.where !== p.name ? '  ' + p.where : ''));
+	const sel = h('select', { class: 'clisel hidden', 'aria-label': 'Folder to start in' }, projects.map(optOf), otherOpt);
+	const change = h('button', { type: 'button', class: 'btn small', 'data-k': 'change', onclick: () => { sel.className = sel.className.indexOf('hidden') >= 0 ? 'clisel' : 'clisel hidden'; if (sel.className === 'clisel' && sel.focus) { sel.focus(); } } }, 'Change…');
+	sel.addEventListener('change', () => {
+		sel.className = 'clisel hidden';
+		if (sel.value === OTHER_FOLDER) {
+			// The host opens the folder dialog; the answer names the folder it allowed, and only the request made here is taken.
+			const req = 'f' + (++pickSeq) + '-' + Date.now().toString(36);
+			launch.pick = { req, apply: (cwd, name) => {
+				if (!projects.some(x => x.cwd === cwd)) { const np = { cwd, name, where: cwd }; projects.push(np); fill(sel, projects.map(optOf).concat(otherOpt)); }
+				st.cwd = cwd;
+				sync();
+			} };
+			sync();
+			post({ type: 'pickFolder', requestId: req });
+			return;
+		}
+		st.cwd = sel.value;
+		sync();
+	});
+	// Permissions: each agent's "do not ask" mode is a machine setting the host applies to every session of that agent started afterwards, so this row shows that setting and flips it.
+	// Claude's offers bypass permissions mode (sessions still start asking); Codex's starts sessions that never ask, with its workspace sandbox kept.
+	const permsGroup = (cli, how, on, k, t) => {
+		const flip = () => { closeLauncher(true); post({ type: 'start', cli, how }); };
+		return h('div', { role: 'radiogroup', 'aria-label': 'Permissions', class: cli === 'claude' ? null : 'hidden', 'data-cli': cli },
+			h('button', { type: 'button', role: 'radio', 'aria-checked': on ? 'false' : 'true', class: 'popopt', 'data-k': k.ask, title: on ? t.offTitle : null, onclick: on ? flip : null }, 'Ask each time'),
+			on
+				? h('button', { type: 'button', role: 'radio', 'aria-checked': 'true', class: 'popopt', 'data-k': k.on, title: t.onTitle }, t.label, h('span', { class: 'hint' }, t.hint))
+				: h('button', { type: 'button', class: 'plink', 'data-k': k.allow, title: t.allowTitle, onclick: flip }, t.allow));
+	};
+	const claudePerms = permsGroup('claude', 'bypass', !!data.bypass, { ask: 'ask', on: 'bypass', allow: 'allow' }, { label: 'Bypass permissions', hint: 'offered', allow: 'Allow bypass permissions mode…', offTitle: 'Stop offering bypass permissions mode in the Claude sessions you start from now on', onTitle: 'Claude sessions you start offer bypass permissions mode (Shift+Tab); they still start asking', allowTitle: 'Offer bypass permissions mode in Claude sessions; the editor asks you to confirm' });
+	const codexPerms = permsGroup('codex', 'neverAsk', !!data.neverAsk, { ask: 'cask', on: 'neverask', allow: 'callow' }, { label: 'Never ask (sandboxed)', hint: 'on', allow: 'Never ask (sandboxed)…', offTitle: 'Codex sessions you start from now on ask before they edit files or run commands', onTitle: 'Codex sessions you start do not ask before they edit files or run commands; they stay inside their workspace sandbox', allowTitle: 'Start Codex sessions without asking, inside their workspace sandbox; the editor asks you to confirm' });
+	const perms = h('div', { class: 'perms' }, h('div', { class: 'slabel' }, 'Permissions'), claudePerms, codexPerms);
+	const resume = h('button', { type: 'button', class: 'plink', 'data-k': 'resume', onclick: () => { const cli = st.cli; closeLauncher(false); expectNew(cli); post({ type: 'start', cli, how: 'resume' }); } }, 'Resume a session…');
+	const agent = h('button', { type: 'button', class: 'plink', 'data-k': 'agent', onclick: () => { closeLauncher(false); expectNew(undefined); post({ type: 'pick' }); } }, 'Start an Agent…');
+	const go = h('button', { type: 'button', class: 'btn primary pstart', 'data-k': 'start', onclick: () => {
+		const cli = cliOf();
+		closeLauncher(false);
+		if (isCustom()) { const i = Number(st.cli.slice(7)); expectNew('custom'); post({ type: 'custom', index: i, name: data.customs[i] }); }
+		else if (st.worktree) { expectNew(cli); post({ type: 'start', cli, how: 'worktree' }); }
+		else { startNew(cli, st.cwd || undefined, st.cwd ? nameOf(st.cwd) : undefined); }
+	} }, 'Start');
+	function sync() {
+		// Worktrees and the user's own agents start through the editor's own commands, which take no folder: only this window's.
+		if (!isWin() && isCustom()) { st.cli = 'claude'; }
+		const wtOk = isWin() && !isCustom();
+		if (!wtOk) { st.worktree = false; }
+		hBtns.forEach((b, i) => { b.setAttribute('aria-checked', harnesses[i].k === st.cli ? 'true' : 'false'); if (harnesses[i].custom !== undefined) { if (isWin()) { b.removeAttribute('disabled'); } else { b.setAttribute('disabled', ''); } b.setAttribute('title', isWin() ? '' : 'Your own agents start in this window\'s project'); } });
+		worktree.setAttribute('aria-checked', st.worktree ? 'true' : 'false');
+		worktree.lastChild.textContent = st.worktree ? 'On' : 'Off';
+		if (wtOk) { worktree.removeAttribute('disabled'); } else { worktree.setAttribute('disabled', ''); }
+		wnote.textContent = wtOk ? '' : isCustom() ? 'Your own agents have no worktree.' : 'A worktree starts from this window\'s project.';
+		wnote.className = wnote.textContent ? 'pnote' : 'pnote hidden';
+		foldEl.textContent = nameOf(st.cwd);
+		foldEl.setAttribute('title', st.cwd || (data.project && data.project.name) || '');
+		pathEl.textContent = isWin() ? '' : st.cwd;
+		pathEl.className = isWin() ? 'pnote hidden' : 'pnote';
+		sel.value = st.cwd;
+		perms.className = st.cli === 'claude' || st.cli === 'codex' ? 'perms' : 'perms hidden';
+		claudePerms.className = st.cli === 'claude' ? '' : 'hidden';
+		codexPerms.className = st.cli === 'codex' ? '' : 'hidden';
+		resume.className = isCustom() ? 'plink hidden' : 'plink';
+		// Resume and the agent picker are the editor's own, for this window's project: with another folder chosen they would not act on it.
+		for (const b of [resume, agent]) { if (isWin()) { b.removeAttribute('disabled'); b.setAttribute('title', ''); } else { b.setAttribute('disabled', ''); b.setAttribute('title', 'Only in this window\'s project'); } }
+	}
+	fill(launchEl, [h('div', { class: 'slabel' }, 'Harness'), h('div', { role: 'radiogroup', 'aria-label': 'Harness' }, hBtns),
+		h('div', { class: 'slabel' }, 'Folder'), h('div', { class: 'pline' }, foldEl, change), pathEl, sel,
+		h('div', { class: 'slabel' }, 'Options'), worktree, wnote, perms,
+		h('div', { class: 'pacts' }, resume, agent, go)]);
+	sync();
+	launch.open = true;
+	launch.anchor = anchor;
+	launch.key = preset ? preset.key : undefined;
+	anchor.setAttribute('aria-expanded', 'true');
+	launchEl.className = 'pop';
+	const r = anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : { left: 0, bottom: 0 };
+	launchEl.style.left = Math.max(4, Math.min(r.left, (window.innerWidth || 1200) - 310)) + 'px';
+	launchEl.style.top = (r.bottom + 3) + 'px';
+	if (hBtns[0].focus) { hBtns[0].focus(); }
+}
+// Tab leaving either end of the popover closes it, as it does a menu; Escape is the document's.
+launchEl.addEventListener('keydown', e => {
+	if (e.key !== 'Tab') { return; }
+	const live = Array.from(launchEl.querySelectorAll('button:not([disabled]), select:not([disabled])')).filter(n => n.offsetParent !== null);
+	const at = live.indexOf(document.activeElement);
+	if (live.length && ((!e.shiftKey && at === live.length - 1) || (e.shiftKey && at === 0))) { closeLauncher(true); }
+});
+
 // The keyboard shortcuts dialog (filled by showShortcuts).
 const shortcutsEl = h('div', { class: 'dlg hidden', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Keyboard shortcuts' });
 shortcutsEl.addEventListener('click', e => { if (e.target === shortcutsEl) { closeShortcuts(); } });
@@ -362,7 +535,6 @@ let shortcutsFrom;
 
 // ---- the shell, built once -------------------------------------------------------------------------------------------------
 const side = h('nav', { class: 'side', 'aria-label': 'Projects and sessions' });
-const head = h('div', { class: 'head' });
 const tools = h('div', { class: 'tools' });
 const work = h('div', { class: 'work' });
 const filters = h('div', { class: 'filters' });
@@ -371,7 +543,7 @@ const main = h('div', { class: 'main hidden' }, filters, boardEl, keptEl);
 // Hidden until the first rows arrive: drawn empty first, the whole page would jump when they come (a layout shift). Without a host it shows itself after a moment.
 // The Harness panel (agentsHarnessPanel.ts) sits right of the workspace and fills itself; hidden until it is asked for.
 const harnessPanel = h('aside', { class: 'hpanel hidden', 'aria-label': 'Harness' });
-const root = h('div', { id: 'app' }, head, tools, h('div', { class: 'split' }, side, work, main, harnessPanel), menuEl, shortcutsEl);
+const root = h('div', { id: 'app' }, tools, h('div', { class: 'split' }, side, work, main, harnessPanel), menuEl, launchEl, shortcutsEl);
 root.hidden = true;
 const reveal = () => { root.hidden = false; };
 setTimeout(reveal, 2000);
@@ -393,33 +565,21 @@ sesearch.addEventListener('input', () => {
 	if (chat.q) { setTimeout(() => { if (mine === sseq) { post({ type: 'chatSearch', query: q }); } }, 250); }
 });
 
-// Header tools: new sessions, layouts, broadcast, and the three views.
-const moreBtn = h('button', { type: 'button', class: 'btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'More ways to start an agent', onclick: e => { e.stopPropagation(); showMenu(moreBtn, moreItems); } }, 'More ▾');
+// The toolbar: the launcher, the counts, the harness panel, the three views and the "…" menu (layouts, help).
+const newBtn = h('button', { type: 'button', class: 'btn primary', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', title: 'Start an agent: choose the harness, the folder and how it starts', onclick: e => { e.stopPropagation(); openLauncher(newBtn); } }, '+ New session');
 // Started by the host's own commands (a worktree, a picker), which give back no id: the next new session of that kind opens in a pane.
 const expectNew = cli => { expect = { cli, known: new Set(data.rows.map(r => r.id)), until: Date.now() + 60000 }; };
-function moreItems() {
-	const start = (label, cli, how) => ({ label, run: () => { if (how !== 'bypass') { expectNew(cli); } post({ type: 'start', cli, how }); } });
-	return [
-		start('Claude in a worktree', 'claude', 'worktree'),
-		start('Codex in a worktree', 'codex', 'worktree'),
-		start('Resume a Claude session…', 'claude', 'resume'),
-		start('Resume a Codex session…', 'codex', 'resume'),
-		start(data.bypass ? '✓ Claude: bypass permissions mode offered (turn off)' : 'Claude: allow bypass permissions mode…', 'claude', 'bypass'),
-		{ sep: true },
-		...data.customs.map((n, i) => ({ label: n, run: () => { expectNew('custom'); post({ type: 'custom', index: i, name: n }); } })),
-		...(data.customs.length ? [{ sep: true }] : []),
-		{ label: 'Start an Agent…', run: () => { expectNew(undefined); post({ type: 'pick' }); } },
-	];
-}
-const layoutsBtn = h('button', { type: 'button', class: 'btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', title: 'Save the pane layout, or apply a saved one', onclick: e => { e.stopPropagation(); showMenu(layoutsBtn, layoutItems); } }, 'Layouts ▾');
-const broadcastBtn = h('button', { type: 'button', class: 'btn', 'aria-pressed': 'false', title: 'Send one line to several terminals at once (' + MOD + 'B)', onclick: () => toggleBroadcast() }, 'Broadcast');
 const viewBtn = (v, label, tip) => { const b = h('button', { type: 'button', class: 'btn', 'aria-pressed': 'false', title: tip, onclick: () => setView(v) }, label); b.view = v; return b; };
 const viewBtns = [viewBtn('work', 'Workspace', 'Terminal panes you can split and rearrange'), viewBtn('board', 'Board', 'Agents by what they wait for'), viewBtn('list', 'List', 'Agents as a table')];
-// The Harness panel's toggle (agentsHarnessPanel.ts) and the "…" menu: help that has no place of its own in the header.
+// The Harness panel's toggle (agentsHarnessPanel.ts) and the "…" menu: the saved layouts and the help that have no place of their own in the toolbar.
 const harnessBtn = h('button', { type: 'button', class: 'btn', 'aria-pressed': 'false', title: 'Show the harness of the focused pane\'s project: instructions, hooks, permissions, MCP servers (' + MOD + 'H)', onclick: () => toggleHarness() }, 'Harness');
-const dotsBtn = h('button', { type: 'button', class: 'btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'Help and more', title: 'Help and more', onclick: e => { e.stopPropagation(); showMenu(dotsBtn, dotsItems); } }, '⋯');
-const dotsItems = () => [{ label: 'Keyboard shortcuts', run: () => showShortcuts() }];
-add(tools, h('div', { class: 'row2' }, startBtn('claude', 'Claude'), startBtn('codex', 'Codex'), moreBtn), h('div', { class: 'row2' }, layoutsBtn, broadcastBtn, harnessBtn), h('span', { class: 'grow' }), h('div', { class: 'seg2', role: 'group', 'aria-label': 'View' }, viewBtns), dotsBtn);
+const dotsBtn = h('button', { type: 'button', class: 'btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'Layouts and help', title: 'Layouts and help', onclick: e => { e.stopPropagation(); showMenu(dotsBtn, dotsItems); } }, '⋯');
+const dotsItems = () => [{ note: 'Layouts: save the panes, or apply a saved set' }, ...layoutItems(), { sep: true }, { label: 'Keyboard shortcuts', run: () => showShortcuts() }];
+// What paintHead fills: the counts by state, the token and dollar totals and the plan's limits.
+const countsEl = h('div', { class: 'counts', role: 'status', 'aria-label': 'Sessions by state' });
+const totalsEl = h('span', { class: 'totals hidden' });
+const limitsEl = h('div', { class: 'limits hidden' });
+add(tools, newBtn, countsEl, harnessBtn, h('span', { class: 'grow' }), totalsEl, limitsEl, h('div', { class: 'seg2', role: 'group', 'aria-label': 'View' }, viewBtns), dotsBtn);
 
 // The shortcuts, listed with the platform's own modifier. A dialog, so it can be read at leisure; Escape or Close puts it away.
 function showShortcuts() {
@@ -441,6 +601,7 @@ function setView(v) {
 	if (view === v) { return; }
 	view = v;
 	closeMenu(false);
+	closeLauncher(false);
 	paint();
 	if (v === 'work') { for (const pv of ws.views.values()) { scheduleFit(pv); } }
 }
@@ -454,7 +615,7 @@ const cliSel = h('select', { class: 'clisel', 'aria-label': 'Filter by CLI', onc
 	h('option', { value: 'all' }, 'All CLIs'), h('option', { value: 'claude' }, 'Claude'), h('option', { value: 'codex' }, 'Codex'), h('option', { value: 'custom' }, 'Custom'));
 add(filters, search, cliSel, chips);
 
-// ---- sidebar: this window's project first, then the other open projects, then the closed ones ---------------------------------
+// ---- sidebar: every project, the ones with a live session first, then by the latest activity --------------------------------
 // Every row is draggable into the workspace (dragRow) and opens in the focused pane on a click or Enter.
 function pickRow(key, contentFn) {
 	selKey = key;
@@ -470,29 +631,44 @@ function rowEl(key, contentFn, label, kids, extra) {
 	rowEls.set(key, el);
 	return el;
 }
+// The harness's mark, at the row's right end.
+const glyphOf = cli => MARK[cli] ? raw('span', 'sglyph', MARK[cli] + '') : h('span', { class: 'sglyph mark cust', title: 'custom agent' }, 'custom');
+// One shape for every session, own, another window's, another program's or ended: a state dot, the name, the harness's mark and a muted line
+// "where it runs or the CLI, then the state and when". The state has a place that never shrinks, so only the place's name is cut when the row is narrow.
+function sessRow(key, content, label, o) {
+	const el = rowEl(key, content, label, [h('i', { class: 'sdot ' + o.dot, title: o.dotTip || DOT_LABEL[o.dot] }),
+		h('span', { class: 'sbody' }, h('span', { class: 'sname', title: o.name }, o.name),
+			h('span', { class: 'ssub', title: o.where + ' · ' + o.state + (o.tip ? '\n' + o.tip : '') }, h('span', { class: 'swhere' }, o.where), h('span', { class: 'ssep' }, '·'), h('span', { class: 'sstate' }, o.state))),
+		glyphOf(o.cli)], o.extra);
+	return el;
+}
 function srow(s, content, key) {
-	const dot = dotOf(s);
-	return rowEl(key, content, s.name + ', ' + DOT_LABEL[dot], [h('i', { class: 'sdot ' + dot }), h('span', { class: 'sbody' }, h('span', { class: 'sname' }, s.name), h('span', { class: 'sact', title: actLine(s) }, actLine(s)))], s.state === 'ended' ? 'ended' : '');
+	const dot = rowDot(s);
+	return sessRow(key, content, s.name + ', ' + DOT_LABEL[dot], { dot, name: s.name, cli: s.cli, where: CLI_NAME[s.cli] || s.cli, state: rowState(s), tip: actLine(s), extra: s.state === 'ended' ? 'ended' : '' });
 }
 const xbadge = l => h('span', { class: 'xbadge' + (l.basis === 'recent' ? ' est' : ''), title: liveTip(l) }, l.basis === 'recent' ? 'active recently' : 'external · ' + l.source);
-function crow(p, s, prefix) {
-	const key = (prefix || 'idx:') + s.kind + ':' + s.id;
+// A session of the machine's index: one another program runs says where and in what state; an earlier one says it ended and when.
+function crow(p, s) {
+	const key = 'idx:' + s.kind + ':' + s.id;
 	const l = liveOf(s);
+	const content = () => indexContent(p, s.kind, s.id, s.title);
 	if (l) {
-		const text = l.basis === 'recent' ? KIND_NAME[s.kind] + ' · ' + dur(Math.max(0, now() - s.modified)) + ' ago' : LIVE_TEXT[l.status];
-		return rowEl(key, () => indexContent(p, s.kind, s.id, s.title), KIND_NAME[s.kind] + ' session: ' + s.title + ', ' + (l.basis === 'recent' ? 'active recently' : 'running in ' + l.source + ', ' + LIVE_TEXT[l.status].toLowerCase()),
-			[h('i', { class: 'sdot ' + liveDot(l), title: liveTip(l) }), h('span', { class: 'sbody' }, h('span', { class: 'sname', title: s.title }, s.title), h('span', { class: 'sact' }, xbadge(l), text))], 'crow ext');
+		const recent = l.basis === 'recent';
+		const state = recent ? 'active recently' : LIVE_TEXT[l.status].toLowerCase();
+		return sessRow(key, content, KIND_NAME[s.kind] + ' session: ' + s.title + ', ' + (recent ? 'active recently' : 'running in ' + l.source + ', ' + LIVE_TEXT[l.status].toLowerCase()),
+			{ dot: liveDot(l), dotTip: liveTip(l), name: s.title, cli: s.kind, where: recent ? 'Codex' : l.source, state, extra: 'crow ext' });
 	}
-	return rowEl(key, () => indexContent(p, s.kind, s.id, s.title), KIND_NAME[s.kind] + ' session: ' + s.title,
-		[raw('span', 'sicon', MARK[s.kind]), h('span', { class: 'sbody' }, h('span', { class: 'sname', title: s.title }, s.title), h('span', { class: 'sact' }, KIND_NAME[s.kind] + ' · ' + dur(Math.max(0, now() - s.modified)) + ' ago'))], 'crow');
+	return sessRow(key, content, KIND_NAME[s.kind] + ' session: ' + s.title, { dot: 'ended', name: s.title, cli: s.kind, where: CLI_NAME[s.kind], state: 'ended ' + ago(now() - s.modified), extra: 'crow' });
 }
+// The earlier sessions of a project: the newest five, and every one that runs elsewhere (it is counted above, so it must show).
 function chatRows(key) {
 	const p = chat.projects.find(x => x.key === key);
 	if (!p) { return null; }
-	const list = chat.more.has(key) ? p.sessions : p.sessions.slice(0, 5);
-	const start = (kind, label) => h('button', { type: 'button', class: 'btn small', title: 'Start ' + label + ' in a new pane, in ' + p.where, onclick: () => startNew(kind, p.cwd, p.name) }, '+ ' + label);
-	return [h('div', { class: 'cstart' }, start('claude', 'Claude'), start('codex', 'Codex')), list.map(s => crow(p, s)),
-		p.sessions.length > 5 ? h('button', { type: 'button', class: 'btn small cmore', onclick: () => { if (chat.more.has(key)) { chat.more.delete(key); } else { chat.more.add(key); } paintSide(); } }, chat.more.has(key) ? 'Show fewer' : 'Show ' + (p.sessions.length - 5) + ' more') : null];
+	const open = chat.more.has(key);
+	const list = open ? p.sessions : p.sessions.filter((s, i) => i < 5 || liveOf(s));
+	const hidden = p.sessions.length - list.length;
+	return [list.map(s => crow(p, s)),
+		hidden > 0 || (open && p.sessions.length > 5) ? h('button', { type: 'button', class: 'btn small cmore', onclick: () => { if (open) { chat.more.delete(key); } else { chat.more.add(key); } paintSide(); } }, open ? 'Show fewer' : 'Show ' + hidden + ' more') : null];
 }
 // The snippet is transcript text: text nodes only, the match in a <mark> built here. Folded as the host does (sessionSearch.ts fold):
 // the same length as the text, so the index found in the folded copy cuts the original at the right place.
@@ -516,90 +692,103 @@ function searchResults() {
 		const p = chat.projects.find(x => x.key === key);
 		out.push(h('div', { class: 'sgroup sresult' }, h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p ? p.where : '' }, p ? p.name : 'Project')),
 			p ? hits.map(hit => rowEl('hit:' + hit.kind + ':' + hit.session, () => indexContent(p, hit.kind, hit.session, hit.title), KIND_NAME[hit.kind] + ' session: ' + hit.title,
-				[raw('span', 'sicon', MARK[hit.kind]), h('span', { class: 'sbody' }, h('span', { class: 'sname', title: hit.title }, hit.title), snippet(hit.snippet, chat.q), h('span', { class: 'sact' }, KIND_NAME[hit.kind] + ' · ' + dur(Math.max(0, now() - hit.modified)) + ' ago'))], 'crow')) : null));
+				[raw('span', 'sicon', MARK[hit.kind]), h('span', { class: 'sbody' }, h('span', { class: 'sname', title: hit.title }, hit.title), snippet(hit.snippet, chat.q), h('span', { class: 'sact' }, KIND_NAME[hit.kind] + ' · ' + ago(now() - hit.modified)))], 'crow')) : null));
 	}
 	if (f.more) { out.push(h('p', { class: 'note' }, (f.cut ? 'The search stopped early, so older sessions may match too. ' : '') + 'Showing the newest matches. Type more to narrow the search.')); }
 	return out;
+}
+// A project's header: its name, one "+" that opens the launcher on its folder (when the folder is known) and whatever opens its window.
+function projectHead(name, where, key, cwd, extra) {
+	const plus = cwd ? h('button', { type: 'button', class: 'btn small plus', title: 'New session in ' + name, 'aria-label': 'New session in ' + name, 'aria-haspopup': 'dialog', 'aria-expanded': launch.open && launch.key === key ? 'true' : 'false' }, '+') : null;
+	if (plus) {
+		plus.addEventListener('click', e => { e.stopPropagation(); openLauncher(plus, { cwd, name, key }); });
+		plusEls.set(key, plus);
+	}
+	return h('div', { class: 'shead' }, h('span', { class: 'sproj', title: where }, name), plus, extra);
 }
 function paintSide() {
 	// A row being dragged must stay in the page until the drop: the repaint waits for it.
 	if (typeof ws !== 'undefined' && ws.drag) { ws.dirty = true; return; }
 	const keep = document.activeElement && document.activeElement.getAttribute ? document.activeElement.getAttribute('data-key') : undefined;
+	const keepPlus = [...plusEls].filter(([, e]) => e === document.activeElement).map(([k]) => k)[0];
 	rowEls.clear();
+	plusEls.clear();
 	const shown = rows => rows.filter(s => filter.ended || s.state !== 'ended');
-	const mine = shown(data.rows);
-	const pick = (label, msg, tip) => h('button', { type: 'button', class: 'btn small', title: tip, onclick: () => { if (msg.type === 'pick') { expectNew(undefined); } post(msg); } }, label);
+	const pick = (label, msg, tip) => h('button', { type: 'button', class: 'btn small', title: tip, onclick: () => post(msg) }, label);
+	const cwdOf = key => { const c = chat.projects.find(x => x.key === key); return c ? c.cwd : undefined; };
 	const ownChat = chat.projects.find(p => p.own);
-	const out = [h('div', { class: 'sgroup' },
-		h('div', { class: 'shead' }, h('span', { class: 'sproj', title: 'This window' }, (data.project && data.project.name) || 'This window'), pick('New session', { type: 'pick' }, 'Pick an agent to start in this project')),
-		mine.length ? mine.map(s => srow(s, () => ownContent(s), 'row:' + s.id)) : (ownChat && ownChat.sessions.length ? null : h('p', { class: 'note' }, 'No sessions yet.')),
-		ownChat ? chatRows(ownChat.key) : null)];
+	// One entry per project: what to draw, and what orders it (a live session, then the latest activity).
+	const items = [{ rows: data.rows, chatKey: ownChat && ownChat.key, draw: () => h('div', { class: 'sgroup' },
+		projectHead((data.project && data.project.name) || 'This window', 'This window', 'own', (data.project && data.project.cwd) || (ownChat && ownChat.cwd)),
+		shown(data.rows).map(s => srow(s, () => ownContent(s), 'row:' + s.id)), ownChat ? chatRows(ownChat.key) : null) }];
 	// Every open project, with or without sessions: the sidebar is also the way to jump between the open project windows.
-	if (data.peers.length) { out.push(h('div', { class: 'slabel' }, 'Open projects')); }
 	for (const p of data.peers) {
-		const list = shown(p.rows);
-		out.push(h('div', { class: 'sgroup' },
-			h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p.name }, p.name), pick('Open in IDE', { type: 'peer', action: 'ide', key: p.key }, 'Bring up the window of ' + p.name)),
-			list.length ? list.map(s => srow(s, () => peerContent(p, s), 'peer:' + s.id)) : h('p', { class: 'note' }, 'No sessions'),
-			chatRows(p.key)));
+		items.push({ rows: p.rows, chatKey: p.key, draw: () => { const list = shown(p.rows); return h('div', { class: 'sgroup' },
+			projectHead(p.name, p.name, p.key, cwdOf(p.key), pick('Open in IDE', { type: 'peer', action: 'ide', key: p.key }, 'Bring up the window of ' + p.name)),
+			list.length ? list.map(s => srow(s, () => peerContent(p, s), 'peer:' + s.id)) : h('p', { class: 'note' }, 'No sessions'), chatRows(p.key)); } });
 	}
-	if (data.recent.length) {
-		out.push(h('div', { class: 'slabel' }, 'Recent'));
-		for (const p of data.recent) {
-			out.push(h('div', { class: 'srecent' },
-				h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p.name }, p.name), pick('Open project', { type: 'peer', action: 'ide', key: p.key }, 'Open ' + p.name + ' in a window')),
-				h('div', { class: 'sact', title: p.sessions.join(', ') }, p.sessions.join(', ') + ' (closed)'),
-				chatRows(p.key)));
-		}
+	for (const p of data.recent) {
+		items.push({ rows: [], chatKey: p.key, draw: () => h('div', { class: 'srecent' },
+			projectHead(p.name, p.name, p.key, cwdOf(p.key), pick('Open project', { type: 'peer', action: 'ide', key: p.key }, 'Open ' + p.name + ' in a window')),
+			h('div', { class: 'sact', title: p.sessions.join(', ') }, p.sessions.join(', ') + ' (closed)'), chatRows(p.key)) });
 	}
 	// Projects the agents have worked in that this window does not know as open or recent.
 	const known = new Set(data.peers.map(p => p.key).concat(data.recent.map(p => p.key)));
-	const others = chat.projects.filter(p => !p.own && !known.has(p.key));
-	// What runs outside this window right now (a terminal app, the desktop app, another editor), above the rest of the machine's projects.
-	const elsewhere = [];
-	for (const p of chat.projects) { for (const s of p.sessions) { const l = liveOf(s); if (l && l.basis === 'live') { elsewhere.push({ p, s, l }); } } }
-	elsewhere.sort((a, b) => (b.l.status === 'needs') - (a.l.status === 'needs') || b.s.modified - a.s.modified);
-	if (others.length || elsewhere.length) { out.push(h('div', { class: 'slabel' }, 'On this machine')); }
-	if (elsewhere.length) {
-		out.push(h('div', { class: 'sgroup', 'aria-label': 'Running elsewhere' }, h('div', { class: 'shead' }, h('span', { class: 'sproj', title: 'Sessions that other programs on this computer are running now' }, 'Running elsewhere'), h('span', { class: 'sact' }, String(elsewhere.length))),
-			elsewhere.map(x => crow(x.p, x.s, 'live:'))));
+	for (const p of chat.projects.filter(x => !x.own && !known.has(x.key))) {
+		items.push({ rows: [], chatKey: p.key, draw: () => h('div', { class: 'sgroup' }, projectHead(p.name, p.where, p.key, p.cwd), chatRows(p.key)) });
 	}
-	for (const p of others) {
-		out.push(h('div', { class: 'sgroup' }, h('div', { class: 'shead' }, h('span', { class: 'sproj', title: p.where }, p.name)), chatRows(p.key)));
+	for (const it of items) {
+		const cp = chat.projects.find(x => x.key === it.chatKey);
+		const cs = cp ? cp.sessions : [];
+		it.live = it.rows.some(r => r.state !== 'ended') || cs.some(x => { const l = liveOf(x); return l && l.basis === 'live'; });
+		it.at = Math.max(0, ...it.rows.map(r => r.since || 0), ...cs.map(x => x.modified || 0));
 	}
+	items.sort((a, b) => (b.live ? 1 : 0) - (a.live ? 1 : 0) || b.at - a.at);
 	sebox.className = cls('sebox', !chat.got && 'hidden');
 	endedBtn.setAttribute('aria-pressed', filter.ended ? 'true' : 'false');
-	fill(sideList, chat.q ? searchResults() : out);
-	const again = keep ? rowEls.get(keep) : undefined;
+	fill(sideList, chat.q ? searchResults() : items.map(it => it.draw()));
+	const again = keep ? rowEls.get(keep) : keepPlus ? plusEls.get(keepPlus) : undefined;
 	if (again && again.focus) { again.focus(); }
 }
 
 // ---- header ----------------------------------------------------------------------------------------------------------------
+// Sessions other programs run (Claude's own list of running ones; Codex has none): the ones the sidebar shows with a state of their own.
+// A session that this window or another Insilode window runs is an agent row already (under any id its conversation has had): never counted twice.
+function externalLive() {
+	const out = [];
+	const ours = new Set([...data.rows, ...data.peers.flatMap(p => p.rows)].flatMap(r => [r.id, r.agentId, ...(r.aliases || [])]));
+	for (const p of chat.projects) { for (const s of p.sessions) { const l = liveOf(s); if (l && l.basis === 'live' && !ours.has(s.id)) { out.push({ p, s, l }); } } }
+	return out;
+}
+// The counts and the totals in the toolbar. The counts take the other windows' sessions and the ones other programs run, so they never say less than the list.
 function paintHead() {
 	const g = { needs: 0, working: 0, done: 0 };
 	let tokens = 0, dollars = 0, priced = false;
-	// The page is the place to see every project: the counters take the other open projects' sessions too.
 	for (const s of data.rows.concat(...data.peers.map(p => p.rows))) {
 		const c = column(s);
 		if (g[c] !== undefined) { g[c]++; }
 	}
-	// The count is the queue's: sessions other programs run that wait for the user are in it too.
-	g.needs += externalWaiting().length;
+	for (const x of externalLive()) {
+		const k = x.l.status === 'needs' ? 'needs' : x.l.status === 'working' ? 'working' : x.l.status === 'idle' ? 'done' : undefined;
+		if (k) { g[k]++; }
+	}
 	for (const s of data.rows) {
 		if (s.cost) { tokens += sum(s.cost.session.tokens); if (s.cost.session.usd !== undefined) { dollars += s.cost.session.usd; priced = true; } }
 	}
-	const count = (n, label, color, tip) => h('span', { class: 'count', title: tip }, h('i', { style: 'background:var(' + color + ')' }), h('b', null, String(n)), label);
+	const count = (n, label, color, tip) => n ? h('span', { class: 'count', title: tip || null }, h('i', { style: 'background:var(' + color + ')' }), h('b', null, String(n)), ' ' + label) : null;
+	fill(countsEl, [count(g.working, 'working', '--working', 'Sessions working'), count(g.needs, 'needs you', '--blocked', 'Sessions waiting for you, here or elsewhere on this computer (' + MOD + 'N jumps to the next)'), count(g.done, 'done', '--done', 'Sessions that are idle or done')]);
 	const lim = data.limits && data.limits.windows ? data.limits.windows.map(w => {
 		const p = Math.max(0, Math.min(100, Math.round(w.usedPercent)));
 		return h('span', { class: 'lim' + (p >= 90 ? ' full' : p >= 70 ? ' warn' : ''), title: (data.limits.harness || 'Plan') + ' ' + w.label + ' limit: ' + p + '% used' },
 			// Each part its own element: two text nodes side by side would form one flex item, and the gap would not part them.
 			w.label, h('span', { class: 'bar' }, h('i', { style: 'width:' + p + '%' })), h('span', null, p + '%'), w.resetsAt ? h('span', null, 'resets in ' + until(w.resetsAt - now())) : null);
 	}) : [];
-	fill(head, [
-		h('div', { class: 'counts' }, count(g.needs, 'Needs you', '--blocked', 'Sessions waiting for you, here or elsewhere on this computer (' + MOD + 'N jumps to the next)'), count(g.working, 'Working', '--working'), count(g.done, 'Done', '--done')),
-		data.rows.some(s => s.cost) ? h('span', { class: 'totals', title: 'Tokens and dollars are what the CLIs report for each session; dollars are estimates.' }, h('b', null, tok(tokens)), ' tokens' + (priced ? ' · ' : ''), priced ? h('b', null, usd(dollars)) : null, priced ? ' est.' : null) : null,
-		lim.length ? h('div', { class: 'limits' }, lim) : null,
-	]);
+	const withCost = data.rows.some(s => s.cost);
+	totalsEl.className = withCost ? 'totals' : 'totals hidden';
+	totalsEl.setAttribute('title', 'Tokens and dollars are what the CLIs report for each session; dollars are estimates.');
+	fill(totalsEl, withCost ? [h('span', null, h('b', null, tok(tokens)), ' tokens' + (priced ? ' · ' : ''), priced ? h('b', null, usd(dollars)) : null, priced ? ' est.' : null)] : []);
+	limitsEl.className = lim.length ? 'limits' : 'limits hidden';
+	fill(limitsEl, lim);
 }
 
 // ---- cards and rows of the Board and List ----------------------------------------------------------------------------------
@@ -716,13 +905,7 @@ function paintKept() {
 const queueEl = h('div', { class: 'queue hidden', role: 'region', 'aria-label': 'Sessions that need you' });
 let qsig = '', qcursor;
 // Claude sessions that other programs run and that say they wait for the user (Claude's "waiting" status); Codex has no such status.
-function externalWaiting() {
-	const out = [];
-	// A session that this window or another Insilode window runs is an agent row already (under any id its conversation has had): never the same one twice.
-	const ours = new Set([...data.rows, ...data.peers.flatMap(p => p.rows)].flatMap(r => [r.id, r.agentId, ...(r.aliases || [])]));
-	for (const p of chat.projects) { for (const s of p.sessions) { const l = liveOf(s); if (l && l.basis === 'live' && l.status === 'needs' && !ours.has(s.id)) { out.push({ p, s, l }); } } }
-	return out;
-}
+const externalWaiting = () => externalLive().filter(x => x.l.status === 'needs');
 // Each item: { key, title, project, run } in the order they are worked: this window's longest-waiting first, then the other windows', then the other programs'.
 function queueItems() {
 	const items = [];
@@ -803,6 +986,8 @@ window.addEventListener('message', e => {
 		paint();
 		reveal();
 		adoptNew();
+	} else if (m.type === 'folderPicked') {
+		folderPicked(m);
 	} else if (wsMessage(m)) {
 		return;
 	} else if (m.type === 'chatIndex') {
@@ -830,6 +1015,7 @@ document.addEventListener('keydown', e => {
 	if (wsKey(e)) { return; }
 	if (e.key === 'Escape') {
 		if (shortcutsEl.className.indexOf('hidden') < 0) { closeShortcuts(); return; }
+		if (launch.open) { closeLauncher(true); return; }
 		if (menuState) { closeMenu(true); return; }
 		if (inTerm(e.target)) { return; }
 		if (typing(e.target) && e.target.blur) { e.target.blur(); }
@@ -852,7 +1038,10 @@ document.addEventListener('keydown', e => {
 	const el = cardEls.get(next.id);
 	if (el) { el.focus(); if (el.scrollIntoView) { el.scrollIntoView({ block: 'nearest' }); } }
 });
-document.addEventListener('click', e => { if (menuState && !menuEl.contains(e.target) && !menuState.anchor.contains(e.target)) { closeMenu(false); } });
+document.addEventListener('click', e => {
+	if (menuState && !menuEl.contains(e.target) && !menuState.anchor.contains(e.target)) { closeMenu(false); }
+	if (launch.open && !launchEl.contains(e.target) && !(launch.anchor && launch.anchor.contains(e.target))) { closeLauncher(false); }
+});
 `;
 
 /** The last statements: everything above is defined by now. */

@@ -17,6 +17,7 @@ import { DesktopStatus } from './desktop';
 import { AgentsDock } from './dock';
 import { watchGazeSetting } from './gazeHost';
 import { registerPlaceholderModels } from './models';
+import { attentionKind, nextWaiting, waitingForYou } from './attention';
 import { AttentionNotifier } from './notify';
 import { renameFromPalette, removeFromPalette, swapFromPalette } from './paletteActions';
 import { Peers } from './peers';
@@ -25,7 +26,7 @@ import { PrEvents } from './prEvents';
 import { runningElsewhere } from './liveSessions';
 import { ProjectIndex } from './projectIndex';
 import { startOrResume } from './resume';
-import { toggleBypass } from './bypass';
+import { toggleBypass, toggleNeverAsk } from './bypass';
 import { sweepLeftoverCopies } from './swap';
 import { TermHost } from './termHost';
 import { settingMoves } from './legacySettings';
@@ -46,6 +47,9 @@ async function migrateSettings(log: vscode.LogOutputChannel) {
 		}
 	}
 }
+
+/** The agents the "next agent that needs you" key showed in this round, so each press moves on to one not seen yet. */
+const shownWaiting = new Set<string>();
 
 export async function activate(context: vscode.ExtensionContext) {
 	const log = vscode.window.createOutputChannel('Insilode Agents', { log: true });
@@ -87,7 +91,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	const projects = new ProjectIndex(() => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath, () => [...agents.sessions.values()].filter(s => s.state !== 'ended').flatMap(s => [s.id, s.agentId ?? '', path.basename(s.transcript ?? '', '.jsonl'), ...agents.aliasesOf(s.id)]),
 		() => peers.view().peers.flatMap(p => p.rows.flatMap(r => [r.id, r.agentId ?? '', ...(r.aliases ?? [])])));
 	// A session another program runs must not be resumed here too: asked of the machine at the moment of the click, not of the page's last list.
-	const term = new TermHost(agents, context, async id => (await runningElsewhere([id]))?.source);
+	const term = new TermHost(agents, context, async id => (await runningElsewhere([id]))?.source, async () => (await projects.projects({ cached: true })).map(p => p.cwd));
 	const page = new AgentsPanel(agents, worktrees, peers, projects, term, new LayoutStore(context.workspaceState, context.globalState));
 	const router = new AskRouter(context, agents);
 	context.subscriptions.push(
@@ -111,6 +115,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('flow.agents.newCodexWorktree', () => agents.spawn('codex', undefined, undefined, 'worktree')),
 		vscode.commands.registerCommand('flow.agents.resume', () => startOrResume(agents, 'claude', false)),
 		vscode.commands.registerCommand('flow.agents.claudeBypass', () => toggleBypass()),
+		vscode.commands.registerCommand('flow.agents.codexNeverAsk', () => toggleNeverAsk()),
 		// The dock's ⇄ on an agent row: the same conversation, continued in the other CLI (swap.ts).
 		vscode.commands.registerCommand('flow.agents.swap', (id?: unknown) => swapFromPalette(agents, id)),
 		vscode.commands.registerCommand('flow.agents.rename', (id?: unknown) => renameFromPalette(agents, id)),
@@ -146,15 +151,25 @@ export async function activate(context: vscode.ExtensionContext) {
 				agents.show(s.id);
 			}
 		}),
+		// Called by flow-view's Home: this window's agents that wait for the user (an approval, a question, an error), the one that needs
+		// them first. Only what Home draws: a name, the CLI and why it waits; never a transcript or a path.
+		vscode.commands.registerCommand('flow.agents.needsYou', () => waitingForYou([...agents.sessions.values()]).map(s => ({ id: s.id, name: s.name, cli: s.cli, kind: attentionKind(s) }))),
+		// "Next agent that needs you": one key from anywhere takes you to the agent that waits, then to the one after it.
+		vscode.commands.registerCommand('flow.agents.nextNeedsYou', () => {
+			const next = nextWaiting([...agents.sessions.values()], shownWaiting);
+			if (!next) {
+				return void vscode.window.setStatusBarMessage('Insilode: no agent is waiting for you.', 3000);
+			}
+			if (shownWaiting.has(next.id)) {
+				shownWaiting.clear();
+			}
+			shownWaiting.add(next.id);
+			agents.show(next.id);
+		}),
 		vscode.commands.registerCommand('flow.agents.chooseAskTarget', () => router.choose()),
 		vscode.commands.registerCommand('flow.agents.keptWorktrees', () => worktrees.showKept()),
 		vscode.commands.registerCommand('flow.agents.cleanupWorktrees', () => cleanupWorktrees(agents)),
 		vscode.commands.registerCommand('flow.agents.runWorktreeSetup', () => runWorktreeSetup(agents)),
-		// Called by the harness map's context X-ray (Compact, Measure): it names a session by id and a kind, never text, and
-		// the session's own state decides (Agents.slash), so an Enter never lands on a permission prompt. `check` types nothing.
-		vscode.commands.registerCommand('flow.agents.slash', (id: unknown, kind: unknown, check: unknown) => typeof id === 'string' && (kind === 'compact' || kind === 'context')
-			? agents.slash(id, kind, check === true)
-			: 'unknown'),
 	);
 	// The dock is where Insilode's agents live: on the first start, show it rather than the chat panel (which needs ACP to reach them).
 	if (!showChat() && !context.globalState.get<boolean>('flow.agents.dockShown')) {

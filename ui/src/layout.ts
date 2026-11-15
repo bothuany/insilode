@@ -214,6 +214,8 @@ export function layout(root: FlowNode, hidden: Set<string>, full: Set<string>, s
       type: 'card',
       position: { x: cardX, y: cardY },
       style: { width: w, height: h },
+      initialWidth: w,
+      initialHeight: h,
       zIndex: 1000,
       data: {
         node,
@@ -269,6 +271,8 @@ export function layout(root: FlowNode, hidden: Set<string>, full: Set<string>, s
       type: 'frame',
       position: { x, y },
       style: { width: fw, height: fh },
+      initialWidth: fw,
+      initialHeight: fh,
       zIndex: depth,
       selectable: false,
       data: { kind: node.kind, depth } satisfies FrameData,
@@ -317,6 +321,8 @@ export function layoutCallers(up: FlowNode, rootKey: string, rootY: number, hidd
         type: 'card',
         position: { x, y: cy },
         style: { width: w, height: h },
+        initialWidth: w,
+        initialHeight: h,
         zIndex: 1000,
         data: {
           node: { ...caller, children: [] },

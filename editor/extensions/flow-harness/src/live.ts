@@ -17,13 +17,13 @@ import { claudeDir, projectTranscripts } from './dirs';
 const ACTIVITY = 'flowHarness.activity';
 const BACKFILL_FILES = 200;
 const DAY = 86_400_000;
-/** Agents remembered by name, for the X-ray's session list. */
+/** Agents remembered by name, for the "Why?" view and the Harness Flow page. */
 const MAX_SESSIONS = 50;
 
 export type { FrictionData };
 
 export interface LiveSession {
-	/** flow-agent's id for the session, when it ran in the Agents dock: what Compact and Measure in the X-ray address. */
+	/** flow-agent's id for the session, when it ran in the Agents dock. */
 	id?: string;
 	agent: string;
 	/** The permission mode its hooks reported last (Claude Code sends it on most events). */
@@ -224,42 +224,6 @@ export class Live implements vscode.Disposable {
 		const from = coveredFrom(cutoff, partial, skipped);
 		this.data.since = Math.min(Math.max(this.data.since, cutoff), from);
 		this.touch();
-	}
-
-	/** Everything one transcript says, for the X-ray: its start (listings, memory, the first request) and its newest part. */
-	async facts(file: string): Promise<TranscriptFacts | undefined> {
-		if (!isTranscriptPath(file, claudeDir())) {
-			return undefined;
-		}
-		try {
-			const h = await fs.open(file, 'r');
-			let head: string;
-			let tail = '';
-			let partial = false;
-			try {
-				const size = (await h.stat()).size;
-				partial = size > 4 << 20;
-				const headLen = Math.min(size, 2 << 20);
-				const hb = Buffer.alloc(headLen);
-				await h.read(hb, 0, headLen, 0);
-				head = hb.toString('utf8');
-				if (size > headLen) {
-					const tailLen = Math.min(size - headLen, 2 << 20);
-					const tb = Buffer.alloc(tailLen);
-					await h.read(tb, 0, tailLen, size - tailLen);
-					tail = tb.toString('utf8');
-				}
-			} finally {
-				await h.close();
-			}
-			const headLines = head.split('\n');
-			headLines.pop();
-			const tailLines = tail ? tail.split('\n').slice(1) : [];
-			// The middle of a large transcript is not read: what is counted there (compactions) is a lower bound.
-			return { ...parseTranscript([...headLines, ...tailLines]), partial };
-		} catch {
-			return undefined;
-		}
 	}
 
 	private touch() {

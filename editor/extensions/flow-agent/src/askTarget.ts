@@ -86,7 +86,7 @@ export function planFirst(line: string, target: AskTarget): string {
 	return claude ? `/plan ${line}` : `${PLAN_FIRST} ${line}`;
 }
 
-/** The slash commands another extension may have typed into a session (flow.agents.slash): a kind, never text of its own. */
+/** The slash commands Insilode types into a session for the user (the dock's Compact): a kind, never text of its own. */
 export type SlashKind = 'compact' | 'context';
 /** Why a slash command was not typed, or `sent`. */
 export type SlashResult = 'sent' | 'busy' | 'waiting' | 'not-ready' | 'unsupported' | 'no-terminal' | 'unknown';

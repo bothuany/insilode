@@ -18,7 +18,7 @@ import * as vscode from 'vscode';
 import { findNodeAtLocation, parseTree } from 'jsonc-parser';
 import { claudeDir, codexDir } from './dirs';
 import { checkHttp, checkStdio, expandVars, parseClaudeGet, runCli, type CheckResult } from './mcpcheck';
-import { maskArgs, maskText, maskUrl, publicView, readMcp, secretsOf, type McpConfig, type McpHarness, type McpServer } from './mcpconfig';
+import { maskArgs, maskText, maskUrl, publicView, readMcp, secretsOf, type McpConfig, type McpHarness, type McpServer, type McpView } from './mcpconfig';
 import { claudeAddArgs, claudeEntry, claudeRemoveArgs, codexAddArgs, codexEntry, codexRemoveArgs, commandLine, defOf, excerpt, findExecutable, jsonList, NAME, setCodexEnabled, setServer, splitCommandLine, targetFile, type ClaudeCliScope, type ServerDef } from './mcpedit';
 import { page } from './page';
 import { previewAndWriteFiles, type FileChange } from './settings';
@@ -45,6 +45,15 @@ const isFile = (p: string) => {
 	}
 };
 
+/** What the MCP page and the Harness page draw: public views only (names, never values), with each server's usage, last check and busy flag. */
+export interface McpPageData {
+	servers: (McpView & { usage?: McpUsage; check?: StoredCheck; busy: boolean })[];
+	cli: { claude: boolean; codex: boolean };
+	trusted: boolean;
+	problems: { file: string; message: string }[];
+	files?: { claudeJson: string; codexUser: string };
+}
+
 export interface McpUsage {
 	label: string;
 	week: number;
@@ -60,6 +69,8 @@ export class McpManager implements vscode.Disposable {
 	/** The page posts 'ready' once its listener is up; a render before that is lost, so the focus waits for it. */
 	private ready = false;
 	private readonly disposables: vscode.Disposable[] = [];
+	/** Other pages that show the same servers (the Harness page): told after every render, so a check in progress or a finished edit shows there too. */
+	private readonly watchers = new Set<(data: McpPageData) => void>();
 
 	constructor(
 		private readonly state: vscode.Memento,
@@ -99,33 +110,54 @@ export class McpManager implements vscode.Disposable {
 			this.ready = false;
 			this.panel.webview.html = html();
 			this.panel.onDidDispose(() => this.panel = undefined, null, this.disposables);
-			this.panel.webview.onDidReceiveMessage(m => void this.message(m).catch(e => void vscode.window.showErrorMessage(`MCP servers: ${(e as Error).message}`)), null, this.disposables);
+			this.panel.webview.onDidReceiveMessage(m => void this.handle(m), null, this.disposables);
 		} else {
 			this.panel.reveal();
 		}
 		await this.render();
 	}
 
-	/** After the map rescanned (a file changed on disk): the page shows the same state. */
+	/** After the map rescanned (a file changed on disk): the pages show the same state. */
 	async changed() {
-		if (this.panel) {
-			await this.render();
-		}
+		await this.render();
+	}
+
+	/** Reads the config again and returns what a page draws; the Harness page asks for it when it opens or refreshes. */
+	async view(): Promise<McpPageData> {
+		this.config = await this.load();
+		return this.data();
+	}
+
+	/** Calls `listener` with the new state after every render, and returns what stops it. */
+	watch(listener: (data: McpPageData) => void): vscode.Disposable {
+		this.watchers.add(listener);
+		return { dispose: () => void this.watchers.delete(listener) };
+	}
+
+	/** One of this page's messages (a type and a server id), for a page that reuses its actions: errors are shown, never thrown. */
+	handle(m: { type?: unknown; id?: unknown }): Promise<void> {
+		return this.message(m).catch(e => void vscode.window.showErrorMessage(`MCP servers: ${(e as Error).message}`));
+	}
+
+	private data(): McpPageData {
+		const checks = this.checks();
+		return {
+			servers: (this.config?.servers ?? []).map(s => ({ ...publicView(s), usage: this.usage(s.toolPrefix), check: checks[s.id], busy: this.busy.has(s.id) })),
+			cli: { claude: !!this.claudeCli(), codex: !!this.codexCli() },
+			trusted: vscode.workspace.isTrusted,
+			problems: (this.config?.problems ?? []).map(p => ({ file: p.file.replace(os.homedir(), '~'), message: p.message })),
+			files: this.config && { claudeJson: this.config.files.claudeJson.replace(os.homedir(), '~'), codexUser: this.config.files.codexUser.replace(os.homedir(), '~') },
+		};
 	}
 
 	private async render() {
-		if (!this.panel) {
+		if (!this.panel && !this.watchers.size) {
 			return;
 		}
 		this.config = await this.load();
-		const checks = this.checks();
-		const cli = { claude: !!this.claudeCli(), codex: !!this.codexCli() };
-		const servers = (this.config?.servers ?? []).map(s => ({ ...publicView(s), usage: this.usage(s.toolPrefix), check: checks[s.id], busy: this.busy.has(s.id) }));
-		void this.panel.webview.postMessage({
-			type: 'data', servers, cli, focus: this.focus, trusted: vscode.workspace.isTrusted,
-			problems: (this.config?.problems ?? []).map(p => ({ file: p.file.replace(os.homedir(), '~'), message: p.message })),
-			files: this.config && { claudeJson: this.config.files.claudeJson.replace(os.homedir(), '~'), codexUser: this.config.files.codexUser.replace(os.homedir(), '~') },
-		});
+		const data = this.data();
+		void this.panel?.webview.postMessage({ type: 'data', ...data, focus: this.focus });
+		this.watchers.forEach(w => w(data));
 		if (this.ready) {
 			this.focus = undefined;
 		}

@@ -230,6 +230,25 @@ export function rank<T extends Rankable>(list: T[]): T[] {
 	return [...list].sort((a, b) => urgency(a) - urgency(b) || (attentionKind(a) ? (a.need?.at ?? a.since) - (b.need?.at ?? b.since) : b.since - a.since));
 }
 
+/**
+ * The agents that wait for you (an approval, a question, an error you have not seen), the most urgent first: what Home lists and what
+ * the "next agent that needs you" key walks. An ended session is left out even when it crashed: showing one would start its CLI again,
+ * so the dock's badge may count a crash that neither of these offers.
+ */
+export function waitingForYou<T extends Rankable>(list: T[]): T[] {
+	return rank(list.filter(s => { const k = s.state === 'ended' ? undefined : attentionKind(s); return k === 'approval' || k === 'question' || k === 'error'; }));
+}
+
+/**
+ * The next agent for the "next agent that needs you" key: the most urgent one not shown in this round (`seen`), and when every waiting
+ * one was shown, the most urgent again (the caller then starts a new round). An index would not do: looking at an error marks it read,
+ * so the list shrinks under the round. Nothing when nobody waits.
+ */
+export function nextWaiting<T extends Rankable & { id: string }>(list: T[], seen: ReadonlySet<string> = new Set()): T | undefined {
+	const waiting = waitingForYou(list);
+	return waiting.find(s => !seen.has(s.id)) ?? waiting[0];
+}
+
 /** A key that changes exactly when a session starts needing you anew: notify once per key. */
 export function attentionKey(s: Rankable): string | undefined {
 	const kind = attentionKind(s);

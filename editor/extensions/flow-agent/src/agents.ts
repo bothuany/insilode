@@ -24,7 +24,7 @@ import { CostTracker, statusUsd, type SessionCost } from './cost';
 import { disposeGaze, gazeHook, gazeTurn } from './gazeHost';
 import { parsePatch, patchFiles, patchText } from './patch';
 import { PrWatcher, type PrState } from './prState';
-import { claudeCommand } from './launch';
+import { claudeCommand, codexStartCommand } from './launch';
 import { folderKey } from './storageKey';
 import { shimScript } from './shim';
 import { canExplain, explainPrompt } from './explain';
@@ -33,7 +33,7 @@ import { ShellEditSweep } from './shellEdits';
 import { openRegular } from './safeFile';
 import { confirmResumeAnyway } from './resumeAnyway';
 import { idInUse } from './spawnGuard';
-import { bypassAllowed } from './bypass';
+import { bypassAllowed, neverAskAllowed } from './bypass';
 import { SKELETON_GATE, SKELETON_PROMPT_GATE } from './skeleton';
 import { canType, notReady, oneLine, slashRefusal, slashText, type AgentCli, type AgentState, type CustomCli, type SessionInfo, type SlashKind, type SlashResult } from './askTarget';
 import { applyUsage, claudeTranscriptUsage, codexRolloutUsage, endUsage, findOnPath, hasOwnStatusLine, LimitsSender, parseClaudeStatus, statusScript, type ContextUsage, type UsageLimits } from './usage';
@@ -755,8 +755,8 @@ export class Agents implements vscode.Disposable {
 	/**
 	 * Starts a CLI in a new terminal. Claude gets a session id we chose, so every hook maps to its terminal. `place` puts a new
 	 * agent in a git worktree of its own or in this checkout; left out, the flow.agents.worktree setting decides. A resumed
-	 * agent goes back to where it ran. `opts.cwd` runs it in that folder instead of this window's (the caller has asked the user about
-	 * a folder outside the workspace: folderTrust.ts), with no worktree of its own; `opts.quiet` leaves the terminal hidden and
+	 * agent goes back to where it ran. `opts.cwd` runs it in that folder instead of this window's (the caller has checked that folderTrust.ts allows
+	 * a folder outside the workspace), with no worktree of its own; `opts.quiet` leaves the terminal hidden and
 	 * the focus where it is, for a terminal that a page shows itself. `opts.confirmed`: the user was already asked about a session another process runs.
 	 */
 	async spawn(cli: AgentCli, resume?: AgentSession, custom?: CustomAgent, place?: 'worktree' | 'here', opts?: { cwd?: string; quiet?: boolean; confirmed?: boolean }): Promise<AgentSession | undefined> {
@@ -827,12 +827,11 @@ export class Agents implements vscode.Disposable {
 		// The `insilode` tools find this window by its folder, so a worktree agent gets the main folder's config.
 		const mcp = cli === 'claude' ? await this.mcpConfig(folder, id) : undefined;
 		const codexHooks = !!codex?.hooks;
-		const profile = codex ? ` -p ${CODEX_PROFILE}` : '';
 		const command = cli === 'claude'
 			? claudeCommand({ resume: !!resume, id, settings: this.server && this.settingsOk ? this.claudeSettings() : undefined, mcp, allowBypass: bypassAllowed() })
 			// Codex chose its session id; until a hook told us, `codex resume` without one opens its own picker.
 			// The id is typed into the shell: one that is not a uuid (from a hook, or Codex's importer) is never typed; Codex's picker opens instead.
-			: cli === 'codex' ? (resume ? `codex resume${profile}${resume.agentId && UUID.test(resume.agentId) ? ` ${resume.agentId}` : ''}` : `codex${profile}`)
+			: cli === 'codex' ? codexStartCommand({ resume: !!resume, id: resume?.agentId, profile: codex ? CODEX_PROFILE : undefined, neverAsk: neverAskAllowed() })
 			: resume?.command ?? custom?.command ?? '';
 		if (!opts?.quiet) {
 			terminal.show();
@@ -1602,16 +1601,6 @@ export class Agents implements vscode.Disposable {
 			prompt: p.hook_event_name === 'UserPromptSubmit' ? p.prompt?.slice(0, 2000) : undefined,
 			agentType: p.agent_type, transcript: s.transcript, id: s.id, mode: p.permission_mode,
 		})).catch(() => undefined);
-	}
-
-	/** The context X-ray of one agent, in the harness map: it reads the agent's transcript and the usage reported last. */
-	xray(id: string) {
-		const s = this.sessions.get(id);
-		if (s) {
-			// A click asked for it: if the harness map cannot answer, say so instead of doing nothing.
-			void Promise.resolve(vscode.commands.executeCommand('flowHarness.contextXray', { id: s.id, agent: s.name, cli: s.cli, transcript: s.transcript, usage: s.usage }))
-				.catch(e => void vscode.window.showWarningMessage(`The context X-ray is not available: ${(e as Error).message ?? e}`));
-		}
 	}
 
 	/** Opens the flow at `index` of an agent's turn impact (the dock sends an index, never an id of its own making). */

@@ -20,7 +20,7 @@ before(async () => {
 after(() => rmSync(tmp, { recursive: true, force: true }))
 
 test('row messages carry an id and become one action each', () => {
-	for (const type of ['show', 'pr', 'xray', 'forget', 'compact', 'rename', 'explain', 'swap']) {
+	for (const type of ['show', 'pr', 'forget', 'compact', 'rename', 'explain', 'swap']) {
 		assert.deepEqual(d.dockAction({ type, id: 'a1' }), { type, id: 'a1' }, type)
 		assert.equal(d.dockAction({ type }), undefined, `${type} without an id`)
 		assert.equal(d.dockAction({ type, id: 7 }), undefined, `${type} with a number for an id`)
@@ -28,6 +28,12 @@ test('row messages carry an id and become one action each', () => {
 	assert.equal(d.dockAction({ type: 'show', id: 'x'.repeat(201) }), undefined, 'an id past the bound')
 	assert.deepEqual(d.dockAction({ type: 'ready' }), { type: 'ready' })
 	assert.deepEqual(d.dockAction({ type: 'pick', extra: 1 }), { type: 'pick' }, 'extra fields are dropped')
+	assert.equal(d.dockAction({ type: 'xray', id: 'a1' }), undefined, 'the context X-ray is gone from the product')
+})
+
+test('the Agents page link is a bare message: no id, no command, extra fields dropped', () => {
+	assert.deepEqual(d.dockAction({ type: 'page' }), { type: 'page' })
+	assert.deepEqual(d.dockAction({ type: 'page', id: 'a1', command: 'workbench.action.quit' }), { type: 'page' })
 })
 
 test('the page starts only the built-in agents, never a command of its own', () => {
@@ -48,14 +54,16 @@ test('a flow is an index into the host list, a worktree action one of four', () 
 	assert.equal(d.dockAction({ type: 'wt', id: 'a', action: 'push' }), undefined)
 })
 
-test('the start menu names one of the two agents and one of its ways, never a command; bypass is Claude\'s only', () => {
+test('the start menu names one of the two agents and one of its ways, never a command; bypass is Claude\'s only and neverAsk Codex\'s only', () => {
 	for (const cli of ['claude', 'codex']) {
-		for (const how of d.START_HOWS.filter(h => cli === 'claude' || h !== 'bypass')) {
+		for (const how of d.START_HOWS.filter(h => h !== (cli === 'claude' ? 'neverAsk' : 'bypass'))) {
 			assert.deepEqual(d.dockAction({ type: 'start', cli, how, extra: 1 }), { type: 'start', cli, how })
 		}
 	}
-	assert.deepEqual([...d.START_HOWS], ['worktree', 'resume', 'bypass'])
+	assert.deepEqual([...d.START_HOWS], ['worktree', 'resume', 'bypass', 'neverAsk'])
 	assert.equal(d.dockAction({ type: 'start', cli: 'codex', how: 'bypass' }), undefined, 'Codex has no bypass switch')
+	assert.equal(d.dockAction({ type: 'start', cli: 'claude', how: 'neverAsk' }), undefined, 'Claude has no neverAsk switch')
+	assert.deepEqual(d.dockAction({ type: 'start', cli: 'codex', how: 'neverAsk' }), { type: 'start', cli: 'codex', how: 'neverAsk' })
 	for (const m of [
 		{ type: 'start', cli: 'claude' }, { type: 'start', how: 'worktree' }, { type: 'start', cli: 'custom', how: 'worktree' },
 		{ type: 'start', cli: 'claude', how: 'flow.agents.newClaudeWorktree' }, { type: 'start', cli: 'claude', how: 'rm -rf ~' },

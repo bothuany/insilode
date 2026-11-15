@@ -1,5 +1,5 @@
 // The vscode side of the page's terminals (src/termHost.ts) against a stub `vscode`: output is routed to the session the terminal
-// belongs to, a closing terminal ends it, and opening a terminal asks about a foreign folder once and spawns hidden.
+// belongs to, a closing terminal ends it, and opening a terminal in a foreign folder needs the user's own earlier action (never a modal of ours) and spawns hidden.
 import { test, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { build } from 'esbuild'
@@ -13,13 +13,15 @@ const T = { timeout: 5000 }
 
 const VSCODE = `
 class EventEmitter { constructor() { this.l = [] } get event() { return f => { this.l.push(f); return { dispose: () => { this.l = this.l.filter(x => x !== f) } } } } fire(e) { for (const f of [...this.l]) f(e) } }
-const write = new EventEmitter(), close = new EventEmitter()
-globalThis.__vs = { write, close, warnings: [], executed: [], answer: 'Run Agent Here' }
+// Two bundles load this stub, so the first one's emitters are kept.
+globalThis.__vs ??= { write: new EventEmitter(), close: new EventEmitter(), warnings: [], dialogs: [], picks: [], executed: [], answer: 'Run Agent Here' }
+const { write, close } = globalThis.__vs
 module.exports = {
 	window: {
 		onDidWriteTerminalData: write.event, onDidCloseTerminal: close.event,
 		showWarningMessage: async (message, options) => { globalThis.__vs.warnings.push({ message, options }); globalThis.__vs.onWarn?.(); return globalThis.__vs.answer },
 		showInformationMessage: async () => undefined,
+		showOpenDialog: async options => { globalThis.__vs.dialogs.push(options); return globalThis.__vs.picks.shift() },
 	},
 	workspace: { get isTrusted() { return globalThis.__vs.trusted !== false }, workspaceFolders: [] },
 	commands: { executeCommand: async (...a) => { globalThis.__vs.executed.push(a); return true } },
@@ -27,6 +29,7 @@ module.exports = {
 
 let tmp
 let TermHost
+let trust
 before(async () => {
 	// Native, as the product's own realpath is: it expands a Windows runner's 8.3 short temp name (RUNNER~1), the JavaScript one does not.
 	tmp = realpathSync.native(mkdtempSync(join(tmpdir(), 'flow-termhost-')))
@@ -39,13 +42,23 @@ before(async () => {
 		} }],
 	})
 	TermHost = (await import(pathToFileURL(outfile).href).then(m => m.default ?? m)).TermHost
+	// folderTrust.ts on its own, for what the host does not expose (it is a second module instance: its picked folders are its own).
+	const trustFile = join(tmp, 'folderTrust.cjs')
+	await build({
+		entryPoints: [join(ROOT, 'src', 'folderTrust.ts')], bundle: true, platform: 'node', format: 'cjs', outfile: trustFile, logLevel: 'silent',
+		plugins: [{ name: 'stub-vscode', setup: b => {
+			b.onResolve({ filter: /^vscode$/ }, () => ({ path: 'vscode', namespace: 'stub' }))
+			b.onLoad({ filter: /.*/, namespace: 'stub' }, () => ({ contents: VSCODE, loader: 'js' }))
+		} }],
+	})
+	trust = await import(pathToFileURL(trustFile).href).then(m => m.default ?? m)
 })
 after(() => rmSync(tmp, { recursive: true, force: true }))
 
 const SID = '0a99a3dd-7db0-4ba0-882d-a4dd922189be'
 
 /** A host over a fake Agents: `terminals` is its session → terminal map, `spawns` what spawn was asked. */
-function setup(live) {
+function setup(live, indexed) {
 	const terminals = new Map()
 	const sessions = new Map()
 	const spawns = []
@@ -64,14 +77,16 @@ function setup(live) {
 	}
 	const store = {}
 	const context = { globalState: { get: (k, d) => store[k] ?? d, update: async (k, v) => { store[k] = v } } }
-	const host = new TermHost(agents, context, live)
+	const host = new TermHost(agents, context, live, indexed)
 	const vs = globalThis.__vs
 	vs.warnings.length = 0
 	vs.executed.length = 0
 	vs.answer = 'Run Agent Here'
 	vs.onWarn = undefined
 	vs.trusted = true
-	return { host, agents, terminals, sessions, spawns, vs }
+	vs.dialogs.length = 0
+	vs.picks.length = 0
+	return { host, agents, terminals, sessions, spawns, vs, store, context }
 }
 
 const sinkOf = () => { const got = []; return { got, data: (d, reset) => got.push(reset ? ['reset', d] : d), gone: () => got.push('gone') } }
@@ -213,72 +228,118 @@ test('an ended session of this window is resumed from its own record, and an unk
 	assert.deepEqual({ ...t.spawns[1][1], since: 0 }, { id: other, cli: 'codex', name: '', state: 'ended', since: 0, todos: [], unread: false, agentId: other })
 })
 
-test('a folder outside the workspace is asked about once and kept; refusing, or a path that is no folder, starts nothing', T, async () => {
+const pick = (t, dir) => { t.vs.picks.push([{ fsPath: dir }]); return t.host.pickFolder() }
+
+test('a path the page made up, outside the workspace, is refused: no dialog, no question, nothing starts', T, async () => {
 	const t = setup()
 	const folder = join(tmp, 'project-a')
 	mkdirSync(folder)
-	await t.host.open('claude', SID, folder)
-	assert.equal(t.vs.warnings.length, 1)
-	assert.ok(t.vs.warnings[0].message.includes(folder))
-	assert.equal(t.vs.warnings[0].options.modal, true)
-	assert.deepEqual(t.spawns[0].slice(4), [{ cwd: folder, quiet: true }])
-	t.sessions.delete(SID)
-	t.terminals.delete(SID)
-	await t.host.open('claude', SID, folder)
-	assert.equal(t.vs.warnings.length, 1, 'trusted by its real path: not asked again')
-	assert.equal(t.spawns.length, 2)
-
-	const other = join(tmp, 'project-b')
-	mkdirSync(other)
-	t.vs.answer = undefined
-	await assert.rejects(t.host.open('claude', undefined, other), /not allowed to run in that folder/)
+	await assert.rejects(t.host.open('claude', SID, folder), /not one of your projects\. Choose that folder with Change… first\./)
+	await assert.rejects(t.host.open('codex', undefined, folder), /Choose that folder/)
 	await assert.rejects(t.host.open('claude', undefined, join(tmp, 'missing')), /not a folder/)
-	assert.equal(t.spawns.length, 2)
+	assert.equal(t.vs.warnings.length, 0, 'Insilode asks no question of its own')
+	assert.equal(t.vs.dialogs.length, 0)
+	assert.equal(t.spawns.length, 0)
 })
 
-test('the question names the folder and says what else runs there', T, async () => {
+test('a folder the user picked in the host\'s own dialog is allowed, by its real path, for this window session only', { ...T, skip: process.platform === 'win32' && 'a symbolic link needs a privilege a Windows runner does not have' }, async () => {
 	const t = setup()
-	const folder = join(tmp, 'project-c')
+	const folder = join(tmp, 'project-b')
+	const link = join(tmp, 'link-to-b')
 	mkdirSync(folder)
+	symlinkSync(folder, link)
+	const answer = await pick(t, folder)
+	assert.deepEqual(answer, { path: folder, name: 'project-b' })
+	assert.equal(t.vs.dialogs.length, 1)
+	assert.deepEqual({ ...t.vs.dialogs[0], title: undefined, openLabel: undefined }, { canSelectFolders: true, canSelectFiles: false, canSelectMany: false, title: undefined, openLabel: undefined })
 	await t.host.open('claude', undefined, folder)
-	const { message, options } = t.vs.warnings[0]
-	assert.match(options.detail, /\.mcp\.json/)
-	assert.match(options.detail, /hooks/)
-	assert.match(options.detail, /Forget Folders Trusted for Agents/)
-	assert.ok(message.includes(folder))
+	await t.host.open('claude', undefined, link)
+	assert.equal(t.spawns.length, 2, 'the same folder by another spelling')
+	assert.equal(t.vs.warnings.length, 0)
+	assert.deepEqual(t.store, {}, 'nothing is persisted')
+	// A cancelled dialog, a file and a folder that is gone allow nothing.
+	assert.equal(await t.host.pickFolder(), undefined)
+	const other = join(tmp, 'project-b2')
+	mkdirSync(other)
+	assert.equal(await pick(t, join(tmp, 'missing-b')), undefined)
+	await assert.rejects(t.host.open('claude', undefined, other), /Choose that folder/)
 })
 
-test('the folder is asked about by its real path and checked again right before the agent starts: a link pointed elsewhere after the yes is refused', { ...T, skip: process.platform === 'win32' && 'a symbolic link needs a privilege a Windows runner does not have' }, async () => {
+test('a folder the project index lists (the user ran an agent there) and a stored earlier yes are allowed', T, async () => {
+	const listed = join(tmp, 'project-c')
+	const stored = join(tmp, 'project-d2')
+	const stray = join(tmp, 'project-c2')
+	for (const d of [listed, stored, stray]) { mkdirSync(d) }
+	const t = setup(undefined, async () => [listed, join(tmp, 'gone-project')])
+	t.store['flow.agents.trustedFolders'] = [stored]
+	await t.host.open('claude', undefined, listed)
+	await t.host.open('claude', undefined, stored)
+	assert.equal(t.spawns.length, 2)
+	await assert.rejects(t.host.open('claude', undefined, stray), /Choose that folder/)
+	assert.equal(t.vs.warnings.length, 0)
+	// An index that cannot be read allows nothing.
+	const broken = setup(undefined, async () => { throw new Error('no index') })
+	await assert.rejects(broken.host.open('claude', undefined, listed), /Choose that folder/)
+})
+
+test('a listed folder is matched by its real path, not its spelling', { ...T, skip: process.platform === 'win32' && 'a symbolic link needs a privilege a Windows runner does not have' }, async () => {
+	const folder = join(tmp, 'project-c3')
+	const link = join(tmp, 'link-to-c3')
+	mkdirSync(folder)
+	symlinkSync(folder, link)
+	const t = setup(undefined, async () => [folder])
+	await t.host.open('claude', undefined, link)
+	assert.equal(t.spawns.length, 1)
+})
+
+test('forgetting takes back the folders picked in this window and the stored ones', T, async () => {
 	const t = setup()
+	const folder = join(tmp, 'project-f')
+	const stored = join(tmp, 'project-f2')
+	mkdirSync(folder)
+	mkdirSync(stored)
+	const context = { globalState: { get: (k, d) => t.store[k] ?? d, update: async (k, v) => { if (v === undefined) { delete t.store[k] } else { t.store[k] = v } } } }
+	t.vs.picks.push([{ fsPath: folder }])
+	await trust.pickFolder()
+	t.store['flow.agents.trustedFolders'] = [stored]
+	await trust.trustFolder(context, folder)
+	await trust.trustFolder(context, stored)
+	await trust.forgetTrustedFolders(context)
+	await assert.rejects(trust.trustFolder(context, folder), /Choose that folder/)
+	await assert.rejects(trust.trustFolder(context, stored), /Choose that folder/)
+})
+
+test('the folder is checked again right before the agent starts: a link pointed elsewhere while the session was being looked up is refused', { ...T, skip: process.platform === 'win32' && 'a symbolic link needs a privilege a Windows runner does not have' }, async () => {
 	const real = join(tmp, 'real-folder')
 	const elsewhere = join(tmp, 'elsewhere')
 	const link = join(tmp, 'link-to-folder')
 	mkdirSync(real)
 	mkdirSync(elsewhere)
 	symlinkSync(real, link)
-	t.vs.onWarn = () => { unlinkSync(link); symlinkSync(elsewhere, link) }
-	await assert.rejects(t.host.open('claude', undefined, link), /folder changed/)
-	assert.ok(t.vs.warnings[0].message.includes(real), 'the dialog shows the real folder, not the link')
+	// The project index is read after the folder was resolved: the link moves in between.
+	const t = setup(undefined, async () => { unlinkSync(link); symlinkSync(elsewhere, link); return [real] })
+	await assert.rejects(t.host.open('claude', SID, link), /folder changed/)
 	assert.equal(t.spawns.length, 0)
 })
 
-test('a session that started elsewhere while the folder question was open is not resumed: the registry is asked again after the yes', T, async () => {
+test('a session that started elsewhere while the folder was being checked is not resumed: the registry is asked again', T, async () => {
 	let asks = 0
-	const t = setup(async () => ++asks > 1 ? 'Claude Code CLI' : undefined)
 	const folder = join(tmp, 'project-e')
 	mkdirSync(folder)
+	const t = setup(async () => ++asks > 1 ? 'Claude Code CLI' : undefined, async () => [folder])
 	await assert.rejects(t.host.open('claude', SID, folder), /running in Claude Code CLI/)
 	assert.equal(asks, 2)
-	assert.equal(t.vs.warnings.length, 1, 'the question was asked first')
+	assert.equal(t.vs.warnings.length, 0)
 	assert.equal(t.spawns.length, 0)
 })
 
-test('control characters in a folder name never reach the dialog', { ...T, skip: process.platform === 'win32' && 'a Windows file name cannot hold a control character' }, async () => {
+test('control characters in a folder name never reach a sentence', { ...T, skip: process.platform === 'win32' && 'a Windows file name cannot hold a control character' }, async () => {
 	const t = setup()
 	const odd = join(tmp, 'bad\nname\u001b[31m')
 	mkdirSync(odd)
-	await t.host.open('claude', undefined, odd)
-	assert.doesNotMatch(t.vs.warnings[0].message, /[\u0000-\u001f]/)
+	const refused = await t.host.open('claude', undefined, odd).then(() => undefined, e => e)
+	assert.match(refused.message, /Choose that folder/)
+	assert.doesNotMatch(refused.message, /[\u0000-\u001f]/)
 })
 
 test('in a workspace that is not trusted no agent starts in a folder, and nothing is asked', T, async () => {
