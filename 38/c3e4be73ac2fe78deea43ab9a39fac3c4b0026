@@ -1,0 +1,32 @@
+editor/extensions/flow-harness/src/extension.ts
+  s_c2897d6f2cc16d::t_a13d6a12783519 255
+editor/extensions/flow-harness/src/page.ts
+  s_c2897d6f2cc16d::t_a13d6a12783519 2
+editor/extensions/flow-harness/src/dirs.ts
+  s_c2897d6f2cc16d::t_bba220f393798d 4
+editor/extensions/flow-harness/package.json
+  s_c2897d6f2cc16d::t_a13d6a12783519 4
+editor/extensions/flow-harness/src/live.ts
+  s_c2897d6f2cc16d::t_a13d6a12783519 20,26
+editor/extensions/flow-harness/test/page.test.mjs
+  s_c2897d6f2cc16d::t_56c343440aee48 58
+  s_c2897d6f2cc16d::t_a13d6a12783519 2,24
+docs/research/copilot-review-assessment.md
+  s_c2897d6f2cc16d::t_06cff862f1012d 11-12,29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "38c3e4be73ac2fe78deea43ab9a39fac3c4b0026",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
