@@ -1,0 +1,40 @@
+editor/extensions/flow-harness/test/harnessPage.test.mjs
+  s_c2897d6f2cc16d::t_bf81286b7e4e8b 212
+  s_c2897d6f2cc16d::t_823f54683c27c8 1-13,15-189,192-208,210-211,213-214,216,218-297,299-325,327-351
+  s_c2897d6f2cc16d::t_104ca218846d53 14,190-191,209,215,217,298,326
+editor/extensions/flow-harness/test/page.test.mjs
+  s_c2897d6f2cc16d::t_22906a9d3c855c 24
+editor/extensions/flow-harness/src/harnessPanel.ts
+  s_c2897d6f2cc16d::t_6146ede9ca0423 1-122,125-141,143-146,148,150-156
+  s_c2897d6f2cc16d::t_1a0e7b379b0327 123-124,142,147,149
+editor/extensions/flow-harness/src/extension.ts
+  s_c2897d6f2cc16d::t_67af4a5d703d44 12,59,257,263-264
+editor/extensions/flow-harness/package.json
+  s_c2897d6f2cc16d::t_67af4a5d703d44 69-72
+  s_c2897d6f2cc16d::t_255c6ccd3fd723 68
+editor/extensions/flow-harness/src/mcpManager.ts
+  s_c2897d6f2cc16d::t_7222361c9db193 120,122,125-126,128-142,144-147,150-160
+  s_c2897d6f2cc16d::t_15fc3e2a0b8944 113
+  s_c2897d6f2cc16d::t_3111d1faa15745 48-56
+  s_c2897d6f2cc16d::t_05ba851610fd9f 21
+  s_c2897d6f2cc16d::t_20636cea5f348f 72-73
+editor/extensions/flow-harness/src/harnessPage.ts
+  s_c2897d6f2cc16d::t_e6653a8af8d917 1-395,397-448
+  s_c2897d6f2cc16d::t_bf81286b7e4e8b 396
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "dfb28224e5c93a800dbf334f5d0b92f336014592",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
