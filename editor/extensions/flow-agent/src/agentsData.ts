@@ -100,9 +100,9 @@ export interface AgentsPageData {
 	kept: KeptRow[];
 	/** The plan's usage limits as the CLI last reported them (Claude's status line, Codex's rollout). */
 	limits?: UsageLimits;
-	/** The names of the user's own agents (flow.agents.custom), for the New menu. */
+	/** The names of the user's own agents (flow.agents.custom), for the launcher's harness list. */
 	customs: string[];
-	/** flow.agents.claude.allowBypassPermissions, for the Claude start menu's bypass item. */
+	/** flow.agents.claude.allowBypassPermissions, for the launcher's permissions row (Claude only). */
 	bypass?: boolean;
 	/** This window's project, for the sidebar's first group. */
 	project?: { name: string; /** The folder's absolute path: a pane of this window's folder keeps it, so a saved layout applied in another project resumes there. */ cwd?: string };

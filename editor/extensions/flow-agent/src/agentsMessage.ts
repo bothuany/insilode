@@ -147,8 +147,9 @@ export function agentsAction(raw: unknown): AgentsAction | undefined {
 			const name = layoutName(m.name);
 			return name !== undefined ? { type: 'layoutDelete', name } : undefined;
 		}
-		// The chat settings link belongs to the dock only.
+		// The chat settings link belongs to the dock only; the context X-ray is gone from the product, so a page that still asks for it is ignored.
 		case 'chat':
+		case 'xray':
 			return undefined;
 		default: {
 			const d = dockAction(raw);

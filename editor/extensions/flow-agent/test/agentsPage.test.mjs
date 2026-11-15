@@ -37,6 +37,8 @@ class Node {
 	appendChild(c) { if (c.parent) { c.parent.removeChild(c) } c.parent = this; this.children.push(c); return c }
 	removeChild(c) { this.children.splice(this.children.indexOf(c), 1); c.parent = undefined; return c }
 	setAttribute(k, v) { this.attrs[k] = String(v) }
+	removeAttribute(k) { delete this.attrs[k] }
+	querySelectorAll(sel) { return this.find(n => (n.tagName === 'BUTTON' || n.tagName === 'SELECT') && !('disabled' in n.attrs)) }
 	getAttribute(k) { return this.attrs[k] }
 	addEventListener(t, f) { (this.listeners[t] ||= []).push(f) }
 	contains(n) { return n === this || this.children.some(c => c.contains(n)) }
@@ -146,13 +148,28 @@ function dropRow(p, name, pane, x, y) {
 const RIGHT = [390, 150], LEFT = [10, 150], TOP = [200, 5], BOTTOM = [200, 295], CENTER = [200, 150]
 const titles = p => p.panes().map(n => n.attrs['aria-label'].split(',')[0])
 const layouts = (p, extra = {}) => p.send({ type: 'layouts', saved: [], ...extra })
-/** Opens the Layouts menu (a menu left open by an earlier step is closed first) and gives back its element. */
+/** Opens the "…" menu, which holds the layouts (a menu left open by an earlier step is closed first) and gives back its element. */
 function layoutsMenu(p) {
-	const btn = p.body.button('Layouts ▾')
+	const btn = p.body.labelled('Layouts and help')
 	if (btn.attrs['aria-expanded'] === 'true') { btn.fire('click', { stopPropagation() {} }) }
 	btn.fire('click', { stopPropagation() {} })
 	return p.body.byClass('menu')[0]
 }
+/** Opens the launcher (one left open by an earlier step is closed first) and gives back its element. */
+function openLauncher(p) {
+	const btn = p.body.button('+ New session')
+	if (btn.attrs['aria-expanded'] === 'true') { btn.fire('click', { stopPropagation() {} }) }
+	btn.fire('click', { stopPropagation() {} })
+	return p.body.byClass('pop')[0]
+}
+/** Starts a session as a user does: open the launcher, pick the harness, press Start. */
+function launchStart(p, harness = 'Claude Code') {
+	const pop = openLauncher(p)
+	pop.button(harness).fire('click')
+	pop.button('Start').fire('click')
+}
+/** An element of the launcher by its data-k: h:claude, h:codex, h:custom:0, change, worktree, resume, agent, start, allow, ask, bypass. */
+const popItem = (pop, k) => pop.find(n => n.attrs['data-k'] === k)[0]
 const menuItem = (menu, label) => menu.find(n => n.tagName === 'BUTTON' && n.textContent.startsWith(label))[0]
 
 test('the page has a locked-down CSP and loads nothing from outside', T, () => {
@@ -236,7 +253,7 @@ test('New Claude opens a pane that says Starting…, then attaches to the sessio
 test('a start that fails shows the host\'s sentence with Retry, which asks again with a new request', T, () => {
 	const p = boot()
 	p.data([])
-	p.body.button('Codex').fire('click')
+	launchStart(p, 'Codex')
 	const first = p.last('termOpen')
 	assert.equal(first.kind, 'codex')
 	p.send({ type: 'termFailed', requestId: 'someone-elses', message: 'ignored' })
@@ -514,13 +531,13 @@ test('a new pane that does not fit beside the focused one goes below it when the
 	p.stage().w = 600
 	p.stage().h = 700
 	p.body.byClass('wempty')[0].button('New Claude').fire('click')
-	p.body.button('Claude').fire('click')
+	launchStart(p)
 	assert.equal(p.panes().length, 2, 'two panes side by side need 566 pixels: they fit in 588')
-	p.body.button('Codex').fire('click')
+	launchStart(p, 'Codex')
 	assert.equal(p.panes().length, 3)
 	assert.equal(p.body.byClass('sp').filter(s => s.className.split(' ').includes('col')).length, 1, 'the third went below')
 	p.stage().h = 300
-	p.body.button('Claude').fire('click')
+	launchStart(p)
 	assert.equal(p.panes().length, 3, 'with no room either way, a note and no new pane')
 	assert.match(p.body.byClass('toast')[0].textContent, /no room/i)
 })
@@ -722,29 +739,29 @@ test('the modifier is the platform\'s: Ctrl+Alt on a Mac (it types nothing there
 	const mac = rowOfThree({ mac: true })
 	assert.equal(mac.chord('ArrowLeft').prevented, true)
 	assert.equal(activeOf(mac), 'Needy')
-	// Option+Shift+B types a character on a Mac (the only way to type the dotless i on the US layout): not a shortcut there.
-	assert.equal(mac.key('x', { code: 'KeyB', altKey: true, shiftKey: true }).prevented, undefined)
+	// Option+Shift+H types a character on a Mac (the only way to type the dotless i on the US layout): not a shortcut there.
+	assert.equal(mac.key('x', { code: 'KeyH', altKey: true, shiftKey: true }).prevented, undefined)
 	assert.equal(mac.key('ArrowLeft', { code: 'ArrowLeft', altKey: true, shiftKey: true }).prevented, undefined)
-	assert.equal(mac.key('x', { code: 'KeyB', ctrlKey: true, altKey: true, shiftKey: true }).prevented, undefined, 'Shift on top is another key')
-	assert.equal(mac.key('x', { code: 'KeyB', ctrlKey: true, altKey: true, metaKey: true }).prevented, undefined)
+	assert.equal(mac.key('x', { code: 'KeyH', ctrlKey: true, altKey: true, shiftKey: true }).prevented, undefined, 'Shift on top is another key')
+	assert.equal(mac.key('x', { code: 'KeyH', ctrlKey: true, altKey: true, metaKey: true }).prevented, undefined)
 	const win = rowOfThree()
 	assert.equal(win.chord('ArrowLeft').prevented, true)
 	// AltGr arrives as Ctrl+Alt and types characters on Turkish and other layouts: never a shortcut there.
-	assert.equal(win.key('x', { code: 'KeyB', ctrlKey: true, altKey: true }).prevented, undefined)
+	assert.equal(win.key('x', { code: 'KeyH', ctrlKey: true, altKey: true }).prevented, undefined)
 	assert.equal(win.key('ArrowLeft', { code: 'ArrowLeft', ctrlKey: true, altKey: true }).prevented, undefined)
 	// The platform is the page's own (navigator), and an unknown one is not a Mac.
-	assert.equal(boot({ navigator: { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)' } }).chord('KeyB', { altKey: true, shiftKey: false, ctrlKey: true }).prevented, true)
-	assert.equal(boot({ navigator: null }).chord('KeyB').prevented, true, 'no navigator: Alt+Shift')
+	assert.equal(boot({ navigator: { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)' } }).chord('KeyH', { altKey: true, shiftKey: false, ctrlKey: true }).prevented, true)
+	assert.equal(boot({ navigator: null }).chord('KeyH').prevented, true, 'no navigator: Alt+Shift')
 })
 
 test('letters are matched by their physical key, so a layout that labels it otherwise (Turkish Q) still works; punctuation is no longer a shortcut', T, () => {
 	for (const mac of [false, true]) {
 		const p = rowOfThree({ mac })
-		// The key that carries B everywhere may print another character (ı, ß, an accent): the code is what counts.
-		assert.equal(p.chord('KeyB', { key: '\u0131' }).prevented, true)
-		assert.equal(p.body.byClass('bcbar')[0].className.includes('hidden'), false)
-		p.chord('KeyB', { key: 'ß' })
-		assert.equal(p.body.byClass('bcbar')[0].className.includes('hidden'), true)
+		// The key that carries H everywhere may print another character (ı, ß, an accent): the code is what counts.
+		assert.equal(p.chord('KeyH', { key: '\u0131' }).prevented, true)
+		assert.equal(p.body.byClass('hpanel')[0].className.includes('hidden'), false)
+		p.chord('KeyH', { key: 'ß' })
+		assert.equal(p.body.byClass('hpanel')[0].className.includes('hidden'), true)
 		// What the old scheme used: the keys labelled ] [ \ - , . on a US keyboard are other keys elsewhere.
 		for (const code of ['BracketRight', 'BracketLeft', 'Backslash', 'Minus', 'Equal', 'Comma', 'Period', 'NumpadSubtract']) {
 			assert.equal(p.chord(code).prevented, undefined, code)
@@ -762,7 +779,7 @@ test('a shortcut works from a text box too', T, () => {
 	const p = boot()
 	p.data(rows())
 	const box = { tagName: 'INPUT', className: '', blur() {} }
-	assert.equal(p.chord('KeyB', { target: box }).prevented, true)
+	assert.equal(p.chord('KeyH', { target: box }).prevented, true)
 })
 
 test('the header\'s menu lists the shortcuts with the platform\'s modifier, and the buttons say them in their tooltips', T, () => {
@@ -772,23 +789,23 @@ test('the header\'s menu lists the shortcuts with the platform\'s modifier, and 
 		p.data(rows())
 		openRow(p, 'Worker')
 		dropRow(p, 'Needy', p.panes()[0], ...RIGHT)
-		const dots = p.body.labelled('Help and more')
+		const dots = p.body.labelled('Layouts and help')
 		assert.ok(dots, 'a menu button in the header')
 		dots.fire('click', { stopPropagation() {} })
 		const menu = p.body.byClass('menu')[0]
 		menuItem(menu, 'Keyboard shortcuts').fire('click')
-		const dialog = p.body.find(n => n.attrs.role === 'dialog')[0]
+		const dialog = p.body.labelled('Keyboard shortcuts')
 		assert.equal(dialog.className.includes('hidden'), false)
 		assert.equal(dialog.attrs['aria-modal'], 'true')
 		const text = dialog.textContent
-		for (const k of ['R', 'D', 'W', 'M', 'B', 'S', 'N', 'H']) { assert.ok(text.includes(mod + k), mod + k + ' is listed') }
+		for (const k of ['R', 'D', 'W', 'M', 'S', 'N', 'H']) { assert.ok(text.includes(mod + k), mod + k + ' is listed') }
 		assert.ok(text.includes(mod + 'Arrow keys'), 'the arrows')
 		assert.ok(text.includes(mod + 'PageUp / PageDown'), 'the swap')
 		assert.doesNotMatch(text, mac ? /Alt\+Shift\+/ : /Ctrl\+Option/, 'the other platform\'s modifier is not shown')
 		// Escape closes it; so does its Close button.
 		p.key('Escape')
 		assert.equal(dialog.className.includes('hidden'), true)
-		assert.match(p.body.button('Broadcast').attrs.title, new RegExp(mod.replace(/\+/g, '\\+') + 'B'))
+		assert.ok(!text.includes(mod + 'B'), 'broadcast is gone')
 		assert.match(p.panes()[0].labelled('Close pane Worker').attrs.title, new RegExp(mod.replace(/\+/g, '\\+') + 'W'))
 		assert.match(p.panes()[0].labelled('Maximize Worker').attrs.title, new RegExp(mod.replace(/\+/g, '\\+') + 'M'))
 	}
@@ -806,8 +823,8 @@ test('a held chord does not repeat what creates or destroys: split, close, maxim
 	assert.equal(p.chord('KeyW', { repeat: true }).prevented, true, 'and the key is still the page\'s')
 	p.chord('KeyM', { repeat: true })
 	assert.equal(p.panes().length, 3, 'maximize is not toggled by a repeat')
-	p.chord('KeyB', { repeat: true })
-	assert.equal(p.body.byClass('bcbar')[0].className.includes('hidden'), true)
+	p.chord('KeyH', { repeat: true })
+	assert.equal(p.body.byClass('hpanel')[0].className.includes('hidden'), true)
 	// A first press still works, and a held arrow keeps moving.
 	p.chord('ArrowLeft', { repeat: true })
 	p.chord('ArrowLeft', { repeat: true })
@@ -818,14 +835,14 @@ test('a held chord does not repeat what creates or destroys: split, close, maxim
 
 test('with the shortcuts dialog or a menu open the chords do nothing, and Escape closes what is open; a key during composition is not a chord', T, () => {
 	const p = rowOfThree()
-	p.body.labelled('Help and more').fire('click', { stopPropagation() {} })
+	p.body.labelled('Layouts and help').fire('click', { stopPropagation() {} })
 	menuItem(p.body.byClass('menu')[0], 'Keyboard shortcuts').fire('click')
-	const dialog = p.body.find(n => n.attrs.role === 'dialog')[0]
+	const dialog = p.body.labelled('Keyboard shortcuts')
 	assert.equal(dialog.className.includes('hidden'), false)
-	for (const code of ['KeyW', 'KeyR', 'KeyD', 'KeyM', 'KeyB', 'KeyH', 'ArrowLeft', 'PageDown']) { p.chord(code) }
+	for (const code of ['KeyW', 'KeyR', 'KeyD', 'KeyM', 'KeyH', 'ArrowLeft', 'PageDown']) { p.chord(code) }
 	assert.equal(p.panes().length, 3, 'nothing closed or split behind the dialog')
 	assert.equal(activeOf(p), 'Finisher', 'nor moved')
-	assert.equal(p.body.byClass('bcbar')[0].className.includes('hidden'), true)
+	assert.equal(p.body.byClass('hpanel')[0].className.includes('hidden'), true)
 	p.key('Escape')
 	assert.equal(dialog.className.includes('hidden'), true)
 	p.chord('ArrowLeft')
@@ -871,6 +888,255 @@ test('a terminal leaves workspace shortcuts to the page and everything else to t
 	p.key('j', { target: area })
 	p.key('/', { target: area })
 	assert.deepEqual(p.posted, [])
+})
+
+// ---- the launcher, the counts, the skeleton toggle and the changes strip ----------------------------------------------------
+test('the toolbar has one "+ New session" button instead of Claude, Codex and More; Layouts is in the "…" menu', T, () => {
+	const p = boot()
+	p.data(rows())
+	const tools = p.body.byClass('tools')[0]
+	assert.ok(tools.button('+ New session'))
+	for (const gone of ['Claude', 'Codex', 'More ▾', 'Layouts ▾']) { assert.equal(tools.button(gone), undefined, gone) }
+	assert.equal(tools.children[0].textContent, '+ New session')
+	assert.equal(tools.children[1].className, 'counts', 'the counts come right after it')
+	for (const b of ['Workspace', 'Board', 'List', 'Harness']) { assert.ok(tools.button(b), b) }
+	const menu = layoutsMenu(p)
+	assert.match(menu.textContent, /Layouts/)
+	assert.ok(menuItem(menu, 'Keyboard shortcuts'))
+})
+
+test('the counts are compact chips; zero is not shown; they include other windows\' sessions and the ones other programs run, each in its own state', T, () => {
+	const p = boot()
+	p.data([])
+	assert.deepEqual(p.body.byClass('count').map(c => c.textContent), [])
+	p.data([row({ id: SID(2), name: 'Worker', state: 'working' })])
+	assert.deepEqual(p.body.byClass('count').map(c => c.textContent), ['1 working'])
+	// Programs elsewhere: working, idle (done) and waiting each count in their own state; "running" and a Codex estimate are not a state.
+	p.send({ type: 'chatIndex', projects: [{ key: 'ffffffffffff', name: 'other', where: '~/other', cwd: '/work/other', own: false, sessions: [
+		{ id: SESSION, kind: 'claude', title: 'A', modified: 1, live: LIVE({ status: 'working' }) },
+		{ id: SESSION2, kind: 'claude', title: 'B', modified: 1, live: LIVE({ status: 'idle' }) },
+		{ id: '2a99a3dd-7db0-4ba0-882d-a4dd922189be', kind: 'claude', title: 'C', modified: 1, live: LIVE({ status: 'needs' }) },
+		{ id: '3a99a3dd-7db0-4ba0-882d-a4dd922189be', kind: 'claude', title: 'D', modified: 1, live: LIVE({ status: 'unknown' }) },
+		{ id: '4a99a3dd-7db0-4ba0-882d-a4dd922189be', kind: 'codex', title: 'E', modified: 1, live: { status: 'working', source: 'Codex', basis: 'recent' } },
+	] }] })
+	assert.deepEqual(p.body.byClass('count').map(c => c.textContent), ['2 working', '1 needs you', '1 done'])
+	assert.equal(p.body.byClass('count').find(c => c.textContent.includes('needs')).attrs.title.includes('N jumps'), true)
+	// A session this window runs is not counted twice when the machine's registry lists it too.
+	p.data([row({ id: SID(2), name: 'Worker', state: 'working', agentId: SESSION })])
+	assert.deepEqual(p.body.byClass('count').map(c => c.textContent), ['1 working', '1 needs you', '1 done'])
+})
+
+test('the launcher offers the harnesses, the folder, the worktree and permissions, resume and Start; Escape closes it and gives the focus back', T, () => {
+	const p = boot()
+	p.data(rows(), { customs: ['Gemini'], project: { name: 'app', cwd: '/work/app' } })
+	const btn = p.body.button('+ New session')
+	const pop = openLauncher(p)
+	assert.equal(pop.className.includes('hidden'), false)
+	assert.equal(btn.attrs['aria-expanded'], 'true')
+	assert.deepEqual(pop.byClass('popopt').filter(b => b.attrs['data-k'].startsWith('h:')).map(b => b.textContent), ['Claude Code', 'Codex', 'Gemini'])
+	assert.equal(Node.focused, popItem(pop, 'h:claude'), 'the first choice has the focus')
+	assert.equal(pop.byClass('pfold')[0].textContent, 'app', 'no pane yet: this window\'s folder')
+	assert.ok(popItem(pop, 'change') && popItem(pop, 'worktree') && popItem(pop, 'resume') && popItem(pop, 'agent') && popItem(pop, 'start'))
+	assert.equal(popItem(pop, 'worktree').textContent, 'WorktreeOff')
+	assert.equal(popItem(pop, 'worktree').attrs['aria-checked'], 'false')
+	assert.match(pop.textContent, /PermissionsAsk each time/)
+	// Everything is a button or a select: all of it is reachable by the keyboard.
+	assert.ok(pop.querySelectorAll().length >= 8)
+	p.key('Escape')
+	assert.equal(pop.className.includes('hidden'), true)
+	assert.equal(btn.attrs['aria-expanded'], 'false')
+	assert.equal(Node.focused, btn)
+	// A click elsewhere closes it too, and the button toggles it.
+	openLauncher(p)
+	p.click(p.body)
+	assert.equal(p.body.byClass('pop')[0].className.includes('hidden'), true)
+	btn.fire('click', { stopPropagation() {} })
+	btn.fire('click', { stopPropagation() {} })
+	assert.equal(p.body.byClass('pop')[0].className.includes('hidden'), true)
+	// With the launcher open the workspace chords do nothing behind it.
+	openLauncher(p)
+	p.chord('KeyH')
+	assert.equal(p.body.byClass('hpanel')[0].className.includes('hidden'), true)
+})
+
+test('Tab out of the launcher\'s last button closes it', T, () => {
+	const p = boot()
+	p.data(rows())
+	const pop = openLauncher(p)
+	popItem(pop, 'start').focus()
+	pop.fire('keydown', { key: 'Tab', shiftKey: false })
+	assert.equal(pop.className.includes('hidden'), true)
+})
+
+test('the launcher\'s folder is the focused pane\'s project, else this window\'s; Change… offers the projects the sidebar knows', T, () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'app', cwd: '/work/app' } })
+	p.send(index())
+	layouts(p, { current: { seq: 1, focus: 'p1', root: paneJson('p1', SID(2), { cwd: '/work/other' }) } })
+	const pop = openLauncher(p)
+	assert.equal(pop.byClass('pfold')[0].textContent, 'other', 'the project of the focused pane')
+	const sel = pop.find(n => n.tagName === 'SELECT')[0]
+	assert.deepEqual(sel.children.map(o => o.attrs.value), ['/work/app', '/work/other'])
+	assert.equal(sel.className.includes('hidden'), true)
+	popItem(pop, 'change').fire('click')
+	assert.equal(sel.className.includes('hidden'), false)
+	sel.value = '/work/app'
+	sel.fire('change')
+	assert.equal(pop.byClass('pfold')[0].textContent, 'app')
+	p.posted.length = 0
+	pop.button('Start').fire('click')
+	assert.deepEqual({ ...p.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'claude', cwd: '/work/app' })
+})
+
+test('worktrees and the user\'s own agents start only in this window\'s folder: the launcher says so and keeps them off elsewhere', T, () => {
+	const p = boot()
+	p.data(rows(), { customs: ['Gemini'], project: { name: 'app', cwd: '/work/app' } })
+	p.send(index())
+	const pop = openLauncher(p)
+	popItem(pop, 'worktree').fire('click')
+	assert.equal(popItem(pop, 'worktree').attrs['aria-checked'], 'true')
+	const sel = pop.find(n => n.tagName === 'SELECT')[0]
+	sel.value = '/work/other'
+	sel.fire('change')
+	assert.equal(popItem(pop, 'worktree').attrs['aria-checked'], 'false', 'off again')
+	assert.equal('disabled' in popItem(pop, 'worktree').attrs, true)
+	assert.equal('disabled' in popItem(pop, 'h:custom:0').attrs, true)
+	assert.match(pop.textContent, /starts from this window's project/)
+	// A custom agent has nothing to resume and no worktree.
+	sel.value = '/work/app'
+	sel.fire('change')
+	popItem(pop, 'h:custom:0').fire('click')
+	assert.equal(popItem(pop, 'resume').className.includes('hidden'), true)
+	assert.equal('disabled' in popItem(pop, 'worktree').attrs, true)
+	// It falls back to Claude when the folder changes to another one.
+	sel.value = '/work/other'
+	sel.fire('change')
+	assert.equal(popItem(pop, 'h:claude').attrs['aria-checked'], 'true')
+})
+
+test('Resume a session… posts the resume of the chosen CLI and Start an Agent… the picker', T, () => {
+	const p = boot()
+	p.data([], { customs: ['Gemini'] })
+	p.posted.length = 0
+	popItem(openLauncher(p), 'resume').fire('click')
+	assert.deepEqual(p.posted, [{ type: 'start', cli: 'claude', how: 'resume' }])
+	const q = openLauncher(p)
+	q.button('Codex').fire('click')
+	popItem(q, 'resume').fire('click')
+	assert.deepEqual(p.last('start'), { type: 'start', cli: 'codex', how: 'resume' })
+	popItem(openLauncher(p), 'agent').fire('click')
+	assert.deepEqual(p.last('pick'), { type: 'pick' })
+	assert.equal(p.body.byClass('pop')[0].className.includes('hidden'), true)
+})
+
+test('permissions: Claude\'s bypass switch is the host\'s setting, so the row shows it and flips it; only Claude has it', T, () => {
+	const p = boot()
+	p.data([])
+	let pop = openLauncher(p)
+	assert.equal(popItem(pop, 'bypass'), undefined, 'bypass is not offered where the host does not allow it')
+	assert.equal(popItem(pop, 'ask').attrs['aria-checked'], 'true')
+	pop.button('Codex').fire('click')
+	assert.equal(pop.byClass('perms')[0].className.includes('hidden'), true, 'Codex has no such setting')
+	pop.button('Claude Code').fire('click')
+	p.posted.length = 0
+	popItem(pop, 'allow').fire('click')
+	assert.deepEqual(p.posted, [{ type: 'start', cli: 'claude', how: 'bypass' }])
+	// Allowed: the choice shows as the current one and "Ask each time" turns it off again.
+	p.data([], { bypass: true })
+	pop = openLauncher(p)
+	assert.equal(popItem(pop, 'bypass').attrs['aria-checked'], 'true')
+	assert.equal(popItem(pop, 'ask').attrs['aria-checked'], 'false')
+	p.posted.length = 0
+	popItem(pop, 'ask').fire('click')
+	assert.deepEqual(p.posted, [{ type: 'start', cli: 'claude', how: 'bypass' }])
+})
+
+test('the sidebar "+" gets the focus back after the launcher closes, even after the sidebar was drawn again', T, () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'app', cwd: '/work/app' } })
+	const plus = p.side().byClass('plus')[0]
+	plus.fire('click', { stopPropagation() {} })
+	assert.equal(plus.attrs['aria-expanded'], 'true')
+	p.data(rows(), { project: { name: 'app', cwd: '/work/app' } })
+	p.key('Escape')
+	const again = p.side().byClass('plus')[0]
+	assert.notEqual(again, plus, 'the sidebar was drawn again')
+	assert.equal(Node.focused, again)
+})
+
+const withSkeleton = (over = {}) => row({ id: SID(2), name: 'Worker', state: 'working', skeletonAvailable: true, ...over })
+
+test('a session with skeleton first has an icon toggle in its pane header that posts the switch; its tooltip is the dock\'s', T, () => {
+	const p = boot()
+	p.data([withSkeleton()])
+	openRow(p, 'Worker')
+	const btn = p.panes()[0].labelled('Skeleton first for Worker')
+	assert.equal(btn.attrs['aria-pressed'], 'false')
+	assert.match(btn.attrs.title, /^Skeleton first for this agent\. When a change adds or changes types/)
+	assert.match(btn.attrs.title, /Off: click to turn it on\.$/)
+	assert.match(btn.children[0].innerHTML, /<svg/, 'the bone')
+	p.posted.length = 0
+	btn.fire('click')
+	assert.deepEqual(p.posted, [{ type: 'sk', id: SID(2), on: true }])
+	p.data([withSkeleton({ skeletonOn: true })])
+	const on = p.panes()[0].labelled('Skeleton first for Worker')
+	assert.equal(on.attrs['aria-pressed'], 'true', 'the header is built again when the switch changes')
+	assert.match(on.attrs.title, /On: click to turn it off\.$/)
+	// No switch for a session without it, and the menu entry stays.
+	p.data([withSkeleton({ skeletonAvailable: false })])
+	assert.equal(p.panes()[0].labelled('Skeleton first for Worker'), undefined)
+	p.data([withSkeleton()])
+	p.body.labelled('Actions for Worker').fire('click', { stopPropagation() {} })
+	assert.ok(p.body.byClass('menu')[0].button('Skeleton first: off (turn on)'))
+})
+
+test('the skeleton stage shows as Design › Skeleton › Handover with the current one emphasised, and "skipped" when the developer chose to go without', T, () => {
+	const p = boot()
+	p.data([withSkeleton({ skeletonStage: { stage: 'skeleton', skipped: false } })])
+	openRow(p, 'Worker')
+	const steps = p.panes()[0].byClass('psteps')[0]
+	assert.equal(steps.textContent, 'Design›Skeleton›Handover')
+	assert.deepEqual(steps.byClass('on').map(e => e.textContent), ['Skeleton'], 'one is emphasised, the others are muted')
+	assert.equal(steps.byClass('xbadge').length, 0)
+	p.data([withSkeleton({ skeletonStage: { stage: 'handover', skipped: true } })])
+	const again = p.panes()[0].byClass('psteps')[0]
+	assert.deepEqual(again.byClass('on').map(e => e.textContent), ['Handover'])
+	assert.equal(again.byClass('xbadge')[0].textContent, 'skipped')
+	p.data([withSkeleton()])
+	assert.equal(p.panes()[0].byClass('psteps').length, 0, 'no stage, no steps')
+})
+
+test('a session with an impact has a changes strip between the header and the terminal: files, up to three flows, "+N" and "Open in flow"', T, () => {
+	const p = boot()
+	const flows = n => Array.from({ length: n }, (_, i) => ({ label: 'F' + i }))
+	p.data([row({ id: SID(2), name: 'Worker', state: 'working', impact: { files: 3, more: 0, flows: flows(5) } })])
+	openRow(p, 'Worker')
+	const pane = p.panes()[0]
+	const strip = pane.byClass('pstrip')[0]
+	assert.equal(strip.className.includes('hidden'), false)
+	const at = cn => pane.children.findIndex(c => c.className.split(' ').includes(cn))
+	assert.equal(at('pstrip'), at('ph') + 1, 'right under the header')
+	assert.ok(at('pstrip') < at('pb'), 'above the terminal')
+	assert.match(strip.textContent, /^3 files changed/)
+	assert.match(strip.textContent, /affects/)
+	assert.deepEqual(strip.byClass('fchip').map(c => c.textContent), ['F0', 'F1', 'F2'])
+	assert.match(strip.textContent, /\+2/)
+	p.posted.length = 0
+	strip.byClass('fchip')[1].fire('click')
+	strip.button('Open in flow').fire('click')
+	assert.deepEqual(p.posted, [{ type: 'flow', id: SID(2), index: 1 }, { type: 'flow', id: SID(2), index: 0 }])
+	// One file and one flow: singular, and no "+N".
+	p.data([row({ id: SID(2), name: 'Worker', state: 'working', impact: { files: 1, more: 0, flows: flows(1) } })])
+	assert.match(p.panes()[0].byClass('pstrip')[0].textContent, /^1 file changed/)
+	assert.doesNotMatch(p.panes()[0].byClass('pstrip')[0].textContent, /\+\d/)
+	// No impact, no strip; a flow's label is text.
+	p.data([row({ id: SID(2), name: 'Worker', state: 'working' })])
+	assert.equal(p.panes()[0].byClass('pstrip')[0].className.includes('hidden'), true)
+	p.data([row({ id: SID(2), name: 'Worker', state: 'working', impact: { files: 1, more: 0, flows: [{ label: '<img src=x onerror=1>' }] } })])
+	assert.equal(p.panes()[0].byClass('pstrip')[0].find(n => n.tagName === 'IMG').length, 0)
+	// A session that is no longer listed has none.
+	p.data([])
+	assert.equal(p.panes()[0].byClass('pstrip')[0].className.includes('hidden'), true)
 })
 
 // ---- other windows' sessions -----------------------------------------------------------------------------------------------
@@ -920,96 +1186,17 @@ test('a transcript pane keeps what the host\'s tail says and a window that close
 	assert.match(p.panes()[0].textContent, /not listed any more/)
 })
 
-// ---- broadcast -------------------------------------------------------------------------------------------------------------
-function threePanes() {
+// ---- broadcast is gone -----------------------------------------------------------------------------------------------------
+test('there is no Broadcast: no toolbar button, no bar, no checkbox in a pane header, and Alt+Shift+B is not a shortcut', T, () => {
 	const p = boot()
 	p.data(rows())
 	openRow(p, 'Worker')
 	dropRow(p, 'Needy', p.panes()[0], ...RIGHT)
-	dropRow(p, 'Finisher', p.panes()[1], ...RIGHT)
-	return p
-}
-const boxOf = (p, name) => p.body.labelled('Broadcast to ' + name)
-const bcInput = p => p.body.byClass('bcin')[0]
-
-test('broadcast is off by default: no checkboxes, no input line; turning it on shows both', T, () => {
-	const p = threePanes()
-	assert.equal(p.body.byClass('bcbar')[0].className.includes('hidden'), true)
-	assert.equal(boxOf(p, 'Worker'), undefined)
-	assert.equal(p.body.button('Broadcast').attrs['aria-pressed'], 'false')
-	p.body.button('Broadcast').fire('click')
-	assert.equal(p.body.byClass('bcbar')[0].className.includes('hidden'), false)
-	assert.ok(boxOf(p, 'Worker') && boxOf(p, 'Needy') && boxOf(p, 'Finisher'))
-	assert.equal(p.body.button('Broadcast').attrs['aria-pressed'], 'true')
-	assert.equal(boxOf(p, 'Worker').checked, false, 'nothing is checked until the user checks it')
-	assert.match(p.body.byClass('bcnote')[0].textContent, /0 of 3 attached terminals/)
-})
-
-test('Enter sends the line and a carriage return to every checked terminal, and only to those; checked panes are marked', T, () => {
-	const p = threePanes()
-	p.body.button('Broadcast').fire('click')
-	for (const n of ['Worker', 'Finisher']) { const b = boxOf(p, n); b.checked = true; b.fire('change', { target: b }) }
-	assert.equal(p.panes().filter(n => n.className.split(' ').includes('target')).length, 2)
-	assert.match(p.text(), /Receives broadcast/)
-	assert.match(p.body.byClass('bcnote')[0].textContent, /2 of 3/)
-	p.posted.length = 0
-	bcInput(p).value = 'echo hi'
-	bcInput(p).fire('keydown', { key: 'Enter' })
-	assert.deepEqual(p.all('termInput'), [{ type: 'termInput', id: SID(2), data: 'echo hi\r' }, { type: 'termInput', id: SID(3), data: 'echo hi\r' }])
-	assert.equal(bcInput(p).value, '')
-	assert.match(p.body.byClass('bcnote')[0].textContent, /Sent to 2 terminals/)
-	// An IME composition's Enter does not send.
-	p.posted.length = 0
-	bcInput(p).value = 'x'
-	bcInput(p).fire('keydown', { key: 'Enter', isComposing: true })
-	assert.deepEqual(p.all('termInput'), [])
-})
-
-test('with nothing checked nothing is sent and it says why; an empty line sends nothing', T, () => {
-	const p = threePanes()
-	p.body.button('Broadcast').fire('click')
-	p.posted.length = 0
-	bcInput(p).value = 'echo hi'
-	bcInput(p).fire('keydown', { key: 'Enter' })
-	assert.deepEqual(p.all('termInput'), [])
-	assert.match(p.body.byClass('bcnote')[0].textContent, /Check at least one/)
-	assert.equal(bcInput(p).value, 'echo hi', 'the line stays')
-	p.body.button('Check all').fire('click')
-	bcInput(p).value = ''
-	bcInput(p).fire('keydown', { key: 'Enter' })
-	assert.deepEqual(p.all('termInput'), [])
-	p.body.button('Check none').fire('click')
-	assert.equal(p.panes().filter(n => n.className.split(' ').includes('target')).length, 0)
-})
-
-test('a pane that is not an attached terminal never receives a broadcast: ended, starting, transcript', T, () => {
-	const p = threePanes()
-	p.data(rows(), { peers: peers() })
-	dropRow(p, 'Remote worker', p.panes()[0], ...BOTTOM)
-	p.body.button('Broadcast').fire('click')
-	p.body.button('Check all').fire('click')
-	assert.equal(p.panes().filter(n => n.className.split(' ').includes('target')).length, 3, 'only the three terminals')
-	assert.equal(boxOf(p, 'Remote worker'), undefined, 'a transcript has no checkbox')
-	// One session ends after it was checked: it drops out.
-	p.send({ type: 'termGone', id: SID(1) })
-	assert.equal(boxOf(p, 'Needy').attrs.disabled, '')
-	p.posted.length = 0
-	bcInput(p).value = 'go'
-	bcInput(p).fire('keydown', { key: 'Enter' })
-	assert.deepEqual(p.all('termInput').map(m => m.id).sort(), [SID(2), SID(3)].sort())
-	// Turning it off forgets the checks.
-	p.body.button('Broadcast').fire('click')
-	assert.equal(p.body.byClass('bcbar')[0].className.includes('hidden'), true)
-	p.body.button('Broadcast').fire('click')
-	assert.equal(p.panes().filter(n => n.className.split(' ').includes('target')).length, 0)
-})
-
-test('Alt+Shift+B toggles broadcast', T, () => {
-	const p = threePanes()
-	p.chord('KeyB')
-	assert.equal(p.body.byClass('bcbar')[0].className.includes('hidden'), false)
-	p.chord('KeyB')
-	assert.equal(p.body.byClass('bcbar')[0].className.includes('hidden'), true)
+	assert.equal(p.body.button('Broadcast'), undefined)
+	assert.equal(p.body.byClass('bcbar').length, 0)
+	assert.equal(p.body.find(n => n.tagName === 'INPUT' && n.attrs.type === 'checkbox').length, 0)
+	assert.equal(p.chord('KeyB').prevented, undefined, 'the key is the agent\'s again')
+	assert.doesNotMatch(p.text(), /Broadcast/)
 })
 
 // ---- saved layouts and restore ---------------------------------------------------------------------------------------------
@@ -1082,7 +1269,7 @@ test('the Layouts menu lists saved layouts; applying one replaces the workspace 
 	openRow(p, 'Finisher')
 	p.posted.length = 0
 	const menu = layoutsMenu(p)
-	assert.equal(p.body.button('Layouts ▾').attrs['aria-expanded'], 'true')
+	assert.equal(p.body.labelled('Layouts and help').attrs['aria-expanded'], 'true')
 	assert.match(menu.textContent, /Review.*2 panes/)
 	menuItem(menu, 'Review').fire('click')
 	assert.deepEqual(titles(p), ['Worker', 'T-p2'].map(t => t === 'T-p2' ? 'Past' : t).map(t => t))
@@ -1166,7 +1353,7 @@ test('a saved layout is deleted from the menu; Escape closes the menu and gives 
 	const p = boot()
 	p.data(rows())
 	layouts(p, { saved: [{ name: 'Review', layout: saved2() }] })
-	const btn = p.body.button('Layouts ▾')
+	const btn = p.body.labelled('Layouts and help')
 	btn.fire('click', { stopPropagation() {} })
 	p.body.byClass('menu')[0].labelled('Delete layout Review').fire('click')
 	assert.deepEqual(p.last('layoutDelete'), { type: 'layoutDelete', name: 'Review' })
@@ -1195,16 +1382,16 @@ test('the pane\'s … menu has the row actions the page already had, posting the
 	act('Show changes on the flow canvas')
 	act('Open flow: GET /login')
 	act('Rename…')
-	act('X-ray the context window')
 	act('Open pull request #12')
 	act('Merge insilode/w…')
 	act('Remove the worktree…')
 	act('Show its terminal in the editor')
 	act('Skeleton first: off (turn on)')
 	assert.deepEqual(p.posted, [
-		{ type: 'wt', id: SID(2), action: 'diff' }, { type: 'flow', id: SID(2), index: 0 }, { type: 'rename', id: SID(2) }, { type: 'xray', id: SID(2) },
+		{ type: 'wt', id: SID(2), action: 'diff' }, { type: 'flow', id: SID(2), index: 0 }, { type: 'rename', id: SID(2) },
 		{ type: 'pr', id: SID(2) }, { type: 'wt', id: SID(2), action: 'merge' }, { type: 'wt', id: SID(2), action: 'remove' }, { type: 'show', id: SID(2) }, { type: 'sk', id: SID(2), on: true }])
 	p.body.labelled('Actions for Worker').fire('click', { stopPropagation() {} })
+	assert.doesNotMatch(p.body.byClass('menu')[0].textContent, /X-ray/, 'the context X-ray is gone')
 	assert.match(p.body.byClass('menu')[0].textContent, /Close pane \(the session keeps running\)/)
 	p.body.byClass('menu')[0].button('Close pane (the session keeps running)').fire('click')
 	assert.equal(p.panes().length, 0)
@@ -1222,26 +1409,41 @@ test('an ended row offers Forget in its pane menu; a Codex row offers Swap', T, 
 })
 
 // ---- starting sessions the host's way --------------------------------------------------------------------------------------
-test('the More menu\'s starts open the new session in a pane when the host\'s row for it appears; the bypass switch does not', T, () => {
+test('the launcher\'s worktree and custom starts open the new session in a pane when the host\'s row for it appears; the bypass switch does not', T, () => {
 	const p = boot()
 	p.data(rows(), { customs: ['Gemini'] })
 	p.data2 = r => p.data(r, { customs: ['Gemini'] })
 	p.posted.length = 0
-	p.body.button('More ▾').fire('click', { stopPropagation() {} })
-	p.body.byClass('menu')[0].button('Claude in a worktree').fire('click')
+	const pop = openLauncher(p)
+	popItem(pop, 'worktree').fire('click')
+	assert.equal(popItem(pop, 'worktree').attrs['aria-checked'], 'true')
+	assert.equal(popItem(pop, 'worktree').textContent, 'WorktreeOn')
+	pop.button('Start').fire('click')
 	assert.deepEqual(p.last('start'), { type: 'start', cli: 'claude', how: 'worktree' })
 	assert.equal(p.panes().length, 0)
+	assert.equal(pop.className.includes('hidden'), true, 'Start puts the launcher away')
 	p.data2(rows().concat([row({ id: SID(8), name: 'Fresh claude', state: 'working' })]))
 	assert.deepEqual(titles(p), ['Fresh claude'])
 	assert.deepEqual(p.last('termAttach'), { type: 'termAttach', id: SID(8) })
 	p.data2(rows().concat([row({ id: SID(8), name: 'Fresh claude' }), row({ id: SID(9), name: 'Later one', state: 'working' })]))
 	assert.equal(p.panes().length, 1, 'only the next new session is taken, once')
-	p.body.button('More ▾').fire('click', { stopPropagation() {} })
-	p.body.byClass('menu')[0].button('Claude: allow bypass permissions mode…').fire('click')
+	// Codex in a worktree.
+	const q = openLauncher(p)
+	q.button('Codex').fire('click')
+	popItem(q, 'worktree').fire('click')
+	q.button('Start').fire('click')
+	assert.deepEqual(p.last('start'), { type: 'start', cli: 'codex', how: 'worktree' })
+	// The bypass switch is Claude's own and starts nothing.
+	p.posted.length = 0
+	const r = openLauncher(p)
+	r.button('Allow bypass permissions mode…').fire('click')
+	assert.deepEqual(p.posted, [{ type: 'start', cli: 'claude', how: 'bypass' }])
 	p.data2(rows().concat([row({ id: SID(8), name: 'Fresh claude' }), row({ id: SID(9) }), row({ id: SID(5), name: 'Other', state: 'working' })]))
 	assert.equal(p.panes().length, 1)
-	p.body.button('More ▾').fire('click', { stopPropagation() {} })
-	p.body.byClass('menu')[0].button('Gemini').fire('click')
+	// One of the user's own agents.
+	const g = openLauncher(p)
+	g.button('Gemini').fire('click')
+	g.button('Start').fire('click')
 	assert.deepEqual(p.last('custom'), { type: 'custom', index: 0, name: 'Gemini' })
 	p.data2(rows().concat([row({ id: SID(8), name: 'Fresh claude' }), row({ id: SID(9) }), row({ id: SID(5) }), row({ id: SID(6), name: 'gem', cli: 'custom', state: 'working' })]))
 	assert.deepEqual(titles(p).sort(), ['Fresh claude', 'gem'])
@@ -1260,15 +1462,23 @@ test('earlier sessions of a project start again in its folder, this window\'s ow
 	assert.deepEqual({ ...p.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'codex', sessionId: SESSION2, cwd: '/work/other' })
 })
 
-test('"+ Codex" under a project opens a new session in a new pane, in that project\'s folder', T, () => {
+test('a project\'s "+" opens the launcher on its folder; Start opens a new session in a new pane there', T, () => {
 	const p = boot()
 	p.data([])
 	p.send(index())
 	p.posted.length = 0
 	const other = p.side().byClass('sgroup').find(g => /other/.test(g.textContent) && !/Login work/.test(g.textContent))
-	other.button('+ Codex').fire('click')
+	const plus = other.button('+')
+	assert.equal(plus.attrs.title, 'New session in other')
+	plus.fire('click', { stopPropagation() {} })
+	const pop = p.body.byClass('pop')[0]
+	assert.equal(popItem(pop, 'h:claude').attrs['aria-checked'], 'true', 'Claude Code is the default harness')
+	assert.equal(pop.byClass('pfold')[0].textContent, 'other', 'the folder is the one the plus belongs to')
+	pop.button('Codex').fire('click')
+	pop.button('Start').fire('click')
 	assert.deepEqual({ ...p.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'codex', cwd: '/work/other' })
-	p.body.button('+ Claude').fire('click')
+	p.side().byClass('sgroup').find(g => /Login work/.test(g.textContent)).button('+').fire('click', { stopPropagation() {} })
+	p.body.byClass('pop')[0].button('Start').fire('click')
 	assert.equal(p.panes().length, 2, 'each new session has a pane of its own')
 	assert.deepEqual({ ...p.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'claude', cwd: '/work/app' }, 'this window\'s own project: its folder, which is inside the workspace and so asks nothing')
 })
@@ -1277,14 +1487,14 @@ test('a new session from the header or the empty state starts in this window\'s 
 	const p = boot()
 	p.data([], { project: { name: 'app', cwd: '/work/app' } })
 	p.posted.length = 0
-	p.body.button('Claude').fire('click')
+	launchStart(p)
 	assert.deepEqual({ ...p.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'claude', cwd: '/work/app' })
 	assert.equal(p.panes().length, 1)
 	// Without a host-named folder (an older host, the website) it is the window's folder by default, as before.
 	const q = boot()
 	q.data([])
 	q.posted.length = 0
-	q.body.button('Codex').fire('click')
+	launchStart(q, 'Codex')
 	assert.deepEqual({ ...q.last('termOpen'), requestId: undefined }, { type: 'termOpen', requestId: undefined, kind: 'codex' })
 })
 
@@ -1328,7 +1538,7 @@ test('the sidebar controls post the existing and the peer messages', T, () => {
 	const p = boot()
 	p.data(rows(), { project: { name: 'my-app' }, peers: peers(), recent: recent() })
 	p.posted.length = 0
-	p.body.button('New session').fire('click')
+	popItem(openLauncher(p), 'agent').fire('click')
 	p.side().button('Open in IDE').fire('click')
 	p.body.button('Open project').fire('click')
 	assert.deepEqual(p.posted, [{ type: 'pick' }, { type: 'peer', action: 'ide', key: '0123456789ab' }, { type: 'peer', action: 'ide', key: 'ba9876543210' }])
@@ -1348,9 +1558,6 @@ test('without a terminal in the page (the website) a pane shows the conversation
 	p.panes()[0].button('Show terminal in the editor').fire('click')
 	assert.deepEqual(p.posted, [{ type: 'show', id: SID(2) }])
 	assert.equal(p.panes()[0].byClass('pover')[0].className.includes('hidden'), true)
-	// There is nothing to broadcast to either.
-	p.body.button('Broadcast').fire('click')
-	assert.equal(p.body.labelled('Broadcast to Worker').attrs.disabled, '')
 })
 
 test('the keyboard reaches the sidebar: Alt+Shift+S focuses it, Enter on a row opens it', T, () => {
@@ -1383,9 +1590,9 @@ test('the board sorts agents into columns and the header counts them', T, () => 
 	assert.match(cols['Working'].textContent, /⎇ insilode\/w ↑2 ↓1/)
 	assert.match(cols['Done'].textContent, /Finisher/)
 	assert.doesNotMatch(cols['Ended'].textContent, /Gone/, 'the Ended column is collapsed')
-	const head = p.body.byClass('head')[0].textContent
-	assert.match(head, /1Needs you/)
-	assert.match(head, /1Working/)
+	const head = p.body.byClass('tools')[0].textContent
+	assert.deepEqual(p.body.byClass('count').map(c => c.textContent), ['1 working', '1 needs you', '1 done'])
+	assert.equal(p.body.byClass('head').length, 0, 'there is no band of counters')
 	assert.match(head, /5h/)
 	assert.match(head, /resets in 1h 0m/)
 	assert.match(head, /1\.5k tokens/)
@@ -1470,25 +1677,50 @@ test('kept worktrees get their own section with a Manage button', T, () => {
 test('the counters count the other open projects too; a project without sessions is listed with a way to its window', T, () => {
 	const p = boot()
 	p.data([], { peers: peers().concat([{ key: 'ffffffffffff', name: 'idle-app', rows: [] }]) })
-	assert.deepEqual(p.body.byClass('count').map(c => c.textContent), ['1Needs you', '1Working', '0Done'])
+	assert.deepEqual(p.body.byClass('count').map(c => c.textContent), ['1 working', '1 needs you'], 'a count of zero is not shown')
 	assert.match(p.side().textContent, /idle-app.*No sessions/)
 	assert.ok(p.side().byClass('shead').filter(h => /idle-app/.test(h.textContent))[0].button('Open in IDE'))
 })
 
-test('the sidebar lists this project first, then open projects, then recent ones, with a dot per session', T, () => {
+test('the sidebar has no heading for open or recent projects and no block for this window: every project is a group, with a dot per session', T, () => {
 	const p = boot()
 	p.data(rows(), { project: { name: 'my-app' }, peers: peers(), recent: recent() })
 	const t = p.side().textContent
-	assert.ok(t.indexOf('my-app') < t.indexOf('other-app') && t.indexOf('other-app') < t.indexOf('old-app'))
+	assert.doesNotMatch(t, /Open projects|Recent|On this machine|Running elsewhere|No sessions yet/)
+	assert.equal(p.side().button('New session'), undefined, 'the old block\'s buttons are gone')
+	assert.equal(p.side().button('+ Claude'), undefined)
+	assert.equal(p.side().button('+ Codex'), undefined)
+	assert.ok(t.indexOf('my-app') >= 0 && t.indexOf('other-app') >= 0 && t.indexOf('old-app') > t.indexOf('other-app'), 'a project with no live session comes last')
 	assert.match(t, /Needy.*Worker.*Finisher/)
-	assert.match(t, /Remote worker.*Editing api\.ts/)
-	assert.match(t, /Waiting.*Run rm/)
+	assert.match(t, /Remote worker.*working/)
+	assert.match(t, /Waiting.*needs you/)
 	assert.doesNotMatch(t, /Gone peer/)
 	assert.match(t, /Fix login, Refactor \(closed\)/)
 	const dots = p.side().byClass('sdot').map(d => d.className)
 	assert.ok(dots.some(c => c.includes('needs')) && dots.some(c => c.includes('working')) && dots.some(c => c.includes('done')))
 	p.body.button('Ended').fire('click')
 	assert.match(p.side().textContent, /Gone peer/)
+	assert.ok(p.side().byClass('srow').find(r => r.textContent.includes('Gone peer')).byClass('sdot')[0].className.includes('ended'), 'ended is a ring')
+})
+
+test('projects with a live session come first, then by the latest activity; each has one "+" and nothing else is offered to start', T, () => {
+	const p = boot()
+	const now = Date.now()
+	p.data([], { project: { name: 'mine', cwd: '/work/mine' }, peers: [
+		{ key: 'aaaaaaaaaaaa', name: 'quiet-old', rows: [peerRow({ id: 'q1', name: 'Q1', state: 'ended', since: now - 9_000_000 })] },
+		{ key: 'bbbbbbbbbbbb', name: 'busy', rows: [peerRow({ id: 'b1', name: 'B1', state: 'working', since: now - 8_000_000 })] },
+		{ key: 'cccccccccccc', name: 'quiet-new', rows: [peerRow({ id: 'c1', name: 'C1', state: 'ended', since: now - 1_000 })] },
+	] })
+	p.body.button('Ended').fire('click')
+	const order = p.side().byClass('sproj').map(e => e.textContent)
+	assert.equal(order[0], 'busy', 'the live one first')
+	assert.ok(order.indexOf('quiet-new') < order.indexOf('quiet-old'), 'then the most recent')
+	assert.ok(order.indexOf('mine') > order.indexOf('quiet-old'), 'a project with nothing at all is last')
+	// A project\'s "+" needs a folder: the open windows are known by key only, so they get one from the machine\'s index.
+	assert.equal(p.side().byClass('plus').length, 1, 'only this window\'s project has a folder yet')
+	p.send({ type: 'chatIndex', projects: [{ key: 'bbbbbbbbbbbb', name: 'busy', where: '~/busy', cwd: '/work/busy', own: false, sessions: [] }] })
+	assert.equal(p.side().byClass('plus').length, 2)
+	assert.equal(p.side().byClass('plus')[0].attrs['aria-label'], 'New session in busy')
 })
 
 test('elapsed time ticks locally from the host clock', T, () => {
@@ -1554,9 +1786,9 @@ test('one character posts nothing and shows the normal list; clearing the box re
 	assert.deepEqual(searches(p), [])
 	assert.match(p.body.byClass('side')[0].textContent, /Login work/)
 	typeInto(p, 'login')
-	assert.doesNotMatch(p.body.byClass('side')[0].textContent, /On this machine/)
+	assert.doesNotMatch(p.body.byClass('side')[0].textContent, /Login work/, 'the results replace the list')
 	typeInto(p, '')
-	assert.match(p.body.byClass('side')[0].textContent, /On this machine/)
+	assert.match(p.body.byClass('side')[0].textContent, /Login work/)
 })
 
 test('hits are grouped by project and drawn as text with the match marked; a snippet with markup stays text', T, () => {
@@ -1650,7 +1882,7 @@ test('an answer to an earlier query, or to a cleared one, is ignored', T, () => 
 	typeInto(p, '')
 	p.send({ type: 'chatFound', query: 'logout', more: false, hits: [hitFor({ title: 'Stale' })] })
 	assert.doesNotMatch(p.body.byClass('side')[0].textContent, /Stale/)
-	assert.match(p.body.byClass('side')[0].textContent, /On this machine/)
+	assert.match(p.body.byClass('side')[0].textContent, /Login work/)
 })
 
 // ---- sessions that run outside this window ---------------------------------------------------------------------------------
@@ -1666,30 +1898,61 @@ const outside = (live = LIVE(), extra = {}) => ({ type: 'chatIndex', projects: [
 ] })
 const tailOf = (id, text, extra = {}) => ({ type: 'tail', id, entries: [{ role: 'user', text }, { role: 'assistant', text: 'On it.' }], ...extra })
 
-test('a session another program runs shows with its status dot, a source badge and a "Running elsewhere" entry; an estimate says so', T, () => {
+test('a session another program runs is a row of its project like any other: where it runs and its state in one muted line; an estimate says so', T, () => {
 	const p = boot()
 	p.data([])
 	p.send(outside())
 	const side = p.side()
-	assert.match(side.textContent, /On this machine/)
-	const group = side.byClass('sgroup').find(g => g.textContent.startsWith('Running elsewhere'))
-	assert.ok(group, 'the section is first under "On this machine"')
-	assert.match(group.textContent, /Elsewhere work/)
-	assert.match(group.textContent, /external · Claude desktop/)
-	assert.doesNotMatch(group.textContent, /Codex work/, 'an estimate is not "running elsewhere"')
+	assert.doesNotMatch(side.textContent, /On this machine|Running elsewhere|external ·/)
 	const rowsOf = side.byClass('srow').filter(r => r.textContent.includes('Elsewhere work'))
-	assert.equal(rowsOf.length, 2, 'in its project too')
+	assert.equal(rowsOf.length, 1, 'once, in its project')
+	const sub = rowsOf[0].byClass('ssub')[0]
+	assert.equal(sub.byClass('swhere')[0].textContent, 'Claude desktop')
+	assert.equal(sub.byClass('sstate')[0].textContent, 'working')
+	assert.equal(sub.attrs.title, 'Claude desktop · working')
 	assert.ok(rowsOf[0].byClass('sdot')[0].className.includes('working'))
+	assert.equal(rowsOf[0].children.at(-1).className.split(' ')[0], 'sglyph', 'the harness\'s mark is the last thing in the row')
 	const codex = side.byClass('srow').find(r => r.textContent.includes('Codex work'))
-	assert.match(codex.textContent, /active recently/)
+	assert.equal(codex.byClass('swhere')[0].textContent, 'Codex')
+	assert.equal(codex.byClass('sstate')[0].textContent, 'active recently')
 	assert.ok(codex.byClass('sdot')[0].className.includes('recent'))
-	assert.match(codex.byClass('xbadge')[0].attrs.title, /estimate/)
+	assert.match(codex.byClass('sdot')[0].attrs.title, /estimate/)
+	// An earlier session says it ended and when, with the CLI as its place.
 	const quiet = side.byClass('srow').find(r => r.textContent.includes('Quiet work'))
-	assert.equal(quiet.byClass('xbadge').length, 0)
+	assert.equal(quiet.byClass('swhere')[0].textContent, 'Claude Code')
+	assert.equal(quiet.byClass('sstate')[0].textContent, 'ended 1h ago')
+	assert.equal(quiet.byClass('sdot')[0].className, 'sdot ended')
 	// Within its project the live one is above the quiet one (the host sorts them; the page keeps the order).
 	const names = side.byClass('crow').map(r => r.byClass('sname')[0].textContent)
 	assert.ok(names.indexOf('Elsewhere work') < names.indexOf('Quiet work'))
-	assert.match(group.textContent, /1/)
+	// The state never shares the cut with the place: only the place may be shortened.
+	const css = html.match(/\.ssub \.swhere \{[^}]*\}/)[0] + html.match(/\.ssub \.ssep, \.ssub \.sstate \{[^}]*\}/)[0]
+	assert.match(css, /swhere \{[^}]*text-overflow: ellipsis/)
+	assert.match(css, /sstate \{[^}]*flex: none/)
+})
+
+test('an own session, one of another window and an ended one have the same row shape', T, () => {
+	const p = boot()
+	p.data(rows(), { project: { name: 'my-app' }, peers: peers() })
+	p.body.button('Ended').fire('click')
+	const sub = name => p.side().byClass('srow').find(r => r.textContent.includes(name)).byClass('ssub')[0]
+	assert.equal(sub('Worker').byClass('swhere')[0].textContent, 'Claude Code')
+	assert.equal(sub('Worker').byClass('sstate')[0].textContent, 'working')
+	assert.equal(sub('Needy').byClass('sstate')[0].textContent, 'needs you')
+	assert.equal(sub('Finisher').byClass('swhere')[0].textContent, 'Codex')
+	assert.equal(sub('Finisher').byClass('sstate')[0].textContent, 'done')
+	assert.equal(sub('Remote worker').byClass('sstate')[0].textContent, 'working')
+	assert.match(sub('Gone').byClass('sstate')[0].textContent, /^ended /)
+	const gone = p.side().byClass('srow').find(r => r.textContent.includes('Gone') && !r.textContent.includes('peer'))
+	assert.equal(gone.byClass('sdot')[0].className, 'sdot ended')
+	// Idle is green like done; the dot and the glyph sit at the row's two ends.
+	p.data([row({ id: SID(5), name: 'Resting', state: 'idle' })])
+	const rest = p.side().byClass('srow').find(r => r.textContent.includes('Resting'))
+	assert.equal(rest.byClass('sdot')[0].className, 'sdot done')
+	assert.equal(rest.children[0].tagName, 'I')
+	assert.equal(rest.children.at(-1).className.split(' ')[0], 'sglyph')
+	// A long name is cut on its own line, so it never runs under the glyph.
+	assert.match(html, /\.sname \{[^}]*text-overflow: ellipsis/)
 })
 
 test('the dot follows the status the program wrote: busy works, idle is done, waiting needs you, unknown is plain', T, () => {
@@ -1705,14 +1968,16 @@ test('the dot follows the status the program wrote: busy works, idle is done, wa
 test('a live mark the page cannot trust (a status or source it does not know, an object that is no mark) is dropped, not drawn', T, () => {
 	const p = boot()
 	p.data([])
+	const state = () => p.side().byClass('srow').find(r => r.textContent.includes('Elsewhere work')).byClass('sstate')[0].textContent
 	p.send(outside({ status: 'exploding', source: 'x', basis: 'live' }))
-	assert.doesNotMatch(p.side().textContent, /external ·|Running elsewhere/)
+	assert.match(state(), /^ended /)
 	p.send(outside({ status: 'idle', source: '<img src=x onerror=1>'.repeat(10), basis: 'live' }))
-	assert.doesNotMatch(p.side().textContent, /external ·/)
+	assert.match(state(), /^ended /)
 	p.send(outside('yes'))
-	assert.doesNotMatch(p.side().textContent, /external ·/)
+	assert.match(state(), /^ended /)
 	p.send(outside({ status: 'idle', source: '<b>desk</b>', basis: 'live' }))
-	assert.match(p.side().textContent, /external · <b>desk<\/b>/, 'shown as text')
+	const row = p.side().byClass('srow').find(r => r.textContent.includes('Elsewhere work'))
+	assert.equal(row.byClass('swhere')[0].textContent, '<b>desk</b>', 'shown as text')
 	assert.equal(p.side().find(n => n.tagName === 'B').length, 0)
 })
 
@@ -1876,9 +2141,8 @@ test('with nothing waiting there is no strip; waiting sessions of this window, o
 	assert.match(queue(p).textContent, /Needs you · 3/)
 	assert.ok(chips(p)[0].byClass('sdot')[0].className.includes('needs'))
 	assert.match(chips(p)[2].attrs['aria-label'], /Elsewhere work, other, needs you/)
-	// The header counts them: this window's Needy, the peer's Waiting and the program's.
-	assert.equal(p.body.byClass('count')[0].byClass('b').length, 0)
-	assert.equal(p.body.byClass('count')[0].find(n => n.tagName === 'B')[0].textContent, '3')
+	// The toolbar counts them: this window's Needy, the peer's Waiting and the program's, the very number the strip shows.
+	assert.deepEqual(p.body.byClass('count').map(c => c.textContent), ['2 working', '3 needs you', '1 done'])
 })
 
 test('a session another Insilode window runs is one chip, not also an external one, even when its registry entry carries the id /clear gave it', T, () => {
