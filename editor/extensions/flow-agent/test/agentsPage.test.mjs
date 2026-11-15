@@ -2570,7 +2570,7 @@ test('a row of the panel opens its file through the host, naming the project and
 test('the buttons open the harness map and the hooks studio; neither names a command', T, () => {
 	const p = withHarness()
 	p.posted.length = 0
-	hpanel(p).button('Open harness map').fire('click')
+	hpanel(p).button('Open Harness').fire('click')
 	hpanel(p).button('Hooks studio').fire('click')
 	assert.deepEqual(p.all('harnessGo'), [{ type: 'harnessGo', target: 'map' }, { type: 'harnessGo', target: 'hook' }])
 })

@@ -339,7 +339,7 @@ function paintHarness() {
 	fill(hpBody, body);
 	hpBody.className = hp.state === 'loading' && s ? 'hbody stale' : 'hbody';
 	if (sub) { add(hpHead, sub); }
-	fill(hpFoot, [h('button', { type: 'button', class: 'btn small', title: 'Open the harness map of this window\'s project', onclick: () => post({ type: 'harnessGo', target: 'map' }) }, 'Open harness map'),
+	fill(hpFoot, [h('button', { type: 'button', class: 'btn small', title: 'Open the Harness page of this window\'s project', onclick: () => post({ type: 'harnessGo', target: 'map' }) }, 'Open Harness'),
 		h('button', { type: 'button', class: 'btn small', title: 'Add a hook to this window\'s project in the hooks studio', onclick: () => post({ type: 'harnessGo', target: 'hook' }) }, 'Hooks studio')]);
 	const again = keep ? hByAttr(hpBody, 'data-hk', keep) : undefined;
 	if (again && again.focus) { again.focus(); }

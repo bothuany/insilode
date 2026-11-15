@@ -578,7 +578,7 @@ test('the buttons run the harness extension\'s own views by name; the page never
 		t.page({ type: 'harnessGo', target: 'workbench.action.quit' })
 		t.page({ type: 'harnessGo', command: 'workbench.action.quit' })
 		await sleep(10)
-		assert.deepEqual(t.ran.map(r => r[0]), ['workbench.view.extension.flowHarness', 'flowHarness.addHook'])
+		assert.deepEqual(t.ran.map(r => r[0]), ['flowHarness.open', 'flowHarness.addHook'])
 	} finally { t.done() }
 })
 

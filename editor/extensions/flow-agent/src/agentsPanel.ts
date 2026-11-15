@@ -227,7 +227,7 @@ export class AgentsPanel implements vscode.Disposable {
 			case 'harness': return void this.sendHarness(m.cwd);
 			case 'harnessOpen': return void this.harness.open(m.cwd, this.workspaceFolder(), m.file, m.line);
 			// One fixed command per target, so the page never names a command id.
-			case 'harnessGo': return void Promise.resolve(m.target === 'map' ? vscode.commands.executeCommand('workbench.view.extension.flowHarness') : vscode.commands.executeCommand('flowHarness.addHook')).catch(() => undefined);
+			case 'harnessGo': return void Promise.resolve(m.target === 'map' ? vscode.commands.executeCommand('flowHarness.open') : vscode.commands.executeCommand('flowHarness.addHook')).catch(() => undefined);
 			// The terminal panes (termHost.ts): the page may only touch a terminal it attached to.
 			case 'termAttach': return this.termAttach(m.id);
 			case 'termDetach': return this.termDetach(m.id);

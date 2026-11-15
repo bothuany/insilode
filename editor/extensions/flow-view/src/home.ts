@@ -16,7 +16,7 @@ import { entryName, type Endpoints, type IndexStatus, type Source } from './back
 
 /** The commands the shortcut row of the Home page can run. */
 export const HOME_COMMANDS: ReadonlySet<string> = new Set([
-	'flow.showAtCursor', 'flow.pickEndpoint', 'workbench.action.quickOpen', 'workbench.view.extension.flowHarness', 'flow.agents.chooseAskTarget', 'flow.settings',
+	'flow.showAtCursor', 'flow.pickEndpoint', 'workbench.action.quickOpen', 'flowHarness.open', 'flow.agents.chooseAskTarget', 'flow.settings',
 	// The first-run strip and the rows under the lists: the sample tour, Import from VS Code (flow-import) and the boards.
 	'flow.tour.playSample', 'flow.importFromVSCode', 'flow.board.show', 'flow.board.fromCode',
 	// The Agents row, when an agent waits: its link to the Agents page.
@@ -641,7 +641,7 @@ kbd { font: 11px var(--mono); padding: 0 5px; border: 1px solid var(--line); bor
 		<button data-run="flow.showAtCursor"><kbd data-k="mod+alt+F"></kbd> Show flow at cursor</button>
 		<button data-run="flow.pickEndpoint"><kbd data-k="mod+alt+E"></kbd> Trace an endpoint</button>
 		<button data-run="workbench.action.quickOpen"><kbd data-k="mod+P"></kbd> Go to file</button>
-		<button data-run="workbench.view.extension.flowHarness"><kbd>Harness</kbd> Open the map</button>
+		<button data-run="flowHarness.open"><kbd>Harness</kbd> Open the harness</button>
 		<button data-run="flow.settings"><kbd>Settings</kbd> Change how Insilode works</button>
 	</nav>
 </main>
