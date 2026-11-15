@@ -43,10 +43,15 @@ export type AgentsAction =
 	| { type: 'termResize'; id: string; cols: number; rows: number }
 	/**
 	 * Open an agent in a terminal pane (termHost.ts): `sessionId` resumes that session, none starts a new one; in `cwd` (an absolute path; one
-	 * outside this window's workspace is asked about once) or this window's folder. `requestId` is the page's, echoed in the answer.
+	 * outside this window's workspace only when folderTrust.ts allows it) or this window's folder. `requestId` is the page's, echoed in the answer.
 	 */
 	/** `force`: "Resume anyway" for a session another process runs; the host still asks the user itself (termHost.ts), so this is only a request. */
 	| { type: 'termOpen'; requestId: string; kind: 'claude' | 'codex'; sessionId?: string; cwd?: string; force?: true }
+	/**
+	 * The launcher's "Other folder…": the host opens a folder dialog and answers with a `folderPicked` for this `requestId` (and for nothing else).
+	 * It carries no path: the only way for a folder outside the workspace to become allowed is the user choosing it in that dialog (folderTrust.ts).
+	 */
+	| { type: 'pickFolder'; requestId: string }
 	/**
 	 * The page's pane layout (paneLayout.ts, layoutStore.ts). `layoutSave` is the layout on screen, for the page to come back to; `layoutSaveAs` and
 	 * `layoutDelete` keep the layouts the user names. The layouts are validated here, so what reaches storage is always sound.
@@ -63,6 +68,14 @@ export type AgentsAction =
 	| { type: 'harnessOpen'; cwd?: string; file: string; line?: number }
 	| { type: 'harnessGo'; target: 'map' | 'hook' };
 
+/** Host → page: the answer to a `pickFolder`; no `path` means the dialog was cancelled or the folder cannot be used. Only the request that asked uses it. */
+export interface AgentsPageFolderPicked {
+	type: 'folderPicked';
+	requestId: string;
+	path?: string;
+	name?: string;
+}
+
 /** Whether `v` is a path the page may name: text of a sane length, no NUL, absolute on `platform` (a drive path or a share on Windows, a leading slash elsewhere). */
 export const isPagePath = (v: unknown, platform: NodeJS.Platform = process.platform): v is string =>
 	typeof v === 'string' && v.length > 0 && v.length <= MAX_PATH && !v.includes('\0') && (platform === 'win32' ? path.win32 : path.posix).isAbsolute(v);
@@ -72,6 +85,8 @@ export const isPagePath = (v: unknown, platform: NodeJS.Platform = process.platf
  * asked about it, and on Windows that alone opens a connection to the server named: a page must not be able to cause one.
  */
 export const isNetworkPath = (v: string, platform: NodeJS.Platform = process.platform): boolean => platform === 'win32' && /^[\\/]{2}/.test(v);
+
+const isRequestId = (v: unknown): v is string => typeof v === 'string' && v.length > 0 && v.length <= MAX_REQUEST;
 
 /** An absolute path as the page sends one, or undefined. */
 const absolutePath = (v: unknown): string | undefined => isPagePath(v) ? v : undefined;
@@ -116,6 +131,8 @@ export function agentsAction(raw: unknown): AgentsAction | undefined {
 			return id !== undefined && typeof m.data === 'string' && m.data.length > 0 && m.data.length <= MAX_TERM_INPUT ? { type: 'termInput', id, data: m.data } : undefined;
 		case 'termResize':
 			return id !== undefined && isRange(m.cols, MIN_COLS, MAX_COLS) && isRange(m.rows, MIN_ROWS, MAX_ROWS) ? { type: 'termResize', id, cols: m.cols, rows: m.rows } : undefined;
+		case 'pickFolder':
+			return isRequestId(m.requestId) ? { type: 'pickFolder', requestId: m.requestId } : undefined;
 		case 'termOpen':
 			return typeof m.requestId === 'string' && m.requestId.length > 0 && m.requestId.length <= MAX_REQUEST && (m.kind === 'claude' || m.kind === 'codex')
 				&& (m.sessionId === undefined || (typeof m.sessionId === 'string' && SESSION_ID.test(m.sessionId)))

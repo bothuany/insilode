@@ -357,11 +357,12 @@ document.getElementById('list').addEventListener('click', e => {
 });
 // The launcher opens one menu of every way to start an agent, with the keys a menu has; the link beside it opens the Agents page.
 const menuEl = document.getElementById('menu');
-// [agent, how, label]. Claude's entries end with the switch for offering bypass permissions mode; the host says whether it is on, and turning it on asks first.
+// [agent, how, label]. Each agent's entries end with its permissions switch (Claude: offering bypass permissions mode; Codex: starting without asking, sandbox kept); the host says whether it is on, and turning it on asks first.
 // "new" starts the agent as it is, "pick" is "More agents…" (the agent name is unused); the rest go out as a start message.
 const menuItems = () => [['claude', 'new', 'Claude'], ['claude', 'worktree', 'Claude in a worktree'], ['claude', 'resume', 'Resume a Claude session…'],
 	['claude', 'bypass', data.bypass ? '✓ Bypass permissions mode offered (turn off)' : 'Allow bypass permissions mode…'],
-	['codex', 'new', 'Codex'], ['codex', 'worktree', 'Codex in a worktree'], ['codex', 'resume', 'Resume a Codex session…'], ['', 'pick', 'More agents…']];
+	['codex', 'new', 'Codex'], ['codex', 'worktree', 'Codex in a worktree'], ['codex', 'resume', 'Resume a Codex session…'],
+	['codex', 'neverAsk', data.neverAsk ? '✓ Codex starts without asking (turn off)' : 'Start Codex without asking…'], ['', 'pick', 'More agents…']];
 let menuOwner;
 function closeMenu(refocus) {
 	if (!menuOwner) { return; }
@@ -373,7 +374,7 @@ function closeMenu(refocus) {
 }
 function openMenu(btn, focusFirst) {
 	closeMenu(false);
-	menuEl.innerHTML = menuItems().map(m => '<button type="button" role="' + (m[1] === 'bypass' ? 'menuitemcheckbox" aria-checked="' + (data.bypass ? 'true' : 'false') : 'menuitem') + '" tabindex="-1" data-how="' + m[1] + '" data-cli="' + m[0] + '">' + esc(m[2]) + '</button>').join('');
+	menuEl.innerHTML = menuItems().map(m => '<button type="button" role="' + (m[1] === 'bypass' || m[1] === 'neverAsk' ? 'menuitemcheckbox" aria-checked="' + (data[m[1]] ? 'true' : 'false') : 'menuitem') + '" tabindex="-1" data-how="' + m[1] + '" data-cli="' + m[0] + '">' + esc(m[2]) + '</button>').join('');
 	menuEl.setAttribute('aria-label', 'Start an agent');
 	menuEl.hidden = false;
 	const r = btn.getBoundingClientRect();

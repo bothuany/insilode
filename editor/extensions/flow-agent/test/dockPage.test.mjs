@@ -208,9 +208,9 @@ test('the launcher menu offers every way to start that the three old controls di
 	const labels = [...menu.innerHTML.matchAll(/data-how="([^"]*)" data-cli="([^"]*)">([^<]*)</g)].map(m => [m[2], m[1], m[3]])
 	assert.deepEqual(labels.map(l => l[2]), [
 		'Claude', 'Claude in a worktree', 'Resume a Claude session…', 'Allow bypass permissions mode…',
-		'Codex', 'Codex in a worktree', 'Resume a Codex session…', 'More agents…',
+		'Codex', 'Codex in a worktree', 'Resume a Codex session…', 'Start Codex without asking…', 'More agents…',
 	])
-	assert.deepEqual(labels.map(l => l.slice(0, 2).join(':')), ['claude:new', 'claude:worktree', 'claude:resume', 'claude:bypass', 'codex:new', 'codex:worktree', 'codex:resume', ':pick'])
+	assert.deepEqual(labels.map(l => l.slice(0, 2).join(':')), ['claude:new', 'claude:worktree', 'claude:resume', 'claude:bypass', 'codex:new', 'codex:worktree', 'codex:resume', 'codex:neverAsk', ':pick'])
 	// items[] stands in for the buttons just drawn: new Claude, worktree, resume, new Codex, More agents.
 	const sent = []
 	for (const i of [0, 1, 2, 3, 4]) { menu.listeners.click({ target: items[i] }); sent.push(posted.at(-1)); launch.onclick({ detail: 1 }) }
@@ -220,7 +220,7 @@ test('the launcher menu offers every way to start that the three old controls di
 	])
 })
 
-test('the bypass switch is Claude\'s only entry (its state from the host); Codex has none', () => {
+test('each agent has its own permissions switch (its state from the host): bypass for Claude, never ask for Codex', () => {
 	const { launch, menu, send } = boot()
 	launch.onclick({ detail: 1 })
 	assert.match(menu.innerHTML, /data-how="bypass"[^>]*>Allow bypass permissions mode…</)
@@ -231,6 +231,14 @@ test('the bypass switch is Claude\'s only entry (its state from the host); Codex
 	assert.match(menu.innerHTML, /aria-checked="true"[^>]*data-how="bypass" data-cli="claude">✓ Bypass permissions mode offered \(turn off\)</)
 	assert.equal(menu.innerHTML.match(/data-how="bypass"/g).length, 1)
 	assert.doesNotMatch(menu.innerHTML, /data-how="bypass" data-cli="codex"/)
+	// Codex's, with its own state.
+	assert.match(menu.innerHTML, /role="menuitemcheckbox" aria-checked="false"[^>]*data-how="neverAsk" data-cli="codex">Start Codex without asking…</)
+	assert.equal(menu.innerHTML.match(/data-how="neverAsk"/g).length, 1)
+	assert.doesNotMatch(menu.innerHTML, /data-how="neverAsk" data-cli="claude"/)
+	send([], { bypass: true, neverAsk: true })
+	launch.onclick({ detail: 1 })
+	launch.onclick({ detail: 1 })
+	assert.match(menu.innerHTML, /aria-checked="true"[^>]*data-how="neverAsk" data-cli="codex">✓ Codex starts without asking \(turn off\)</)
 })
 
 test('"Open Agents ↗" asks the host for the Agents page without naming a command', () => {

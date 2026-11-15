@@ -26,7 +26,7 @@ import { PrEvents } from './prEvents';
 import { runningElsewhere } from './liveSessions';
 import { ProjectIndex } from './projectIndex';
 import { startOrResume } from './resume';
-import { toggleBypass } from './bypass';
+import { toggleBypass, toggleNeverAsk } from './bypass';
 import { sweepLeftoverCopies } from './swap';
 import { TermHost } from './termHost';
 import { settingMoves } from './legacySettings';
@@ -91,7 +91,7 @@ export async function activate(context: vscode.ExtensionContext) {
 	const projects = new ProjectIndex(() => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath, () => [...agents.sessions.values()].filter(s => s.state !== 'ended').flatMap(s => [s.id, s.agentId ?? '', path.basename(s.transcript ?? '', '.jsonl'), ...agents.aliasesOf(s.id)]),
 		() => peers.view().peers.flatMap(p => p.rows.flatMap(r => [r.id, r.agentId ?? '', ...(r.aliases ?? [])])));
 	// A session another program runs must not be resumed here too: asked of the machine at the moment of the click, not of the page's last list.
-	const term = new TermHost(agents, context, async id => (await runningElsewhere([id]))?.source);
+	const term = new TermHost(agents, context, async id => (await runningElsewhere([id]))?.source, async () => (await projects.projects({ cached: true })).map(p => p.cwd));
 	const page = new AgentsPanel(agents, worktrees, peers, projects, term, new LayoutStore(context.workspaceState, context.globalState));
 	const router = new AskRouter(context, agents);
 	context.subscriptions.push(
@@ -115,6 +115,7 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('flow.agents.newCodexWorktree', () => agents.spawn('codex', undefined, undefined, 'worktree')),
 		vscode.commands.registerCommand('flow.agents.resume', () => startOrResume(agents, 'claude', false)),
 		vscode.commands.registerCommand('flow.agents.claudeBypass', () => toggleBypass()),
+		vscode.commands.registerCommand('flow.agents.codexNeverAsk', () => toggleNeverAsk()),
 		// The dock's ⇄ on an agent row: the same conversation, continued in the other CLI (swap.ts).
 		vscode.commands.registerCommand('flow.agents.swap', (id?: unknown) => swapFromPalette(agents, id)),
 		vscode.commands.registerCommand('flow.agents.rename', (id?: unknown) => renameFromPalette(agents, id)),

@@ -389,7 +389,16 @@ menuEl.addEventListener('keydown', e => {
 // ---- the launcher: one popover for every way to start an agent -------------------------------------------------------------
 // Built once per open and changed in place (a rebuild would detach the node a click came from, and the document's click handler would close it).
 const launchEl = h('div', { class: 'pop hidden', role: 'dialog', 'aria-label': 'New session' });
-const launch = { open: false, anchor: undefined, key: undefined };
+const launch = { open: false, anchor: undefined, key: undefined, pick: undefined }; // pick: { req, apply } of the folder dialog the host was asked to open
+const OTHER_FOLDER = '::other-folder::'; // the folder list's own entry, not a path (every path is absolute)
+let pickSeq = 0;
+// The host's answer to a pickFolder: used only by the launcher that asked for it, once, and only while it is still open.
+function folderPicked(m) {
+	const p = launch.pick;
+	if (!p || !launch.open || typeof m.requestId !== 'string' || m.requestId !== p.req) { return; }
+	launch.pick = undefined;
+	if (typeof m.path === 'string' && m.path && m.path.length <= 1024 && typeof m.name === 'string') { p.apply(m.path, m.name); }
+}
 const plusEls = new Map(); // project key -> its "+" button, so the focus can come back to the one the sidebar drew last
 // The projects the sidebar knows, this window's first: a folder to start in.
 function launchProjects(extra) {
@@ -405,6 +414,7 @@ function closeLauncher(refocus) {
 	if (!launch.open) { return; }
 	const a = (launch.key && plusEls.get(launch.key)) || launch.anchor;
 	launch.open = false;
+	launch.pick = undefined;
 	launchEl.className = 'pop hidden';
 	wipe(launchEl);
 	for (const e of [launch.anchor, a]) { if (e && e.setAttribute) { e.setAttribute('aria-expanded', 'false'); } }
@@ -429,19 +439,40 @@ function openLauncher(anchor, preset) {
 	const foldEl = h('span', { class: 'pfold' });
 	// Another project than this window's is named by its whole path: a name alone could be any folder, and the agent starts there on one click.
 	const pathEl = h('p', { class: 'pnote' });
-	const sel = h('select', { class: 'clisel hidden', 'aria-label': 'Folder to start in' }, projects.map(p => h('option', { value: p.cwd }, p.name + (p.where && p.where !== p.name ? '  ' + p.where : ''))));
+	const otherOpt = h('option', { value: OTHER_FOLDER }, 'Other folder…');
+	const optOf = p => h('option', { value: p.cwd }, p.name + (p.where && p.where !== p.name ? '  ' + p.where : ''));
+	const sel = h('select', { class: 'clisel hidden', 'aria-label': 'Folder to start in' }, projects.map(optOf), otherOpt);
 	const change = h('button', { type: 'button', class: 'btn small', 'data-k': 'change', onclick: () => { sel.className = sel.className.indexOf('hidden') >= 0 ? 'clisel' : 'clisel hidden'; if (sel.className === 'clisel' && sel.focus) { sel.focus(); } } }, 'Change…');
-	sel.addEventListener('change', () => { st.cwd = sel.value; sel.className = 'clisel hidden'; sync(); });
-	// Permissions: Claude's bypass mode is a machine setting the host applies to every Claude session started afterwards (sessions still start asking), so this row shows that setting and flips it.
-	const flip = () => { closeLauncher(true); post({ type: 'start', cli: 'claude', how: 'bypass' }); };
-	const perms = h('div', { class: 'perms' }, h('div', { class: 'slabel' }, 'Permissions'),
-		data.bypass
-			? h('div', { role: 'radiogroup', 'aria-label': 'Permissions' },
-				h('button', { type: 'button', role: 'radio', 'aria-checked': 'false', class: 'popopt', 'data-k': 'ask', title: 'Stop offering bypass permissions mode in the Claude sessions you start from now on', onclick: flip }, 'Ask each time'),
-				h('button', { type: 'button', role: 'radio', 'aria-checked': 'true', class: 'popopt', 'data-k': 'bypass', title: 'Claude sessions you start offer bypass permissions mode (Shift+Tab); they still start asking' }, 'Bypass permissions', h('span', { class: 'hint' }, 'offered')))
-			: h('div', { role: 'radiogroup', 'aria-label': 'Permissions' },
-				h('button', { type: 'button', role: 'radio', 'aria-checked': 'true', class: 'popopt', 'data-k': 'ask' }, 'Ask each time'),
-				h('button', { type: 'button', class: 'plink', 'data-k': 'allow', title: 'Offer bypass permissions mode in Claude sessions; the editor asks you to confirm', onclick: flip }, 'Allow bypass permissions mode…')));
+	sel.addEventListener('change', () => {
+		sel.className = 'clisel hidden';
+		if (sel.value === OTHER_FOLDER) {
+			// The host opens the folder dialog; the answer names the folder it allowed, and only the request made here is taken.
+			const req = 'f' + (++pickSeq) + '-' + Date.now().toString(36);
+			launch.pick = { req, apply: (cwd, name) => {
+				if (!projects.some(x => x.cwd === cwd)) { const np = { cwd, name, where: cwd }; projects.push(np); fill(sel, projects.map(optOf).concat(otherOpt)); }
+				st.cwd = cwd;
+				sync();
+			} };
+			sync();
+			post({ type: 'pickFolder', requestId: req });
+			return;
+		}
+		st.cwd = sel.value;
+		sync();
+	});
+	// Permissions: each agent's "do not ask" mode is a machine setting the host applies to every session of that agent started afterwards, so this row shows that setting and flips it.
+	// Claude's offers bypass permissions mode (sessions still start asking); Codex's starts sessions that never ask, with its workspace sandbox kept.
+	const permsGroup = (cli, how, on, k, t) => {
+		const flip = () => { closeLauncher(true); post({ type: 'start', cli, how }); };
+		return h('div', { role: 'radiogroup', 'aria-label': 'Permissions', class: cli === 'claude' ? null : 'hidden', 'data-cli': cli },
+			h('button', { type: 'button', role: 'radio', 'aria-checked': on ? 'false' : 'true', class: 'popopt', 'data-k': k.ask, title: on ? t.offTitle : null, onclick: on ? flip : null }, 'Ask each time'),
+			on
+				? h('button', { type: 'button', role: 'radio', 'aria-checked': 'true', class: 'popopt', 'data-k': k.on, title: t.onTitle }, t.label, h('span', { class: 'hint' }, t.hint))
+				: h('button', { type: 'button', class: 'plink', 'data-k': k.allow, title: t.allowTitle, onclick: flip }, t.allow));
+	};
+	const claudePerms = permsGroup('claude', 'bypass', !!data.bypass, { ask: 'ask', on: 'bypass', allow: 'allow' }, { label: 'Bypass permissions', hint: 'offered', allow: 'Allow bypass permissions mode…', offTitle: 'Stop offering bypass permissions mode in the Claude sessions you start from now on', onTitle: 'Claude sessions you start offer bypass permissions mode (Shift+Tab); they still start asking', allowTitle: 'Offer bypass permissions mode in Claude sessions; the editor asks you to confirm' });
+	const codexPerms = permsGroup('codex', 'neverAsk', !!data.neverAsk, { ask: 'cask', on: 'neverask', allow: 'callow' }, { label: 'Never ask (sandboxed)', hint: 'on', allow: 'Never ask (sandboxed)…', offTitle: 'Codex sessions you start from now on ask before they edit files or run commands', onTitle: 'Codex sessions you start do not ask before they edit files or run commands; they stay inside their workspace sandbox', allowTitle: 'Start Codex sessions without asking, inside their workspace sandbox; the editor asks you to confirm' });
+	const perms = h('div', { class: 'perms' }, h('div', { class: 'slabel' }, 'Permissions'), claudePerms, codexPerms);
 	const resume = h('button', { type: 'button', class: 'plink', 'data-k': 'resume', onclick: () => { const cli = st.cli; closeLauncher(false); expectNew(cli); post({ type: 'start', cli, how: 'resume' }); } }, 'Resume a session…');
 	const agent = h('button', { type: 'button', class: 'plink', 'data-k': 'agent', onclick: () => { closeLauncher(false); expectNew(undefined); post({ type: 'pick' }); } }, 'Start an Agent…');
 	const go = h('button', { type: 'button', class: 'btn primary pstart', 'data-k': 'start', onclick: () => {
@@ -467,7 +498,9 @@ function openLauncher(anchor, preset) {
 		pathEl.textContent = isWin() ? '' : st.cwd;
 		pathEl.className = isWin() ? 'pnote hidden' : 'pnote';
 		sel.value = st.cwd;
-		perms.className = st.cli === 'claude' ? 'perms' : 'perms hidden';
+		perms.className = st.cli === 'claude' || st.cli === 'codex' ? 'perms' : 'perms hidden';
+		claudePerms.className = st.cli === 'claude' ? '' : 'hidden';
+		codexPerms.className = st.cli === 'codex' ? '' : 'hidden';
 		resume.className = isCustom() ? 'plink hidden' : 'plink';
 		// Resume and the agent picker are the editor's own, for this window's project: with another folder chosen they would not act on it.
 		for (const b of [resume, agent]) { if (isWin()) { b.removeAttribute('disabled'); b.setAttribute('title', ''); } else { b.setAttribute('disabled', ''); b.setAttribute('title', 'Only in this window\'s project'); } }
@@ -953,6 +986,8 @@ window.addEventListener('message', e => {
 		paint();
 		reveal();
 		adoptNew();
+	} else if (m.type === 'folderPicked') {
+		folderPicked(m);
 	} else if (wsMessage(m)) {
 		return;
 	} else if (m.type === 'chatIndex') {

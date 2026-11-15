@@ -80,6 +80,7 @@ const META: Record<string, Meta> = {
 	'flow.agents.showChat': ['agents', 'Start & run', 'Offer agents in the chat panel'],
 	'flow.agents.page.location': ['agents', 'Start & run', 'Where the Agents page opens'],
 	'flow.agents.claude.allowBypassPermissions': ['agents', 'Start & run', 'Offer Claude Code’s bypass permissions mode'],
+	'flow.agents.codex.neverAsk': ['agents', 'Start & run', 'Start Codex without asking (sandboxed)'],
 	'flow.agents.askTarget': ['agents', 'Start & run', 'Where questions go'],
 	'flow.agents.worktree': ['agents', 'Start & run', 'Start agents in a git worktree'],
 	'flow.agents.worktreeBase': ['agents', 'Start & run', 'Where a new worktree starts from'],

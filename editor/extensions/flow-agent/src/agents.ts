@@ -24,7 +24,7 @@ import { CostTracker, statusUsd, type SessionCost } from './cost';
 import { disposeGaze, gazeHook, gazeTurn } from './gazeHost';
 import { parsePatch, patchFiles, patchText } from './patch';
 import { PrWatcher, type PrState } from './prState';
-import { claudeCommand } from './launch';
+import { claudeCommand, codexStartCommand } from './launch';
 import { folderKey } from './storageKey';
 import { shimScript } from './shim';
 import { canExplain, explainPrompt } from './explain';
@@ -33,7 +33,7 @@ import { ShellEditSweep } from './shellEdits';
 import { openRegular } from './safeFile';
 import { confirmResumeAnyway } from './resumeAnyway';
 import { idInUse } from './spawnGuard';
-import { bypassAllowed } from './bypass';
+import { bypassAllowed, neverAskAllowed } from './bypass';
 import { SKELETON_GATE, SKELETON_PROMPT_GATE } from './skeleton';
 import { canType, notReady, oneLine, slashRefusal, slashText, type AgentCli, type AgentState, type CustomCli, type SessionInfo, type SlashKind, type SlashResult } from './askTarget';
 import { applyUsage, claudeTranscriptUsage, codexRolloutUsage, endUsage, findOnPath, hasOwnStatusLine, LimitsSender, parseClaudeStatus, statusScript, type ContextUsage, type UsageLimits } from './usage';
@@ -827,12 +827,11 @@ export class Agents implements vscode.Disposable {
 		// The `insilode` tools find this window by its folder, so a worktree agent gets the main folder's config.
 		const mcp = cli === 'claude' ? await this.mcpConfig(folder, id) : undefined;
 		const codexHooks = !!codex?.hooks;
-		const profile = codex ? ` -p ${CODEX_PROFILE}` : '';
 		const command = cli === 'claude'
 			? claudeCommand({ resume: !!resume, id, settings: this.server && this.settingsOk ? this.claudeSettings() : undefined, mcp, allowBypass: bypassAllowed() })
 			// Codex chose its session id; until a hook told us, `codex resume` without one opens its own picker.
 			// The id is typed into the shell: one that is not a uuid (from a hook, or Codex's importer) is never typed; Codex's picker opens instead.
-			: cli === 'codex' ? (resume ? `codex resume${profile}${resume.agentId && UUID.test(resume.agentId) ? ` ${resume.agentId}` : ''}` : `codex${profile}`)
+			: cli === 'codex' ? codexStartCommand({ resume: !!resume, id: resume?.agentId, profile: codex ? CODEX_PROFILE : undefined, neverAsk: neverAskAllowed() })
 			: resume?.command ?? custom?.command ?? '';
 		if (!opts?.quiet) {
 			terminal.show();
