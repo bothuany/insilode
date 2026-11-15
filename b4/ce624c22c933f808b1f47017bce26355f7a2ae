@@ -1,0 +1,34 @@
+editor/extensions/flow-agent/test/agentsPanel.test.mjs
+  s_c2897d6f2cc16d::t_3d22aea3d81b4a 581
+editor/extensions/flow-agent/src/agentsPanel.ts
+  s_c2897d6f2cc16d::t_3d22aea3d81b4a 230
+editor/extensions/flow-view/src/home.ts
+  s_c2897d6f2cc16d::t_3d22aea3d81b4a 19,644
+.dependency-cruiser.cjs
+  s_c2897d6f2cc16d::t_5ca003651c0462 108
+editor/extensions/flow-agent/src/agentsHarnessPanel.ts
+  s_c2897d6f2cc16d::t_5ca003651c0462 342
+editor/extensions/flow-agent/test/agentsPage.test.mjs
+  s_c2897d6f2cc16d::t_5ca003651c0462 2573
+editor/extensions/flow-harness/package.json
+  s_c2897d6f2cc16d::t_5ca003651c0462 205-208
+  s_c2897d6f2cc16d::t_786fdd1a008f77 204
+docs/agent-tools.md
+  s_c2897d6f2cc16d::t_8d1958fd54c6bc 71
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b4ce624c22c933f808b1f47017bce26355f7a2ae",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
