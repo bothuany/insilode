@@ -1002,9 +1002,14 @@ test('worktrees and the user\'s own agents start only in this window\'s folder: 
 	assert.equal('disabled' in popItem(pop, 'worktree').attrs, true)
 	assert.equal('disabled' in popItem(pop, 'h:custom:0').attrs, true)
 	assert.match(pop.textContent, /starts from this window's project/)
+	// Another folder is named by its whole path, and what only this window's project can do (resume, the agent picker) is off.
+	assert.match(pop.textContent, /\/work\/other/)
+	assert.equal('disabled' in popItem(pop, 'resume').attrs, true)
+	assert.equal('disabled' in popItem(pop, 'agent').attrs, true)
 	// A custom agent has nothing to resume and no worktree.
 	sel.value = '/work/app'
 	sel.fire('change')
+	assert.equal('disabled' in popItem(pop, 'resume').attrs, false, 'on again in this window\'s folder')
 	popItem(pop, 'h:custom:0').fire('click')
 	assert.equal(popItem(pop, 'resume').className.includes('hidden'), true)
 	assert.equal('disabled' in popItem(pop, 'worktree').attrs, true)

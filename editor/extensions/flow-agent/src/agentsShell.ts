@@ -95,6 +95,7 @@ export const SHELL_CSS = String.raw`
 .pop .pacts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; margin: 10px 2px 0; }
 .pop .plink { padding: 0; border: 0; background: transparent; color: var(--focus); font-size: 12px; }
 .pop .plink:hover { text-decoration: underline; }
+.pop .plink:disabled { color: var(--muted); cursor: default; text-decoration: none; }
 .pop .pstart { margin-left: auto; }
 .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sact { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -426,6 +427,8 @@ function openLauncher(anchor, preset) {
 	const worktree = h('button', { type: 'button', role: 'switch', class: 'popopt', 'data-k': 'worktree', onclick: () => { st.worktree = !st.worktree; sync(); } }, 'Worktree', h('span', { class: 'hint' }));
 	const wnote = h('p', { class: 'pnote' });
 	const foldEl = h('span', { class: 'pfold' });
+	// Another project than this window's is named by its whole path: a name alone could be any folder, and the agent starts there on one click.
+	const pathEl = h('p', { class: 'pnote' });
 	const sel = h('select', { class: 'clisel hidden', 'aria-label': 'Folder to start in' }, projects.map(p => h('option', { value: p.cwd }, p.name + (p.where && p.where !== p.name ? '  ' + p.where : ''))));
 	const change = h('button', { type: 'button', class: 'btn small', 'data-k': 'change', onclick: () => { sel.className = sel.className.indexOf('hidden') >= 0 ? 'clisel' : 'clisel hidden'; if (sel.className === 'clisel' && sel.focus) { sel.focus(); } } }, 'Change…');
 	sel.addEventListener('change', () => { st.cwd = sel.value; sel.className = 'clisel hidden'; sync(); });
@@ -461,12 +464,16 @@ function openLauncher(anchor, preset) {
 		wnote.className = wnote.textContent ? 'pnote' : 'pnote hidden';
 		foldEl.textContent = nameOf(st.cwd);
 		foldEl.setAttribute('title', st.cwd || (data.project && data.project.name) || '');
+		pathEl.textContent = isWin() ? '' : st.cwd;
+		pathEl.className = isWin() ? 'pnote hidden' : 'pnote';
 		sel.value = st.cwd;
 		perms.className = st.cli === 'claude' ? 'perms' : 'perms hidden';
 		resume.className = isCustom() ? 'plink hidden' : 'plink';
+		// Resume and the agent picker are the editor's own, for this window's project: with another folder chosen they would not act on it.
+		for (const b of [resume, agent]) { if (isWin()) { b.removeAttribute('disabled'); b.setAttribute('title', ''); } else { b.setAttribute('disabled', ''); b.setAttribute('title', 'Only in this window\'s project'); } }
 	}
 	fill(launchEl, [h('div', { class: 'slabel' }, 'Harness'), h('div', { role: 'radiogroup', 'aria-label': 'Harness' }, hBtns),
-		h('div', { class: 'slabel' }, 'Folder'), h('div', { class: 'pline' }, foldEl, change), sel,
+		h('div', { class: 'slabel' }, 'Folder'), h('div', { class: 'pline' }, foldEl, change), pathEl, sel,
 		h('div', { class: 'slabel' }, 'Options'), worktree, wnote, perms,
 		h('div', { class: 'pacts' }, resume, agent, go)]);
 	sync();

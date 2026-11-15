@@ -169,11 +169,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('flow.agents.keptWorktrees', () => worktrees.showKept()),
 		vscode.commands.registerCommand('flow.agents.cleanupWorktrees', () => cleanupWorktrees(agents)),
 		vscode.commands.registerCommand('flow.agents.runWorktreeSetup', () => runWorktreeSetup(agents)),
-		// Called by the harness map's context X-ray (Compact, Measure): it names a session by id and a kind, never text, and
-		// the session's own state decides (Agents.slash), so an Enter never lands on a permission prompt. `check` types nothing.
-		vscode.commands.registerCommand('flow.agents.slash', (id: unknown, kind: unknown, check: unknown) => typeof id === 'string' && (kind === 'compact' || kind === 'context')
-			? agents.slash(id, kind, check === true)
-			: 'unknown'),
 	);
 	// The dock is where Insilode's agents live: on the first start, show it rather than the chat panel (which needs ACP to reach them).
 	if (!showChat() && !context.globalState.get<boolean>('flow.agents.dockShown')) {
