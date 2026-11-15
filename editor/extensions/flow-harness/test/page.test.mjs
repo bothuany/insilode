@@ -21,7 +21,7 @@ before(async () => {
 after(() => rmSync(tmp, { recursive: true, force: true }))
 
 const src = file => readFileSync(join(ROOT, 'src', file), 'utf8')
-const PAGES = ['page.ts', 'mcpManager.ts']
+const PAGES = ['page.ts', 'mcpManager.ts', 'harnessPage.ts']
 
 test('no page of this part draws a link that is really a click handler', () => {
 	for (const file of PAGES) {

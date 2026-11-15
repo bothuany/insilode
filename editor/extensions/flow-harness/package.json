@@ -66,6 +66,11 @@
     ],
     "commands": [
       {
+        "command": "flowHarness.open",
+        "title": "Open Harness",
+        "category": "Harness"
+      },
+      {
         "command": "flowHarness.refresh",
         "title": "Refresh",
         "category": "Harness",
