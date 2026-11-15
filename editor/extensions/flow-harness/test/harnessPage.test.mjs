@@ -151,9 +151,9 @@ test('what the page shows stays redacted: an MCP command or URL, a hook command,
 			permissions: { counts: { allow: 1, ask: 0, deny: 0 }, allow: [{ pattern: `Bash(deploy --token ${secrets[1]})`, scope: 'project', where: 's', file: '/work/app/s' }], ask: [], deny: [] },
 		}),
 		mcp: mcp([
-			server({ command: 'node', args: ['srv.js', '--api-key', KEY] }),
+			server({ command: 'node', args: ['srv.js', '--api-key', KEY], stateWhy: `Approved with token=${secrets[1]}`, readOnly: `api_key=${secrets[1]}`, issues: [{ severity: 'error', message: `Bad line: "api_key": "${secrets[1]}"` }] }),
 			server({ id: 'b', name: 'web', transport: 'http', url: `https://mcp.test/sse?token=${secrets[1]}&x=1`, command: undefined, args: [], check: { ok: false, status: `401 for ${secrets[2]}`, at: 1, ms: 5, how: 'handshake' } }),
-		]),
+		], { problems: [{ file: '~/.codex/config.toml', message: `invalid value at password = "${secrets[1]}"` }] }),
 	})
 	const shown = JSON.stringify(d)
 	for (const secret of secrets) {

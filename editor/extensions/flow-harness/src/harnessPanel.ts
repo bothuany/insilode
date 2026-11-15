@@ -40,11 +40,6 @@ export class HarnessPanel implements vscode.Disposable {
 					this.post();
 				}
 			}),
-			// A check in progress, a finished edit or a rescan of the map: the servers show the same state as the MCP page.
-			mcp.watch(data => {
-				this.mcpData = data;
-				this.post();
-			}),
 		);
 	}
 
@@ -65,7 +60,14 @@ export class HarnessPanel implements vscode.Disposable {
 		this.panel = vscode.window.createWebviewPanel('flowHarness.harness', 'Harness', { viewColumn: vscode.ViewColumn.Active, preserveFocus: false }, { enableScripts: true, localResourceRoots: [], retainContextWhenHidden: true });
 		this.ready = false;
 		this.panel.webview.html = harnessHtml();
+		// A check in progress, a finished edit or a rescan of the map: the servers show the same state as the MCP page. Watched only while this
+		// page is open, so a rescan with no page open does not read the MCP configs.
+		const watch = this.mcp.watch(data => {
+			this.mcpData = data;
+			this.post();
+		});
 		this.panel.onDidDispose(() => {
+			watch.dispose();
 			this.panel = undefined;
 			this.files = new Set();
 		}, null, this.disposables);

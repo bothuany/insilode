@@ -150,9 +150,9 @@ function mcpRow(s: McpRowInput, trusted: boolean, home: string): McpRow {
 	const target = s.transport === 'stdio' ? [s.command ?? '', ...s.args].join(' ') : s.url ?? '';
 	const file = home && (s.file === home || s.file.startsWith(home + '/') || s.file.startsWith(home + '\\')) ? '~' + s.file.slice(home.length) : s.file;
 	return {
-		id: s.id, name: s.name.slice(0, 80), scope: s.scope + (s.profile ? ' ' + s.profile : ''), transport: s.transport, state: s.state, stateWhy: s.stateWhy.slice(0, 240),
-		target: clean(target), where: file.slice(0, 160), ...(s.readOnly ? { readOnly: s.readOnly } : {}), shadowed: s.shadowed, busy: s.busy, blocked: s.scope === 'project' && !trusted,
-		issues: s.issues.map(i => ({ severity: i.severity, message: i.message.slice(0, 240) })),
+		id: s.id, name: s.name.slice(0, 80), scope: s.scope + (s.profile ? ' ' + s.profile : ''), transport: s.transport, state: s.state, stateWhy: redact(s.stateWhy, 240),
+		target: clean(target), where: file.slice(0, 160), ...(s.readOnly ? { readOnly: redact(s.readOnly, 240) } : {}), shadowed: s.shadowed, busy: s.busy, blocked: s.scope === 'project' && !trusted,
+		issues: s.issues.map(i => ({ severity: i.severity, message: redact(i.message, 240) })),
 		...(s.check ? { check: { ...s.check, status: redact(s.check.status, 300) } } : {}),
 		...(s.usage ? { usage: s.usage.label } : {}),
 	};
@@ -201,7 +201,7 @@ export function buildPageData(input: PageInput): PageData {
 		loading: !!root && !summary, ...(summary && !summary.ok ? { error: summary.message } : {}),
 		notes: s?.notes ?? [], ...(input.why ? { why: input.why } : {}),
 		sections: SECTIONS.map(x => ({ ...x, count: counts[x.id], attention: x.id === 'lint' ? toLookAt : attention[x.id] ?? 0, muted: counts[x.id] === 0 })),
-		intro, lint, lists, mcp: { servers, cli: mcp?.cli ?? { claude: false, codex: false }, trusted: mcp?.trusted ?? false, problems: mcp?.problems ?? [] },
+		intro, lint, lists, mcp: { servers, cli: mcp?.cli ?? { claude: false, codex: false }, trusted: mcp?.trusted ?? false, problems: (mcp?.problems ?? []).map(p => ({ file: p.file, message: redact(p.message, 240) })) },
 	};
 }
 
