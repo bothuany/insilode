@@ -34,7 +34,7 @@ test('the page-only messages become one action each', T, () => {
 })
 
 test('the dock\'s row and worktree actions pass', T, () => {
-	for (const type of ['show', 'pr', 'xray', 'forget', 'compact', 'rename', 'explain', 'swap']) {
+	for (const type of ['show', 'pr', 'forget', 'compact', 'rename', 'explain', 'swap']) {
 		assert.deepEqual(a.agentsAction({ type, id: 'a1' }), { type, id: 'a1' }, type)
 	}
 	assert.deepEqual(a.agentsAction({ type: 'ready' }), { type: 'ready' })
@@ -73,8 +73,9 @@ test('a peer message names a project by storage key and a session by id, never a
 	}
 })
 
-test('the dock-only chat link and anything unknown are dropped', T, () => {
+test('the dock-only chat link, the removed X-ray and anything unknown are dropped', T, () => {
 	assert.equal(a.agentsAction({ type: 'chat' }), undefined)
+	assert.equal(a.agentsAction({ type: 'xray', id: 'a1' }), undefined, 'the context X-ray is gone from the product')
 	for (const m of [null, undefined, 'tail', 42, [], {}, { type: 1 }, { type: 'runCommand', id: 'x' }, { type: 'constructor', id: 'a' }]) {
 		assert.equal(a.agentsAction(m), undefined, JSON.stringify(m))
 	}

@@ -8,12 +8,13 @@
  *  paneLayout.ts, the workspace agentsWorkspace.ts, the rest agentsShell.ts, and the Harness panel on the right agentsHarnessPanel.ts). Board and List stay as overviews. The terminals are
  *  xterm.js, which agentsPanel.ts hands over built (esbuild.mjs makes it); without it the page still draws and its panes say so.
  *  Text from a row only ever reaches the page through textContent (the h() helper): the only markup set as HTML is built from
- *  constants (the avatar, the CLI marks, the pane icons).
+ *  constants (the avatar, the CLI marks, the pane and skeleton icons).
  *--------------------------------------------------------------------------------------------*/
 
 import { AVATAR_CSS, AVATAR_SCRIPT } from './avatars';
 import { DOCK_COLORS, ICON, colorVars } from './dockPage';
 import { paneLayoutModule } from './paneLayout';
+import { BONE_SVG } from './skeletonIcon';
 import { BOOT_SCRIPT, SHELL_CSS, SHELL_SCRIPT } from './agentsShell';
 import { WORKSPACE_CSS, WORKSPACE_SCRIPT } from './agentsWorkspace';
 import { HARNESS_CSS, HARNESS_SCRIPT } from './agentsHarnessPanel';
@@ -63,6 +64,7 @@ ${HARNESS_CSS}
 const SCRIPT = `
 const L = (${paneLayoutModule.toString()})();
 const MARK = { claude: ${JSON.stringify(ICON.claude)}, codex: ${JSON.stringify(ICON.codex)} };
+const BONE = ${JSON.stringify(BONE_SVG)};
 ${SHELL_SCRIPT}
 ${WORKSPACE_SCRIPT}
 ${HARNESS_SCRIPT}

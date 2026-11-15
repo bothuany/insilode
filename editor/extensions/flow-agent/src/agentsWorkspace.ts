@@ -1,7 +1,7 @@
 /*---------------------------------------------------------------------------------------------
  *  Insilode: the terminal workspace of the Agents page, as CSS and script text agentsPage.ts puts into the page: the split layout of
  *  panes (the tree and its operations are paneLayout.ts, `L` in the page), drag and drop of sessions and panes, the terminals (xterm.js
- *  behind a small factory, so a page without it, and the tests, still run), broadcast, and the saved layouts. No `vscode` and no
+ *  behind a small factory, so a page without it, and the tests, still run), and the saved layouts. No `vscode` and no
  *  imports of the page's other parts: it uses the shell's helpers (h, add, fill, post, rowById ...) as the page's globals.
  *--------------------------------------------------------------------------------------------*/
 
@@ -21,7 +21,6 @@ export const WORKSPACE_CSS = String.raw`
 .pane.active { border-color: var(--focus); }
 .pane:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
 .pane.needs:not(.active) { border-color: color-mix(in srgb, var(--blocked) 60%, var(--line)); }
-.pane.target { border-color: var(--blocked); box-shadow: 0 0 0 1px var(--blocked); }
 .ph { display: flex; align-items: center; gap: 7px; flex: none; height: 32px; padding: 0 4px 0 10px; border-bottom: 1px solid var(--line); background: var(--card); cursor: grab; min-width: 0; user-select: none; }
 .pane.active .ph { background: color-mix(in srgb, var(--focus) 13%, var(--card)); }
 .ph:active { cursor: grabbing; }
@@ -31,12 +30,19 @@ export const WORKSPACE_CSS = String.raw`
 .ph .pstate { margin-left: 2px; font-variant-numeric: tabular-nums; }
 .ph .pstate.s-blocked, .ph .pstate.s-approval, .ph .pstate.s-question, .ph .pstate.s-error { color: var(--blocked); font-weight: 600; }
 .ph .pgrow { flex: 1 1 0; }
-.ph .bctag { flex: none; padding: 0 6px; border-radius: 9px; font-size: 11px; font-weight: 600; background: var(--blocked); color: var(--bg); }
-.ph label.bcb { display: inline-flex; align-items: center; gap: 4px; padding: 0 4px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
 .ibtn { flex: none; display: inline-grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 5px; background: transparent; color: var(--muted); }
 .ibtn:hover, .ibtn[aria-expanded="true"] { background: var(--hover); color: var(--text); }
 .ibtn svg { display: block; }
-@container (max-width: 520px) { .ph .pstate, .ph .pf { display: none; } }
+.ibtn.sk[aria-pressed="true"] { background: color-mix(in srgb, var(--working) 22%, transparent); color: var(--text); }
+.ph .psteps { display: inline-flex; align-items: center; gap: 4px; flex: none; color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.ph .psteps .on { color: var(--text); font-weight: 600; }
+.pstrip { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; flex: none; padding: 4px 10px; border-bottom: 1px solid var(--line); background: var(--col); color: var(--muted); font-size: 11.5px; min-width: 0; }
+.pstrip b { color: var(--text); font-weight: 600; }
+.pstrip .fchip { max-width: 180px; height: 20px; padding: 0 8px; border: 1px solid var(--line); border-radius: 10px; background: transparent; font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pstrip .fchip:hover { background: var(--hover); }
+.pstrip .flink { margin-left: auto; padding: 0; border: 0; background: transparent; color: var(--focus); font-size: 11.5px; }
+.pstrip .flink:hover { text-decoration: underline; }
+@container (max-width: 520px) { .ph .pstate, .ph .pf, .ph .psteps { display: none; } }
 @container (max-width: 400px) { .ph .pbr { display: none; } }
 .pb { position: relative; flex: 1 1 auto; min-height: 0; padding: 4px 0 2px 8px; background: var(--term-bg, var(--bg)); overflow: hidden; }
 .pb .xterm { height: 100%; }
@@ -69,9 +75,6 @@ export const WORKSPACE_CSS = String.raw`
 .tbanner .tsub { color: var(--muted); font-size: 12px; flex: 1 1 200px; min-width: 0; overflow-wrap: anywhere; }
 .tfoot { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; padding: 6px 10px; border-top: 1px solid var(--line); background: var(--card); font-size: 12px; color: var(--muted); }
 .tfoot .grow { flex: 1; }
-.bcbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: none; padding: 8px 12px; border-top: 1px solid var(--line); background: var(--card); }
-.bcbar .bcin { flex: 1 1 260px; min-width: 160px; height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--input); font-family: var(--mono); }
-.bcbar .bcnote { color: var(--muted); font-size: 12px; }
 .toast { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); z-index: 30; max-width: 80%; padding: 7px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--vscode-menu-background, var(--card)); color: var(--vscode-menu-foreground, var(--text)); box-shadow: 0 6px 18px rgb(0 0 0 / .35); font-size: 12.5px; }
 .menu.fixed { position: fixed; margin: 0; max-height: 70vh; overflow: auto; }
 .menu .mrow { display: flex; align-items: center; gap: 2px; }
@@ -95,6 +98,15 @@ const ICO = {
 	close: '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>',
 	more: '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="3.5" cy="8" r="1.3" fill="currentColor"/><circle cx="8" cy="8" r="1.3" fill="currentColor"/><circle cx="12.5" cy="8" r="1.3" fill="currentColor"/></svg>',
 };
+// The dock's own words for skeleton first (dockPage.ts), so both pages say the same.
+const SK_TIP = 'Skeleton first for this agent. When a change adds or changes types, entities or interfaces, the agent draws its design on a board and stops; you write the types and signatures, and the board marks them against the design as you save. Then tell the agent "check", "hand over" (it fills the bodies), "just do it" or "done".';
+const SK_STAGES = ['design', 'skeleton', 'handover'];
+const SK_STAGE_NAME = { design: 'Design', skeleton: 'Skeleton', handover: 'Handover' };
+const SK_STAGE_TIP = {
+	design: 'Design: the agent draws the types it will add or change on a board and waits for you.',
+	skeleton: 'Skeleton: you write the types and signatures; the board marks them against the design as you save.',
+	handover: 'Handover: the agent fills in the bodies against your skeleton.',
+};
 const ws = {
 	layout: L.emptyLayout(),
 	views: new Map(),        // pane id -> its view: { el, head, body, over, zone, content, status, term ... }
@@ -104,19 +116,11 @@ const ws = {
 	got: false,              // the host has said which layout the page had
 	touched: false,          // the user changed the workspace: a layout the host sends late is not restored over it
 	autostart: new Set(),    // panes the user just opened: they start (or resume) their session; a restored pane never does
-	bc: { on: false, checked: new Set() },
 	reqs: 0, saveTimer: undefined, toastTimer: undefined, dirty: false,
 };
 const stage = h('div', { class: 'stage', role: 'region', 'aria-label': 'Terminal workspace' });
 const toast = h('div', { class: 'toast hidden', role: 'status' });
-const bcInput = h('input', { type: 'text', class: 'bcin', placeholder: 'One line for every checked terminal; Enter sends it', 'aria-label': 'Line to send to every checked terminal', maxlength: '4000' });
-const bcNote = h('span', { class: 'bcnote', role: 'status' });
-const bcSend = h('button', { type: 'button', class: 'btn small primary', onclick: () => broadcast() }, 'Send');
-const bcBar = h('div', { class: 'bcbar hidden', role: 'group', 'aria-label': 'Broadcast' },
-	h('b', null, 'Broadcast'), bcInput, bcSend,
-	h('button', { type: 'button', class: 'btn small', onclick: () => checkAll(true) }, 'Check all'),
-	h('button', { type: 'button', class: 'btn small', onclick: () => checkAll(false) }, 'Check none'), bcNote);
-add(work, queueEl, stage, bcBar, toast);
+add(work, queueEl, stage, toast);
 
 function notice(text) {
 	toast.textContent = text;
@@ -202,8 +206,7 @@ function dotFor(pv) {
 	return pv.status === 'starting' || pv.status === 'live' ? 'working' : 'idle';
 }
 const needsYou = pv => { const i = infoOf(pv); const l = i.x && liveOf(i.x.s); return !!(i.s && needKind(i.s)) || !!(l && l.basis === 'live' && l.status === 'needs'); };
-const paneClass = pv => cls('pane', ws.layout.focus === pv.id && 'active', ws.layout.max === pv.id && 'maxed', pv.status === 'ended' && 'ended',
-	needsYou(pv) && 'needs', bcEligible(pv) && ws.bc.on && ws.bc.checked.has(pv.id) && 'target');
+const paneClass = pv => cls('pane', ws.layout.focus === pv.id && 'active', ws.layout.max === pv.id && 'maxed', pv.status === 'ended' && 'ended', needsYou(pv) && 'needs');
 // A read-only pane of a session some other program runs (or ran): it reads the conversation again while that goes on.
 const isExt = pv => pv.content.kind === 'transcript' && pv.content.ext !== undefined && !!pv.content.session && (pv.content.agent === 'claude' || pv.content.agent === 'codex') && UUID.test(pv.content.session);
 const requestTail = pv => post({ type: 'tail', id: pv.content.session, kind: pv.content.agent });
@@ -218,9 +221,10 @@ function makeView(leaf) {
 	const pv = { id: leaf.id, content: leaf.content, status: 'idle', error: '', req: undefined, term: undefined, attached: undefined, cols: 0, rows: 0, ticks: [], fitTimer: undefined, ro: undefined };
 	pv.head = h('header', { class: 'ph', draggable: 'true', title: 'Drag to move this pane; double-click to maximize' });
 	pv.body = h('div', { class: 'pb' });
+	pv.strip = h('div', { class: 'pstrip hidden' });
 	pv.over = h('div', { class: 'pover hidden' });
 	pv.zone = h('div', { class: 'pzone', 'aria-hidden': 'true' });
-	pv.el = h('section', { class: 'pane', tabindex: '0', role: 'group', 'aria-label': 'Pane' }, pv.head, pv.body, pv.over, pv.zone);
+	pv.el = h('section', { class: 'pane', tabindex: '0', role: 'group', 'aria-label': 'Pane' }, pv.head, pv.strip, pv.body, pv.over, pv.zone);
 	pv.el.addEventListener('focusin', () => setFocus(pv.id, false));
 	pv.el.addEventListener('mousedown', () => setFocus(pv.id, false));
 	pv.el.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target === pv.el) { e.preventDefault(); setFocus(pv.id, true); } });
@@ -401,7 +405,7 @@ const sameSource = (a, b) => a.kind === b.kind && a.session === b.session && a.r
 function commit(next, load) {
 	const ids = new Set(L.panes(next).map(p => p.id));
 	for (const [id, pv] of [...ws.views]) {
-		if (!ids.has(id)) { unmount(pv); ws.views.delete(id); ws.bc.checked.delete(id); }
+		if (!ids.has(id)) { unmount(pv); ws.views.delete(id); }
 	}
 	ws.layout = next;
 	for (const leaf of L.panes(next)) {
@@ -424,7 +428,7 @@ function commit(next, load) {
 	paintWorkspace();
 	layoutChanged();
 }
-function layoutChanged() { paintBroadcast(); scheduleSave(); }
+function layoutChanged() { scheduleSave(); }
 function scheduleSave() {
 	if (!ws.got) { return; }
 	clearTimeout(ws.saveTimer);
@@ -516,7 +520,6 @@ function toggleMax(id) { commit(L.toggleMaximize(ws.layout, id)); setFocus(id, f
 function loadLayout(layout) {
 	for (const pv of ws.views.values()) { unmount(pv); }
 	ws.views.clear();
-	ws.bc.checked.clear();
 	ws.autostart.clear();
 	commit(layout, true);
 }
@@ -613,7 +616,7 @@ function wsMessage(m) {
 			if (pv.status === 'ended') { pv.status = 'live'; paintPane(pv); }
 		}
 	} else if (m.type === 'termGone') {
-		for (const pv of paneOf(m.id)) { pv.status = 'ended'; pv.attached = undefined; paintPane(pv); paintBroadcast(); }
+		for (const pv of paneOf(m.id)) { pv.status = 'ended'; pv.attached = undefined; paintPane(pv); }
 	} else if (m.type === 'termOpened') {
 		const pv = [...ws.views.values()].find(p => p.req && p.req === m.requestId);
 		if (!pv || typeof m.id !== 'string') { return; }
@@ -626,7 +629,6 @@ function wsMessage(m) {
 		if (row && (!pv.content.cwd) && row.cwd) { patchContent(pv, { cwd: row.cwd }); }
 		attachPane(pv);
 		paintPane(pv);
-		paintBroadcast();
 		setFocus(pv.id, true);
 	} else if (m.type === 'termFailed') {
 		const pv = [...ws.views.values()].find(p => p.req && p.req === m.requestId);
@@ -662,7 +664,6 @@ function wsMessage(m) {
 // ---- painting the panes ----------------------------------------------------------------------------------------------------
 function paintWorkspace() {
 	for (const pv of ws.views.values()) { paintPane(pv); }
-	paintBroadcast();
 }
 function paneMenuItems(pv) {
 	const { own, peer, s } = infoOf(pv);
@@ -678,7 +679,6 @@ function paneMenuItems(pv) {
 		item('Show its terminal in the editor', { type: 'show', id: own.id });
 		item('Rename…', { type: 'rename', id: own.id });
 		if (canCompact) { item('Compact the conversation', { type: 'compact', id: own.id }); }
-		if (ctxPct(own) !== undefined) { item('X-ray the context window', { type: 'xray', id: own.id }); }
 		if (own.pr) { item('Open pull request #' + own.pr.number, { type: 'pr', id: own.id }); }
 		if (canSwap) { item('Swap to ' + (own.cli === 'claude' ? 'Codex' : 'Claude'), { type: 'swap', id: own.id }); }
 		if (own.skeletonAvailable) { item(own.skeletonOn ? 'Skeleton first: on (turn off)' : 'Skeleton first: off (turn on)', { type: 'sk', id: own.id, on: !own.skeletonOn }); }
@@ -706,12 +706,10 @@ function paintPane(pv) {
 	const title = titleOf(pv);
 	const folder = (own && own.cwd ? base(own.cwd) : '') || c.folder || (c.cwd ? base(c.cwd) : '') || (peer ? peer.p.name : '');
 	const branch = own && own.worktree ? own.worktree.branch : '';
-	const eligible = bcEligible(pv);
 	const maxed = ws.layout.max === pv.id;
 	const multi = L.panes(ws.layout).length > 1;
-	const checked = eligible && ws.bc.on && ws.bc.checked.has(pv.id);
 	// The header is built again only when something it shows changed: a data message arrives with every hook event, and a repaint would take the focus from a button the keyboard is on.
-	const sig = JSON.stringify([title, dot, folder, branch, c.agent, c.cwd, own && own.clash && own.clash.map(x => x.text), s && [s.state, needKind(s), s.since, s.need && s.need.at], c.ext !== undefined && [xl && [xl.status, xl.source, xl.basis], chat.got], eligible, ws.bc.on && c.kind === 'terminal', checked, maxed, multi]);
+	const sig = JSON.stringify([title, dot, folder, branch, c.agent, c.cwd, own && own.clash && own.clash.map(x => x.text), s && [s.state, needKind(s), s.since, s.need && s.need.at], c.ext !== undefined && [xl && [xl.status, xl.source, xl.basis], chat.got], own && [own.skeletonAvailable, own.skeletonOn, own.skeletonStage, own.impact], maxed, multi]);
 	if (sig !== pv.sig) {
 		pv.sig = sig;
 		pv.ticks = [];
@@ -719,28 +717,38 @@ function paintPane(pv) {
 		mark.setAttribute('title', CLI_NAME[c.agent] || c.agent);
 		const state = s ? (function () { const e = h('span', { class: 'pstate s-' + (needKind(s) || s.state) }, stateText(s)); pv.ticks.push(() => { e.textContent = stateText(s); }); return e; })() : null;
 		const xstate = xl ? h('span', { class: 'pstate' + (xl.basis === 'live' && xl.status === 'needs' ? ' s-blocked' : ''), title: liveTip(xl) }, xl.basis === 'recent' ? 'Active recently' : LIVE_TEXT[xl.status]) : null;
-		const tools = [];
-		if (ws.bc.on && c.kind === 'terminal') {
-			const box = h('input', { type: 'checkbox', 'aria-label': 'Broadcast to ' + title, disabled: !eligible || null });
-			box.checked = checked;
-			box.addEventListener('change', e => { if (e.target.checked) { ws.bc.checked.add(pv.id); } else { ws.bc.checked.delete(pv.id); } paintPane(pv); paintActive(); paintBroadcast(); });
-			tools.push(h('label', { class: 'bcb', title: eligible ? 'Send the broadcast line to this terminal' : 'Not an attached terminal' }, box, 'Send'));
-			if (checked) { tools.push(h('span', { class: 'bctag' }, 'Receives broadcast')); }
-		}
+		// Skeleton first (the dock's own switch and words): an icon toggle, and where the agent is in it, as three steps.
+		const sk = own && own.skeletonAvailable ? h('button', { type: 'button', class: 'ibtn sk', title: SK_TIP + (own.skeletonOn ? ' On: click to turn it off.' : ' Off: click to turn it on.'), 'aria-label': 'Skeleton first for ' + title, 'aria-pressed': own.skeletonOn ? 'true' : 'false', onclick: () => post({ type: 'sk', id: own.id, on: !own.skeletonOn }) }, raw('span', null, BONE)) : null;
+		const g = own && own.skeletonStage;
+		const steps = g && SK_STAGES.indexOf(g.stage) >= 0 ? h('span', { class: 'psteps', title: SK_STAGE_TIP[g.stage] + (g.skipped ? ' You chose to go without the design for this change.' : '') },
+			SK_STAGES.map((k, i) => [i ? '›' : null, h('span', { class: k === g.stage ? 'on' : null, 'aria-current': k === g.stage ? 'step' : null }, SK_STAGE_NAME[k])]), g.skipped ? h('span', { class: 'xbadge' }, 'skipped') : null) : null;
 		const menuBtn = h('button', { type: 'button', class: 'ibtn', title: 'Session actions', 'aria-label': 'Actions for ' + title, 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, raw('span', null, ICO.more));
 		menuBtn.addEventListener('click', e => { e.stopPropagation(); showMenu(menuBtn, () => paneMenuItems(pv)); });
 		fill(pv.head, [h('i', { class: 'sdot ' + dot, title: DOT_LABEL[dot], style: 'margin-top:0' }), mark,
 			h('span', { class: 'pt', title: title }, title), folder ? h('span', { class: 'pf', title: c.cwd || (own && own.cwd) || folder }, folder) : null, branch ? h('span', { class: 'pbr', title: 'Worktree branch ' + branch }, '⎇ ' + branch) : null,
-			own && own.clash && own.clash.length ? h('span', { class: 'warnic', title: own.clash.map(x => x.text).join('\n') }, '⚠') : null, state, xl ? xbadge(xl) : null, xstate,
-			h('span', { class: 'pgrow' }), tools,
+			own && own.clash && own.clash.length ? h('span', { class: 'warnic', title: own.clash.map(x => x.text).join('\n') }, '⚠') : null, state, xl ? xbadge(xl) : null, xstate, steps,
+			h('span', { class: 'pgrow' }), sk,
 			multi ? h('button', { type: 'button', class: 'ibtn', title: (maxed ? 'Restore' : 'Maximize') + ' (' + MOD + 'M)', 'aria-label': (maxed ? 'Restore ' : 'Maximize ') + title, 'aria-pressed': maxed ? 'true' : 'false', onclick: () => toggleMax(pv.id) }, raw('span', null, maxed ? ICO.restore : ICO.max)) : null,
 			menuBtn,
 			h('button', { type: 'button', class: 'ibtn', title: 'Close pane; the session keeps running (' + MOD + 'W)', 'aria-label': 'Close pane ' + title, onclick: () => closeView(pv.id) }, raw('span', null, ICO.close))]);
 		pv.el.setAttribute('aria-label', title + ', ' + CLI_NAME[c.agent] + ', ' + DOT_LABEL[dot]);
+		paintStrip(pv, own);
 	}
 	pv.el.className = paneClass(pv);
 	paintOver(pv);
 	if (c.kind === 'transcript' || pv.status === 'noterm') { paintTranscript(pv); }
+}
+// The turn's changes, as one slim line between the header and the terminal: how many files, the flows they reach (three chips, then "+N") and the way to the canvas. A session with nothing changed has none.
+function paintStrip(pv, own) {
+	const im = own && own.impact;
+	const flows = im && Array.isArray(im.flows) ? im.flows : [];
+	if (!im || (!im.files && !flows.length)) { wipe(pv.strip); pv.strip.className = 'pstrip hidden'; return; }
+	const rest = flows.length - 3 + (im.more || 0);
+	const chips = flows.slice(0, 3).map((f, i) => h('button', { type: 'button', class: 'fchip', title: 'Open the flow ' + f.label + (f.via && f.via.length ? ' (through ' + f.via.join(', ') + ')' : ''), onclick: () => post({ type: 'flow', id: own.id, index: i }) }, f.label));
+	fill(pv.strip, [h('b', null, im.files + (im.files === 1 ? ' file' : ' files') + ' changed'),
+		flows.length ? [h('span', null, 'affects'), chips, rest > 0 ? h('span', { title: rest + ' more' }, '+' + rest) : null,
+			h('button', { type: 'button', class: 'flink', onclick: () => post({ type: 'flow', id: own.id, index: 0 }) }, 'Open in flow')] : null]);
+	pv.strip.className = 'pstrip';
 }
 function paintOver(pv) {
 	const c = pv.content;
@@ -825,43 +833,6 @@ function paintTranscript(pv) {
 	}
 }
 
-// ---- broadcast -------------------------------------------------------------------------------------------------------------
-// Only a terminal pane that is attached to its session can receive it: a pane that is starting, ended, a transcript or without a terminal never does.
-function bcEligible(pv) { return pv.content.kind === 'terminal' && pv.status === 'live' && !!pv.attached && !!pv.term; }
-const bcTargets = () => L.panes(ws.layout).map(p => ws.views.get(p.id)).filter(pv => pv && ws.bc.checked.has(pv.id) && bcEligible(pv));
-function paintBroadcast() {
-	bcBar.className = ws.bc.on ? 'bcbar' : 'bcbar hidden';
-	broadcastBtn.setAttribute('aria-pressed', ws.bc.on ? 'true' : 'false');
-	const live = [...ws.views.values()].filter(bcEligible).length;
-	const n = bcTargets().length;
-	bcSend.disabled = !n;
-	if (ws.bc.on) { bcNote.textContent = n + ' of ' + live + ' attached terminal' + (live === 1 ? '' : 's') + ' will receive it.'; }
-}
-function toggleBroadcast(on) {
-	ws.bc.on = on === undefined ? !ws.bc.on : on;
-	if (!ws.bc.on) { ws.bc.checked.clear(); }
-	paintWorkspace();
-	paintActive();
-	if (ws.bc.on) { setView('work'); }
-}
-function checkAll(on) {
-	ws.bc.checked.clear();
-	if (on) { for (const pv of ws.views.values()) { if (bcEligible(pv)) { ws.bc.checked.add(pv.id); } } }
-	paintWorkspace();
-	paintActive();
-}
-function broadcast() {
-	const text = bcInput.value;
-	if (!text || text.length > 4000) { return; }
-	const to = bcTargets();
-	if (!to.length) { bcNote.textContent = 'Check at least one attached terminal first.'; return; }
-	// Enter is a carriage return for a terminal.
-	for (const pv of to) { post({ type: 'termInput', id: pv.attached, data: text + '\r' }); }
-	bcInput.value = '';
-	bcNote.textContent = 'Sent to ' + to.length + ' terminal' + (to.length === 1 ? '' : 's') + '.';
-}
-bcInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); broadcast(); } });
-
 // ---- saved layouts ---------------------------------------------------------------------------------------------------------
 function layoutItems() {
 	const items = ws.saved.map(s => ({ label: s.name, hint: L.panes(s.layout).length + ' pane' + (L.panes(s.layout).length === 1 ? '' : 's'), run: () => { setView('work'); loadLayout(L.validate(s.layout)); ws.touched = true; scheduleSave(); },
@@ -916,12 +887,11 @@ function wsKey(e) {
 	const c = chordOf(e);
 	if (!c) { return false; }
 	e.preventDefault();
-	// The shortcuts dialog and the menus are modal: a chord must not act on the panes behind them (Escape puts them away).
-	if (shortcutsEl.className.indexOf('hidden') < 0 || menuState) { return true; }
+	// The shortcuts dialog, the menus and the launcher are modal: a chord must not act on the panes behind them (Escape puts them away).
+	if (shortcutsEl.className.indexOf('hidden') < 0 || menuState || launch.open) { return true; }
 	// A held key repeats: only the focus keys may, or holding close closes every pane and holding split fills the page.
 	if (e.repeat && DIRECTIONS.indexOf(c) < 0 && c !== 'sidebar') { return true; }
 	const f = ws.layout.focus;
-	if (c === 'broadcast') { toggleBroadcast(); return true; }
 	if (c === 'needs') { jumpToNext(); return true; }
 	if (c === 'harness') { toggleHarness(); return true; }
 	if (c === 'sidebar') { const el = rowEls.get(selKey) || side.querySelector('.srow'); if (el && el.focus) { el.focus(); } return true; }

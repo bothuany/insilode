@@ -192,7 +192,6 @@ export class AgentsPanel implements vscode.Disposable {
 			case 'show': return this.agents.show(m.id);
 			case 'flow': return this.agents.openImpactFlow(m.id, m.index);
 			case 'pr': return this.agents.openPr(m.id);
-			case 'xray': return this.agents.xray(m.id);
 			// Through the worktree rows: an agent's worktree must not drop out of sight with its row.
 			case 'forget': return void (this.worktrees ? this.worktrees.forget(m.id) : this.agents.forget(m.id));
 			case 'compact': return this.agents.compact(m.id);
