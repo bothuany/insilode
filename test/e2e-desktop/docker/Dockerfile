@@ -12,7 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Node 24 (VS Code 1.141 asks for 24.18 or newer; 25 will not do).
 ARG NODE_VERSION=24.18.0
-RUN curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" | tar -xJ -C /usr/local --strip-components=1
+# The image is built for the machine's own architecture (arm64 on an Apple Silicon Mac under colima): an x64 Node there cannot even start.
+RUN case "$(dpkg --print-architecture)" in arm64) NODE_ARCH=arm64 ;; *) NODE_ARCH=x64 ;; esac \
+	&& curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" | tar -xJ -C /usr/local --strip-components=1
 
 # The .NET 10 SDK: setup builds the C# analyzer with it.
 RUN curl -fsSL https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh \
