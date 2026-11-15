@@ -196,3 +196,14 @@ test('notifications: once per new need, never while you look at the agent or wit
 	assert.notEqual(a.attentionKey(asking), a.attentionKey({ ...asking, need: { ...asking.need, at: 9 } }), 'a new question is a new key')
 	assert.equal(a.attentionKey({ ...asking, state: 'working', need: undefined }), undefined, 'answered: nothing to notify')
 })
+
+test('the next agent that needs you: most urgent first, then round the rest, never an ended or a working one', () => {
+	const s = (id, kind, at, state = 'blocked') => ({ id, state, unread: true, since: at, need: kind && { kind, at } })
+	const list = [s('work', undefined, 1, 'working'), s('q', 'question', 5), s('a2', 'approval', 9), s('a1', 'approval', 3), s('gone', 'approval', 1, 'ended')]
+	assert.equal(a.nextWaiting(list).id, 'a1')
+	assert.equal(a.nextWaiting(list, 'a1').id, 'a2')
+	assert.equal(a.nextWaiting(list, 'a2').id, 'q')
+	assert.equal(a.nextWaiting(list, 'q').id, 'a1')
+	assert.equal(a.nextWaiting(list, 'work').id, 'a1')
+	assert.equal(a.nextWaiting([s('work', undefined, 1, 'working')]), undefined)
+})

@@ -230,6 +230,16 @@ export function rank<T extends Rankable>(list: T[]): T[] {
 	return [...list].sort((a, b) => urgency(a) - urgency(b) || (attentionKind(a) ? (a.need?.at ?? a.since) - (b.need?.at ?? b.since) : b.since - a.since));
 }
 
+/**
+ * The next agent that waits for you (an approval, a question, an error), for the "next agent that needs you" key: the most urgent
+ * first, then round the others in that order, starting after `after` (the one you were just shown). Nothing when nobody waits.
+ */
+export function nextWaiting<T extends Rankable & { id: string }>(list: T[], after?: string): T | undefined {
+	const waiting = rank(list.filter(s => { const k = s.state === 'ended' ? undefined : attentionKind(s); return k === 'approval' || k === 'question' || k === 'error'; }));
+	const at = waiting.findIndex(s => s.id === after);
+	return waiting[(at + 1) % (waiting.length || 1)];
+}
+
 /** A key that changes exactly when a session starts needing you anew: notify once per key. */
 export function attentionKey(s: Rankable): string | undefined {
 	const kind = attentionKind(s);

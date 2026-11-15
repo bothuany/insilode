@@ -236,6 +236,11 @@
         "enablement": "flow.agents.desktop.available"
       },
       {
+        "command": "flow.agents.nextNeedsYou",
+        "title": "Go to the Next Agent That Needs You",
+        "category": "Insilode"
+      },
+      {
         "command": "flow.agents.openPage",
         "title": "Open Agents Page",
         "category": "Insilode",
@@ -261,6 +266,11 @@
         "key": "ctrl+shift+a",
         "mac": "cmd+shift+a",
         "when": "!isLinux || !editorTextFocus || editorReadonly"
+      },
+      {
+        "command": "flow.agents.nextNeedsYou",
+        "key": "alt+shift+n",
+        "mac": "ctrl+alt+n"
       },
       {
         "command": "-workbench.action.openAgentsWindow",

@@ -17,7 +17,7 @@ import { DesktopStatus } from './desktop';
 import { AgentsDock } from './dock';
 import { watchGazeSetting } from './gazeHost';
 import { registerPlaceholderModels } from './models';
-import { attentionKind } from './attention';
+import { attentionKind, nextWaiting } from './attention';
 import { AttentionNotifier } from './notify';
 import { renameFromPalette, removeFromPalette, swapFromPalette } from './paletteActions';
 import { Peers } from './peers';
@@ -47,6 +47,9 @@ async function migrateSettings(log: vscode.LogOutputChannel) {
 		}
 	}
 }
+
+/** The agent the "next agent that needs you" key showed last, so the next press moves on. */
+let lastShownWaiting: string | undefined;
 
 export async function activate(context: vscode.ExtensionContext) {
 	const log = vscode.window.createOutputChannel('Insilode Agents', { log: true });
@@ -153,6 +156,15 @@ export async function activate(context: vscode.ExtensionContext) {
 			.filter(s => s.state !== 'ended')
 			.map(s => ({ id: s.id, name: s.name, cli: s.cli, kind: attentionKind(s) }))
 			.filter(r => r.kind === 'approval' || r.kind === 'question' || r.kind === 'error')),
+		// "Next agent that needs you": one key from anywhere takes you to the agent that waits, then to the one after it.
+		vscode.commands.registerCommand('flow.agents.nextNeedsYou', () => {
+			const next = nextWaiting([...agents.sessions.values()], lastShownWaiting);
+			if (!next) {
+				return void vscode.window.setStatusBarMessage('Insilode: no agent is waiting for you.', 3000);
+			}
+			lastShownWaiting = next.id;
+			agents.show(next.id);
+		}),
 		vscode.commands.registerCommand('flow.agents.chooseAskTarget', () => router.choose()),
 		vscode.commands.registerCommand('flow.agents.keptWorktrees', () => worktrees.showKept()),
 		vscode.commands.registerCommand('flow.agents.cleanupWorktrees', () => cleanupWorktrees(agents)),
