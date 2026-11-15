@@ -1,5 +1,5 @@
 /*---------------------------------------------------------------------------------------------
- *  Insilode Harness: the shell of the harness's webview pages (the "Why?" view, the context X-ray).
+ *  Insilode Harness: the shell of the harness's webview pages (the "Why?" view, the MCP manager).
  *  Every page gets a Content-Security-Policy from default-src 'none' and runs only the one
  *  script it was given, by nonce, so markup injected through data can neither load nor run code.
  *  Pages render data with textContent; nothing they receive is ever parsed as HTML.
@@ -15,12 +15,6 @@ import { randomBytes } from 'crypto';
 export const STATUS_COLORS = {
 	dark: { allow: '#5fe0a1', ask: '#ffb454', deny: '#ff6b7d', accent: '#6f86ff' },
 	light: { allow: '#146c3a', ask: '#8a5300', deny: '#b3261e', accent: '#0b5cad' },
-} as const;
-
-/** The context X-ray's segment colours (a bar and its legend, 3:1 against the page): the pale set for dark themes, a darker one for light. */
-export const SEGMENT_COLORS = {
-	dark: ['#6f86ff', '#b88cff', '#ffb454', '#5fe0a1', '#4fd6d0', '#f0a6ca', '#f2a170', '#9aa4bf'],
-	light: ['#3b55d9', '#8a4fd6', '#a86400', '#1f8a56', '#0e8a85', '#c2417a', '#c0561f', '#6b7385'],
 } as const;
 
 /** Theme colours and the few shared classes both pages use. */

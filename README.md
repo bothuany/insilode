@@ -48,7 +48,6 @@ Outside the editor, an optional app badge counts the agents waiting for you, and
 One map of what shapes your agents: `CLAUDE.md` and `AGENTS.md`, rules, skills, subagents, hooks, MCP servers, permissions and the agents' own memory, with a health score and what each piece costs in tokens before you type.
 
 - **Lint without an LLM:** rules whose paths match nothing, broken frontmatter, duplicated instructions across tools, hooks that never fire.
-- **Context X-ray:** what fills a running agent's window, and what you could drop.
 - **What actually runs:** which hooks, skills, subagents and MCP tools fired, and which have not been used in a month.
 - **Why?:** the instructions, rules and permissions that apply to a file, and a simulator that tells you whether `Bash(git push --force)` would be allowed, asked or denied, and by which rule.
 - **Friction inbox:** permissions you keep granting, corrections you keep repeating and tool calls that keep failing become proposed rules, instructions and hooks, applied only when you say so.

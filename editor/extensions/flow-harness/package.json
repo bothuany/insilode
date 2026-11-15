@@ -1,7 +1,7 @@
 {
   "name": "flow-harness",
   "displayName": "Insilode Harness",
-  "description": "Harness engineering in the editor: one map of instructions, rules, skills, hooks, MCP and permissions, with a health score, the context budget and X-ray, live usage, a \"why?\" view with a permission simulator, a hook studio and a friction inbox.",
+  "description": "Harness engineering in the editor: one map of instructions, rules, skills, hooks, MCP and permissions, with a health score, the context budget, live usage, a \"why?\" view with a permission simulator, a hook studio and a friction inbox.",
   "version": "0.1.0",
   "publisher": "flow",
   "license": "AGPL-3.0-only",
@@ -116,12 +116,6 @@
         "category": "Harness"
       },
       {
-        "command": "flowHarness.contextXray",
-        "title": "Context X-ray",
-        "category": "Harness",
-        "icon": "$(pulse)"
-      },
-      {
         "command": "flowHarness.why",
         "title": "Why? Agent Configuration for This File",
         "category": "Harness",
@@ -204,11 +198,6 @@
       "view/title": [
         {
           "command": "flowHarness.why",
-          "when": "view == flowHarness.map",
-          "group": "navigation@0"
-        },
-        {
-          "command": "flowHarness.contextXray",
           "when": "view == flowHarness.map",
           "group": "navigation@0"
         },

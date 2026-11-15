@@ -23,7 +23,6 @@ import { registerPreviewProvider } from './settings';
 import { harnessSummary } from './summary';
 import { HarnessTree, itemOf } from './tree';
 import { WhyView } from './why';
-import { XrayView } from './xray';
 
 /** The files that shape an agent, as watcher globs: instructions, settings, MCP servers, rules, skills, agents, hooks, commands. */
 const WATCHED = ['**/CLAUDE.md', '**/CLAUDE.local.md', '**/AGENTS.md', '**/.mcp.json', '**/.codex/config.toml', '**/.claude/settings*.json', '**/.claude/{rules,skills,agents,hooks,commands}/**', '**/.cursor/rules/**', '**/.agents/skills/**'];
@@ -50,7 +49,6 @@ export function activate(context: vscode.ExtensionContext) {
 	const frictionMessage = () => { frictionView.message = friction.emptyMessage; };
 	frictionMessage();
 	friction.onDidChangeTreeData(frictionMessage);
-	const xray = new XrayView(() => harness, live);
 	const why = new WhyView(() => harness, live);
 	const memories = new MemoryActions(() => harness, () => void refresh());
 	const mcp = new McpManager(context.workspaceState, () => harness?.root ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath, prefix => {
@@ -254,7 +252,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(
 		view, inboxView, limits, studio, diagnostics, ...watchers, registerPreviewProvider(),
-		live, frictionView, why, xray, mcp, { dispose: () => clearTimeout(liveTimer) },
+		live, frictionView, why, mcp, { dispose: () => clearTimeout(liveTimer) },
 		...watchers.flatMap(w => [w.onDidChange(soon), w.onDidCreate(soon), w.onDidDelete(soon)]),
 		{ dispose: () => clearTimeout(timer) },
 		vscode.window.onDidChangeWindowState(s => s.focused && ifStale()),
@@ -297,7 +295,6 @@ export function activate(context: vscode.ExtensionContext) {
 		// Called by flow-agent with every hook event of the agents it runs: what they used, what failed, what you typed.
 		vscode.commands.registerCommand('flowHarness.recordEvent', (e: unknown) => live.record(e)),
 		// From the Agents dock (one agent's session) or the Harness view (asks which session).
-		vscode.commands.registerCommand('flowHarness.contextXray', (s?: unknown) => xray.show(s)),
 		vscode.commands.registerCommand('flowHarness.why', (uri?: unknown) => why.show(uri)),
 		// Scripts and the MCP side pass the call; from the palette it is asked for here.
 		vscode.commands.registerCommand('flowHarness.simulatePermission', async (call?: unknown, agent?: unknown) => {
