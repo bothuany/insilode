@@ -301,9 +301,20 @@ export class AgentsPanel implements vscode.Disposable {
 		}
 	}
 
+	/** One folder dialog at a time: a page that asks again while one is open gets "nothing chosen", so it cannot stack dialogs on the user. */
+	private pickingFolder = false;
+
 	private async pickFolder(requestId: string) {
-		const chosen = await this.term?.pickFolder().catch(() => undefined);
-		this.send({ type: 'folderPicked', requestId, ...(chosen ? { path: chosen.path, name: chosen.name } : {}) });
+		if (this.pickingFolder) {
+			return this.send({ type: 'folderPicked', requestId });
+		}
+		this.pickingFolder = true;
+		try {
+			const chosen = await this.term?.pickFolder().catch(() => undefined);
+			this.send({ type: 'folderPicked', requestId, ...(chosen ? { path: chosen.path, name: chosen.name } : {}) });
+		} finally {
+			this.pickingFolder = false;
+		}
 	}
 
 	private async chatSearch(query: string) {
