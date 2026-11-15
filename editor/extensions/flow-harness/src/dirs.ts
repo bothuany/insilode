@@ -1,7 +1,7 @@
 /*---------------------------------------------------------------------------------------------
  *  Insilode Harness: where the agents keep their own files. Claude Code reads CLAUDE_CONFIG_DIR in
  *  place of ~/.claude (as flow-agent does), and Codex CODEX_HOME in place of ~/.codex, so the
- *  map, the X-ray and the usage counts look where the agents themselves write.
+ *  map and the usage counts look where the agents themselves write.
  *--------------------------------------------------------------------------------------------*/
 
 import { promises as fs } from 'fs';

@@ -247,53 +247,6 @@ test('the guard script stops the command and tells the agent why', async () => {
 	assert.equal(run('npm test').status, 0)
 })
 
-test('the X-ray labels what it knows: /context categories, else the first request split into estimates', async () => {
-	const outfile = join(tmp, 'xraymodel.mjs')
-	await build({ entryPoints: [join(ROOT, 'src', 'xraymodel.ts')], bundle: true, platform: 'node', format: 'esm', outfile, logLevel: 'silent' })
-	const x = await import(pathToFileURL(outfile).href)
-	const items = [
-		{ kind: 'mcp', scope: 'project', label: 'github', file: '/w/.mcp.json', agents: ['Claude'] },
-		{ kind: 'mcp', scope: 'user', label: 'busy', file: '/h/.claude/settings.json', agents: ['Claude'] },
-		{ kind: 'skills', scope: 'project', label: 'probe', file: '/w/.claude/skills/probe/SKILL.md', tokens: 60, agents: ['Claude'] },
-		{ kind: 'skills', scope: 'project', label: 'used', file: '/w/.claude/skills/used/SKILL.md', tokens: 40, agents: ['Claude'] },
-		{ kind: 'skills', scope: 'project', label: 'idle', file: '/w/.claude/skills/idle/SKILL.md', tokens: 30, agents: ['Claude'] },
-		{ kind: 'instructions', scope: 'project', label: 'CLAUDE.md', file: '/w/CLAUDE.md', tokens: 6000, agents: ['Claude'] },
-	]
-	const usesOf = i => i.label === 'used' || i.label === 'busy' ? 3 : 0
-	const withContext = x.xray({ agent: 'a', cli: 'claude', facts: t.parseTranscript(LINES), items, usesOf, covered: 40 })
-	assert.equal(withContext.source, 'context')
-	assert.equal(withContext.used, 9003)
-	assert.equal(withContext.usedHow, 'measured')
-	assert.equal(withContext.size, 1000000, 'the window /context reported')
-	assert.ok(withContext.segments.every(s => s.how === 'claude-estimate'))
-	const gh = withContext.waste.find(w => w.id === 'mcp:github')
-	assert.equal(gh.tokens, 2100, 'the per-tool lines of /context all')
-	assert.equal(gh.how, 'claude-estimate')
-	assert.deepEqual(gh.action, { kind: 'disable-mcp', server: 'github' }, 'a .mcp.json server can be switched off here')
-	assert.match(gh.title, /never called in 30 days/)
-	assert.ok(!withContext.waste.some(w => w.id === 'mcp:busy'), 'a server in use is not waste')
-	const idle = withContext.waste.find(w => w.id === 'skills')
-	assert.match(idle.title, /^1 skill not used in 30 days: ~30 tokens/)
-	assert.match(idle.detail, /^idle./, 'probe was called in this session, so it is not idle')
-	assert.ok(withContext.waste.some(w => w.id === 'big:/w/CLAUDE.md'))
-
-	const noContext = x.xray({ agent: 'a', cli: 'claude', facts: t.parseTranscript(LINES.slice(0, -1)), items, usesOf, covered: 5 })
-	assert.equal(noContext.source, 'baseline')
-	const rest = noContext.segments[0]
-	assert.equal(rest.how, 'derived')
-	assert.equal(noContext.segments.find(s => s.label.startsWith('Memory')).tokens, 110, '440 characters, about 4 per token')
-	assert.equal(noContext.segments.find(s => s.label.startsWith('Memory')).how, 'estimate')
-	assert.match(noContext.waste.find(w => w.id === 'mcp:github').title, /instructions, never called in 5 days in this project$/, 'never claims 30 days it has not seen')
-	const oneSession = x.xray({ agent: 'a', cli: 'claude', facts: t.parseTranscript(LINES.slice(0, -1)), items, usesOf, covered: 40, sessions: 1 })
-	assert.match(oneSession.waste.find(w => w.id === 'skills').title, /not used in 1 session:/, 'one session does not speak for a month')
-	assert.ok(!oneSession.waste.some(w => w.id === 'skills' && /probe/.test(w.detail)), 'a skill this session called is not idle')
-
-	const codex = x.xray({ agent: 'c', cli: 'codex', reported: { used: 50000, size: 200000 }, items: [{ kind: 'instructions', scope: 'project', label: 'AGENTS.md', file: '/w/AGENTS.md', tokens: 800, agents: ['Codex'] }], usesOf, covered: 0 })
-	assert.equal(codex.source, 'harness')
-	assert.deepEqual(codex.segments.map(s => [s.label, s.tokens, s.how]), [['Instructions (AGENTS.md)', 800, 'estimate'], ['System prompt, tools and conversation', 49200, 'derived']])
-	assert.equal(x.xray({ agent: 'a', cli: 'claude', reported: { used: 180000, size: 200000 }, items: [], usesOf, covered: 0 }).waste[0].action.kind, 'compact')
-})
-
 test('only Claude Code transcripts are read: a .jsonl inside projects/ of the config folder, with .. resolved', () => {
 	const home = String.raw`C:\Users\me`
 	assert.ok(t.isTranscriptPath(String.raw`C:\Users\me\.claude\projects\C--w\a.jsonl`, home + '/.claude'))
