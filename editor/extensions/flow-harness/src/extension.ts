@@ -9,6 +9,7 @@ import { isTracked, itemKey, mcpKey, usageLabel, type HookLike } from './activit
 import { ContextBudget, UsageLimits } from './context';
 import { costLabel, delta, loadCosts, tok, totals, totalsBefore, trackCosts, type Cost } from './cost';
 import { FrictionView } from './frictionView';
+import { HarnessPanel } from './harnessPanel';
 import { flowModel, toRequest } from './harnessFlow';
 import { HookStudio } from './hooks';
 import { LimitAlerts } from './limitAlerts';
@@ -55,6 +56,7 @@ export function activate(context: vscode.ExtensionContext) {
 		const s = live.summary(mcpKey(prefix));
 		return live.sessionsSeen ? { label: usageLabel(s, live.covered, live.sessionsSeen), week: s.week, month: s.month, last: s.last || undefined } : undefined;
 	}, () => refresh());
+	const harnessPage = new HarnessPanel(() => harness?.root ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath, mcp);
 	/**
 	 * What the last "Check" of each MCP server found: its tools and what their definitions cost. Claude Code defers MCP tool
 	 * definitions behind tool search (https://code.claude.com/docs/en/mcp#scale-with-mcp-tool-search), so only the names load
@@ -252,12 +254,14 @@ export function activate(context: vscode.ExtensionContext) {
 
 	context.subscriptions.push(
 		view, inboxView, limits, studio, diagnostics, ...watchers, registerPreviewProvider(),
-		live, frictionView, why, mcp, { dispose: () => clearTimeout(liveTimer) },
+		live, frictionView, why, mcp, harnessPage, { dispose: () => clearTimeout(liveTimer) },
 		...watchers.flatMap(w => [w.onDidChange(soon), w.onDidCreate(soon), w.onDidDelete(soon)]),
 		{ dispose: () => clearTimeout(timer) },
 		vscode.window.onDidChangeWindowState(s => s.focused && ifStale()),
 		view.onDidChangeVisibility(v => v.visible && ifStale()),
 		vscode.commands.registerCommand('flowHarness.refresh', () => refresh()),
+		// One page that gathers the map, lint, MCP servers, Why? and the flow (harnessPanel.ts); the views it points at keep their own commands.
+		vscode.commands.registerCommand('flowHarness.open', () => harnessPage.show()),
 		// From the map: a server row opens the manager on that server; the group's action and the palette open it whole.
 		vscode.commands.registerCommand('flowHarness.manageMcp', (arg?: unknown) => {
 			const a = arg as { mcpId?: unknown; item?: HarnessItem } | undefined;
