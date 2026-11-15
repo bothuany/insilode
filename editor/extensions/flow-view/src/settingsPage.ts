@@ -72,6 +72,9 @@ button { cursor: pointer; }
 .d code, .key { font-family: var(--mono); font-size: 11.5px; }
 .d code { padding: 0 4px; border-radius: 4px; background: color-mix(in srgb, var(--text) 9%, transparent); color: var(--text); }
 .d b { color: var(--text); font-weight: 600; }
+.more { all: unset; padding: 0 2px; border-radius: 4px; color: var(--signal); font-size: 12px; cursor: pointer; }
+.more:hover { text-decoration: underline; }
+.more:focus-visible { outline: 1.5px solid var(--signal); }
 .key { margin-top: 4px; color: color-mix(in srgb, var(--muted) 75%, transparent); }
 .ctl { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; }
 .row.wide .ctl { justify-content: flex-start; margin-top: 8px; }
@@ -184,14 +187,49 @@ function icon(id) {
 }
 
 /** A description's little markdown (code, bold, a link, a #setting# reference) as text and elements, never as markup. */
+const MD = /(\`[^\`]+\`|\\*\\*[^*]+\\*\\*|#[\\w.]+#|\\[[^\\]]+\\]\\([^)]*\\))/;
 function md(text, into) {
-	for (const part of text.split(/(\`[^\`]+\`|\\*\\*[^*]+\\*\\*|#[\\w.]+#|\\[[^\\]]+\\]\\([^)]*\\))/)) {
+	for (const part of text.split(MD)) {
 		if (!part) { continue; }
 		if (part[0] === '\`') { into.appendChild(el('code', '', part.slice(1, -1).replace(/^#([\\w.]+)#$/, '$1'))); }
 		else if (part.startsWith('**')) { into.appendChild(el('b', '', part.slice(2, -2))); }
 		else if (part[0] === '#' && part.length > 2) { into.appendChild(el('code', '', part.slice(1, -1))); }
 		else if (part[0] === '[') { into.appendChild(document.createTextNode(part.slice(1, part.indexOf(']')))); }
 		else { into.appendChild(document.createTextNode(part)); }
+	}
+}
+
+/**
+ * Where a description's first sentence ends (the length of its text), or 0 when it has one sentence only. Only plain text is
+ * searched: a code span, a bold span, a link or a #setting# reference is one piece, so the cut is never inside one. A full
+ * stop after "e.g." or "i.e." does not end a sentence. 0 also when no sentence end is found: the whole text is shown then.
+ */
+function firstSentence(text) {
+	const parts = text.split(MD);
+	let len = 0;
+	for (let i = 0; i < parts.length; i += 2) {
+		const m = /(?<!\\b(?:e\\.g|i\\.e|vs|etc))[.!?](?=\\s)/.exec(parts[i]);
+		if (m) {
+			const cut = len + m.index + 1;
+			return text.slice(cut).trim() ? cut : 0;
+		}
+		len += parts[i].length + (parts[i + 1] || '').length;
+	}
+	return 0;
+}
+/** Whether a search word is only in the hidden part of a description: the row is shown open then, so the match can be seen. */
+function tailMatch(words, r) {
+	const seen = (r.s.title + ' ' + r.s.description.slice(0, r.cut) + ' ' + r.s.key).toLowerCase();
+	const tail = r.s.description.slice(r.cut).toLowerCase();
+	return words.some(w => tail.indexOf(w) >= 0 && seen.indexOf(w) < 0);
+}
+/** Draws a row's description: its first sentence and a "more" button, or all of it (opened, or opened by a search). */
+function paintDesc(r) {
+	const open = !r.cut || r.open || r.forced;
+	r.dt.replaceChildren(); md(open ? r.s.description : r.s.description.slice(0, r.cut), r.dt);
+	if (r.more) {
+		r.more.textContent = open ? 'less' : 'more'; r.more.setAttribute('aria-expanded', String(open));
+		r.more.hidden = r.forced;
 	}
 }
 
@@ -301,13 +339,20 @@ function build(s) {
 	const reset = el('button', 'reset', 'Reset'); reset.type = 'button'; reset.title = 'Back to the default';
 	reset.onclick = () => send({ type: 'reset', key: s.key });
 	t.appendChild(title); t.appendChild(badge); t.appendChild(reset);
-	const d = el('div', 'd'); md(s.description, d);
+	const d = el('div', 'd'); const dt = el('span');
+	const cut = firstSentence(s.description);
+	const more = cut ? el('button', 'more') : null;
+	d.appendChild(dt);
+	if (more) { more.type = 'button'; d.appendChild(document.createTextNode(' ')); d.appendChild(more); }
 	const k = el('div', 'key', s.key);
 	info.appendChild(t); info.appendChild(d); info.appendChild(k);
 	const c = CONTROLS[s.kind](s);
 	const holder = el('div', 'ctl'); holder.appendChild(c.node);
 	row.appendChild(info); row.appendChild(c.node.className === 'ctl' ? c.node : holder);
-	const r = { row, s, badge, reset, c, text: (s.title + ' ' + s.description + ' ' + s.key + ' ' + s.group).toLowerCase() };
+	// The search reads the whole description, also the part that starts hidden.
+	const r = { row, s, badge, reset, c, dt, more, cut, open: false, forced: false, text: (s.title + ' ' + s.description + ' ' + s.key + ' ' + s.group).toLowerCase() };
+	if (more) { more.onclick = () => { r.open = !r.open; paintDesc(r); }; }
+	paintDesc(r);
 	rows.set(s.key, r);
 	return r;
 }
@@ -383,6 +428,8 @@ function filter() {
 				const r = rows.get(rowEl.id.slice(2));
 				const hit = (!words.length || words.every(w => r.text.indexOf(w) >= 0)) && (!onlyChanged || r.s.modified);
 				rowEl.hidden = !hit; if (hit) { gAny++; }
+				const forced = hit && !!r.cut && tailMatch(words, r);
+				if (forced !== r.forced) { r.forced = forced; paintDesc(r); }
 			});
 			g.hidden = !gAny; any += gAny;
 		});
