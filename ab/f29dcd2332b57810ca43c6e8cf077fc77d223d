@@ -1,0 +1,21 @@
+editor/extensions/flow-agent/src/skeletonIcon.ts
+  s_c2897d6f2cc16d::t_1305827a29d354 1-8
+editor/extensions/flow-agent/src/extension.ts
+  s_c2897d6f2cc16d::t_a3422871f6e4df 20,150-155
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "abf29dcd2332b57810ca43c6e8cf077fc77d223d",
+  "prompts": {},
+  "sessions": {
+    "s_c2897d6f2cc16d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "1e81a3de-fcca-4342-8c5b-cc431883ac9c",
+        "model": "claude-fable-5-2"
+      },
+      "human_author": "bothuany <rbdikmen@gmail.com>"
+    }
+  }
+}
