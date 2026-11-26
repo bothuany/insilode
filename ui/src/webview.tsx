@@ -479,11 +479,25 @@ function Flow() {
   const frame = useCallback(() => fitView({ padding: 0.1, maxZoom: 1, duration: 250 }), [fitView])
 
   /** Pans to a card only when it is off screen, at the zoom the reader chose: entering a call from the pane must not jump the view. */
-  const panIfOff = (key: string) => {
+  const panIfOff = (key: string, also?: string) => {
     const card = getNode(key)
     const el = document.querySelector('.wv-canvas') as HTMLElement | null
     if (!card || !el) return
     const { x, y, zoom } = getViewport()
+    // A card and the call it is on: both in view when they fit, centred between them, only if one of them is off screen.
+    const other = also ? getNode(also) : undefined
+    if (other) {
+      const w2 = Number(other.style?.width) || 300
+      const left = Math.min(card.position.x, other.position.x)
+      const right = Math.max(card.position.x + (Number(card.style?.width) || 300), other.position.x + w2)
+      const topY = Math.min(card.position.y, other.position.y)
+      const bottom = Math.max(card.position.y, other.position.y) + 120
+      const off = left * zoom + x < 0 || right * zoom + x > el.clientWidth || topY * zoom + y < 0 || bottom * zoom + y > el.clientHeight
+      if ((right - left) * zoom < el.clientWidth - 40) {
+        if (off) setCenter((left + right) / 2, (topY + bottom) / 2, { zoom, duration: 250 })
+        return
+      }
+    }
     const w = Number(card.style?.width) || 300
     const sx = card.position.x * zoom + x
     const sy = card.position.y * zoom + y
@@ -517,15 +531,6 @@ function Flow() {
     setPaneOpen(open)
     storePane(open)
   }
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || !paneOpenRef.current) return
-      e.preventDefault()
-      stepReadRef.current(e.key === 'ArrowLeft' ? -1 : 1)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
   const parents = useMemo(() => parentsOf(down), [down])
   const readKey = readHist.keys[readHist.i]
   const readNode = readKey ? (find(down, readKey) ?? find(up, readKey)) : null
@@ -535,13 +540,26 @@ function Flow() {
   const [readFocus, setReadFocus] = useState<number>()
   const panTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
   /** The pane's cursor moved: the canvas selects its card and lights the wire of the call it is on, opening that call if it was folded. */
-  const onCursor = (key: string, callee: string | null) => {
+  // The path the pane's cursor stands on (top to here), and every card read on the way since the flow opened: the canvas draws the
+  // reading as a trace, the path solid, the read cards plain, the rest faded.
+  const [stack, setStack] = useState<string[]>([])
+  const [walked, setWalked] = useState<ReadonlySet<string>>(new Set())
+  useEffect(() => setWalked(new Set()), [down?.symbolId])
+  const ancestorsOf = (key: string) => {
+    const out: string[] = []
+    for (let p = parents.get(key); p; p = parents.get(p.node.key)) out.unshift(p.node.key)
+    return out
+  }
+  const onCursor = (key: string, callee: string | null, path: string[]) => {
+    const above = arrival ? [...ancestorsOf(arrival.node.key), arrival.node.key] : []
+    setStack([...above, ...path])
+    setWalked(w => (w.has(key) ? w : new Set(w).add(key)))
     setSelected(key)
     currentRef.current?.(key)
     setTrace(callee ? { source: key, target: callee } : null)
     setHidden(h => (h.has(key) || (callee && h.has(callee)) ? new Set([...h].filter(k => k !== key && k !== callee)) : h))
     clearTimeout(panTimer.current)
-    panTimer.current = setTimeout(() => panIfOff(callee ?? key), 80)
+    panTimer.current = setTimeout(() => panIfOff(key, callee ?? undefined), 80)
   }
   const startResize = (e: ReactPointerEvent) => {
     const body = (e.currentTarget as HTMLElement).parentElement!
@@ -590,7 +608,11 @@ function Flow() {
         const n = find(down, key) ?? find(up, key)
         if (n?.file) vscode.postMessage({ type: 'open', file: n.file, line: n.startLine })
       },
-      read: key => readRef.current(key),
+      // Enter on a card: read it, and the keys go on in the pane.
+      read: key => {
+        readRef.current(key)
+        setTimeout(() => document.querySelector<HTMLElement>('.rp')?.focus(), 30)
+      },
       reveal: key => {
         const n = find(down, key) ?? find(up, key)
         // With the reading pane open, a click reads the method there: the editor beside the canvas is left alone.
@@ -940,13 +962,20 @@ function Flow() {
   /** What the Git changes on the canvas are measured against, when it is not HEAD ("main"). */
   const since = changed.find(n => n.diff?.base)?.diff?.base
   const flowTurns = useMemo(() => turns.filter(t => t.files.some(f => flowFiles.some(x => samePath(x, f.file)))), [turns, flowFiles])
+  // The reading as a trace on the canvas: the path from the entry to the cursor solid, cards already read plain, the rest faded.
+  const cssKey = (k: string) => k.replace(/["\\]/g, '\\$&')
+  const readingCss = `.wv-reading .react-flow__node-card .card { opacity: .42; transition: opacity .2s; }
+.wv-reading .react-flow__edge path { opacity: .28; }
+${[...walked].map(k => `.wv-reading .react-flow__node[data-id="${cssKey(k)}"] .card { opacity: .8; }`).join('\n')}
+${stack.map(k => `.wv-reading .react-flow__node[data-id="${cssKey(k)}"] .card { opacity: 1; }`).join('\n')}
+${stack.slice(1).map((k, i) => `.wv-reading [data-testid="rf__edge-e-${cssKey(stack[i])}-${cssKey(k)}"] path { opacity: 1; stroke-width: 2.2 !important; }`).join('\n')}`
   /** An impact row that names a place: the host shows the flow of the function there. */
   const openImpact = (item: ImpactItem) => {
     if (item.file && item.line > 0) vscode.postMessage({ type: 'showFlowAt', file: item.file, line: item.line })
   }
   return (
-    <div className={`wv${tour.touring ? ' wv-touring' : ''}`}>
-      <style>{traceCss + proposedCss + pointCss + flashCss + tour.css}</style>
+    <div className={`wv${tour.touring ? ' wv-touring' : ''}${paneOpen && readNode ? ' wv-reading' : ''}`}>
+      <style>{traceCss + proposedCss + pointCss + flashCss + tour.css + (paneOpen && readNode ? readingCss : '')}</style>
       <header className="wv-bar">
         <div className="wv-title" title={target.label}>
           <span className="owner">{owner}</span>
@@ -1151,7 +1180,13 @@ function Flow() {
                 setReadFocus(arrival.line)
               }}
               onCaller={() => arrival && readRef.current(arrival.node.key)}
-              onRead={key => readRef.current(key)}
+              onRead={(key, line) => {
+                readRef.current(key)
+                if (line !== undefined) setReadFocus(line)
+              }}
+              onKeep={cardActions.keep}
+              onUndo={cardActions.undo}
+              onLeave={() => document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(readNode.key)}"] .card`)?.focus()}
               onOpen={(key, line) => {
                 const n = find(down, key) ?? find(up, key)
                 if (n?.file) vscode.postMessage({ type: 'open', file: n.file, line: line ?? n.startLine })

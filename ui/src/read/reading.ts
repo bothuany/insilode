@@ -73,17 +73,24 @@ function paramName(p: string) {
  */
 export function bindings(callLine: string, callee: FlowNode): Binding[] {
   const member = callee.label.replace(/\s*▸\s*/g, '.').split('.').pop() ?? ''
-  if (!member || !callee.code) return []
-  const at = callLine.search(new RegExp(`\\b${member.replace(/[$]/g, '\\$')}\\s*\\(`))
+  // Only a plain name can be looked for: a label that is a route or carries brackets names no call on the line (and would be regex syntax).
+  if (!/^[A-Za-z_$][\w$]*$/.test(member) || !callee.code) return []
+  const call = new RegExp(`(^|[^\\w$])${member.replace(/\$/g, '\\$')}\\s*\\(`)
+  const at = callLine.search(call)
   if (at < 0) return []
-  const args = inside(callLine, callLine.indexOf('(', at))
-  const sigAt = callee.code.search(new RegExp(`\\b${member.replace(/[$]/g, '\\$')}\\s*\\(`))
+  const args = inside(callLine, callLine.indexOf('(', at + 1))
+  const sigAt = callee.code.search(call)
   if (args === null || sigAt < 0) return []
-  const params = inside(callee.code, callee.code.indexOf('(', sigAt))
+  const params = inside(callee.code, callee.code.indexOf('(', sigAt + 1))
   if (params === null) return []
-  const names = topLevel(params).map(paramName).filter(n => n && n !== 'self' && n !== 'cls' && n !== 'this')
+  const rawParams = topLevel(params).map(p => p.replace(/@[\w.]+(\([^)]*\))?\s*/g, '').trim())
   const values = topLevel(args)
-  if (!values.length || names.length !== values.length) return []
+  // Pairing by position is only right when every argument is positional and every parameter a plain name: named or keyword
+  // arguments, spreads, **kwargs and destructured parameters would pair the wrong way, so they show nothing.
+  if (values.some(v => /^(\*|\.\.\.)/.test(v) || /^[A-Za-z_]\w*\s*(=(?!=)|:(?!:))/.test(v))) return []
+  if (rawParams.some(p => /^(\*|\.\.\.|\{|\[)/.test(p))) return []
+  const names = rawParams.map(paramName).filter(n => n && n !== 'self' && n !== 'cls' && n !== 'this')
+  if (!values.length || names.length !== values.length || names.some(n => !/^[A-Za-z_$][\w$]*$/.test(n))) return []
   return names.map((param, i) => ({ param, arg: values[i] }))
 }
 

@@ -111,14 +111,28 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .rp-cur { background: var(--vscode-editor-stackFrameHighlightBackground, color-mix(in srgb, #ffcc00 16%, transparent)); }
 .rp-cur-mark { border-left: 3px solid var(--vscode-debugIcon-stepOverForeground, #ffcc00); margin-left: 2px; }
 /* A peek: the callee's code right under the line that calls it, set in by a rule in the callee's colour. */
-.rp-peek { box-sizing: border-box; position: relative; }
-.rp-peek::before { content: ''; position: absolute; left: 9px; top: 4px; bottom: 6px; width: 2px; border-radius: 1px; background: var(--c); opacity: .7; }
-.rp-peek-head { display: flex; align-items: center; gap: 8px; height: 26px; font: 12px var(--fl-mono); color: var(--fl-text); white-space: nowrap; overflow: hidden; }
-.rp-peek-name { font-weight: 600; }
-.rp-peek-where { color: var(--fl-muted); font-family: var(--fl-ui); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
+/* A peek looks like VS Code's own peek view: its border, title and editor colours, a rule in the callee's kind colour. */
+.rp:focus { outline: none; }
+.rp:focus-within .rp-head { box-shadow: inset 0 -1px 0 var(--vscode-focusBorder, var(--fl-signal)); }
+.rp-peek { box-sizing: border-box; position: relative; border-top: 1px solid var(--vscode-peekView-border, var(--fl-line-strong)); border-bottom: 1px solid var(--vscode-peekView-border, var(--fl-line-strong)); background: var(--vscode-peekViewEditor-background, transparent); }
+.rp-peek::before { content: ''; position: absolute; left: 8px; top: 6px; bottom: 6px; width: 2px; border-radius: 1px; background: var(--c); }
+.rp-peek-head { display: flex; align-items: center; gap: 8px; height: 28px; padding-right: 6px; background: var(--vscode-peekViewTitle-background, transparent); font: 12px var(--fl-mono); color: var(--vscode-peekViewTitleLabel-foreground, var(--fl-text)); white-space: nowrap; overflow: hidden; }
+.rp-peek-name { font-weight: 600; flex: none; }
+.rp-peek-where { min-width: 0; color: var(--vscode-peekViewTitleDescription-foreground, var(--fl-muted)); font-family: var(--fl-ui); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
 .rp-peek-where.hop, .rp-hop { color: var(--c); }
-.rp-peek-head .tool:first-of-type { margin-left: auto; }
-.rp-peek .monaco-editor { border: 1px solid var(--fl-line); border-radius: 4px; }
+/* The peek's tools stay out of the way until the peek is pointed at or focused. */
+.rp-peek-tools { margin-left: auto; flex: none; display: flex; align-items: center; gap: 4px; opacity: .45; transition: opacity .15s; }
+.rp-peek:hover .rp-peek-tools, .rp-peek-tools:focus-within, .rp-peek.changed .rp-peek-tools { opacity: 1; }
+.rp-peek-tools .btn, .rp-change .btn { height: 20px; padding: 0 8px; font-size: 11.5px; }
+.rp-stat { font: 11.5px var(--fl-mono); }
+.rp-stat .plus { color: var(--fl-add); font-weight: 600; } .rp-stat .minus { color: var(--fl-del); font-weight: 600; }
+.rp-change { display: flex; align-items: center; gap: 6px; padding-right: 6px; }
+/* A change in place, the way the diff editor draws it: added lines tinted with a +, removed lines struck out under the line they followed. */
+.rp-add { background: var(--vscode-diffEditor-insertedLineBackground, color-mix(in srgb, var(--fl-add) 14%, transparent)); }
+.rp-add-sign::before { content: '+'; color: var(--fl-add); font-weight: 700; padding-left: 4px; }
+.rp-del { box-sizing: border-box; padding-left: 62px; background: var(--vscode-diffEditor-removedLineBackground, color-mix(in srgb, var(--fl-del) 14%, transparent)); font-family: var(--fl-mono); font-size: var(--vscode-editor-font-size, 13px); color: var(--fl-text); white-space: pre; overflow: hidden; position: relative; }
+.rp-del::before { content: '−'; position: absolute; left: 50px; color: var(--fl-del); font-weight: 700; }
+.rp-del > div { line-height: inherit; }
 .rp-bound { color: var(--fl-muted); font-weight: 400; margin-left: 2px; }
 .rp-table { display: grid; grid-template-columns: max-content max-content; gap: 0 24px; padding: 4px 8px; font: 12px/18px var(--fl-mono); }
 .rp-table > div { display: contents; }
@@ -126,14 +140,6 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .rp-hop { flex: none; padding: 5px 12px; border-bottom: 1px solid var(--fl-line); font: 12px var(--fl-mono); }
 .rp-steps { display: flex; gap: 2px; padding: 0 6px; border-left: 1px solid var(--fl-line); border-right: 1px solid var(--fl-line); }
 .rp-steps .tool { display: flex; align-items: center; justify-content: center; color: var(--vscode-debugIcon-stepOverForeground, var(--fl-signal)); }
-.rp-stack { flex: none; display: flex; align-items: center; gap: 2px; min-height: 28px; padding: 0 8px; border-top: 1px solid var(--fl-line); font: 12px var(--fl-mono); overflow: hidden; }
-.rp-stack-label { color: var(--fl-muted); font: 11px var(--fl-ui); margin-right: 6px; }
-.rp-frame { display: flex; align-items: center; white-space: nowrap; }
-.rp-frame button { border: 0; background: none; padding: 2px 5px; border-radius: 4px; color: var(--fl-muted); font: inherit; cursor: pointer; }
-.rp-frame button:hover { background: var(--vscode-list-hoverBackground, var(--fl-line)); color: var(--fl-text); }
-.rp-frame button.here { color: var(--fl-text); font-weight: 600; }
-.rp-frame-sep { color: var(--fl-faint); }
-.rp-keys { color: var(--fl-muted); font: 11px var(--fl-ui); white-space: nowrap; }
 .react-flow__background { background: var(--fl-canvas); }
 .react-flow__background circle { fill: var(--fl-line-strong); }
 .wv-empty { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; pointer-events: none; text-align: center; padding: 0 24px; }

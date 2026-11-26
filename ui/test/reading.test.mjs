@@ -48,3 +48,18 @@ test('crossing names an HTTP or message hop and the service and language it ente
   assert.equal(crossing('call', from, to), null)
   assert.equal(serviceOf('C:\\work\\orders-service\\src\\A.java'), 'orders-service')
 })
+
+test('bindings shows nothing for named or keyword arguments, **kwargs and destructured parameters', () => {
+  const py = node('S.f', 'def f(self, a, b):\n    pass')
+  assert.deepEqual(bindings('s.f(b=1, a=2)', py), [], 'named arguments do not pair by position')
+  assert.deepEqual(bindings('s.f(x, y)', node('S.f', 'def f(a, **kwargs):\n    pass')), [], 'kwargs')
+  assert.deepEqual(bindings('s.f(*rest)', node('S.f', 'def f(a, b):\n    pass')), [], 'spread argument')
+  assert.deepEqual(bindings('f(opts)', node('f', 'function f({ a, b }: Opts) {}')), [], 'destructured parameter')
+  assert.deepEqual(bindings('f(...xs)', node('f', 'function f(a: number) {}')), [], 'spread in TypeScript')
+})
+
+test('bindings never throws on names that are regex syntax', () => {
+  assert.deepEqual(bindings('x.f[0](1)', node('X.f[0]', 'void f[0](int a) {}')), [])
+  assert.deepEqual(bindings('a.b(1)', node('POST /api/(v1)*', 'x')), [])
+  assert.deepEqual(bindings('x.get((1)', node('X.get(', 'int get((int a) {}')), [], 'an unbalanced bracket in a label')
+})
