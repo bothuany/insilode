@@ -3,6 +3,7 @@ cycle: flow-reading
 author: rbdikmen@gmail.com
 phase: gather
 branch: cycle/flow-reading
+waiting: user
 ---
 
 # Comfortable code reading on Flow
@@ -17,7 +18,7 @@ branch: cycle/flow-reading
 
 - Split (user, 2026-11-26): this cycle is the Flow reading redesign. The standalone Agents window is the next cycle, `agents-standalone`: a dedicated launch where the window itself is the Agents surface; closing it with agents running asks first ("N agents running, close?").
 - Design is decided visually (user): the current Flow screen and the options go on a Design artifact (https://claude.ai/artifact/T1CSBo1Qfg479xoVgR8Rry); the user picks and approves there before the plan is written.
-- Probe: `npm run setup` approved and running; the probe is web mode in the browser pane (PROBE.md). `site/` renders the same canvas on a fake host, so the site build and tests belong in the checks.
+- Probe: `npm run setup` failed: VS Code's preinstall needs the Visual Studio 2022 C++ build tools, not on this machine. The change lives in `ui/`, and `site/` runs that real canvas on a fake host over `site/demo`, so the probe is the site's production build (`npm run data && npm run build` in site/, then `vite preview`) in the browser pane. The site's dev server shows a blank canvas (`window.__FLOW__` undefined at webview.tsx load): pre-existing, not this cycle's. A web-mode probe inside the editor waits for the build tools.
 - Found (readers): lines clip at ~81 chars (`ui/src/layout.ts:170`, `webview.css:139-146`), call pill covers the line end, methods over 18 lines show a skeleton, zoomed-out code is scaled text, wheel over code pans the canvas, arrows move spatially, no back/forward, find matches card labels only.
 
 ## Rules
@@ -35,3 +36,4 @@ branch: cycle/flow-reading
 ## Log
 
 - gather: started from the user's request (2026-11-26); split into Flow (this cycle) and agents-standalone (next)
+- gather: design artifact published with today's screens (live site canvas) and options A/B/C; waiting for the user's pick
