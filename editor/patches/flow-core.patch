@@ -1082,7 +1082,7 @@ index 067580a4..ab885bd0 100644
  			description: localize('workbench.welcomePage.experimentalOnboarding', "When enabled, show the new onboarding experience instead of the classic walkthrough on first launch."),
  			experiment: {
 diff --git a/build/win32/code.iss b/build/win32/code.iss
-index 5b43061..1bef915 100644
+index 5b430614..28f4fda7 100644
 --- a/build/win32/code.iss
 +++ b/build/win32/code.iss
 @@ -8,10 +8,10 @@
@@ -1100,7 +1100,7 @@ index 5b43061..1bef915 100644
  DefaultGroupName={#NameLong}
  AllowNoIcons=yes
  OutputDir={#OutputDir}
-@@ -67,6 +67,14 @@
+@@ -67,6 +67,14 @@ Name: "hungarian"; MessagesFile: "{#RepoDir}\build\win32\i18n\Default.hu.isl,{#R
  Name: "turkish"; MessagesFile: "compiler:Languages\Turkish.isl,{#RepoDir}\build\win32\i18n\messages.tr.isl" {#LocalizedLanguageFile("trk")}
  
  [InstallDelete]
@@ -1115,7 +1115,23 @@ index 5b43061..1bef915 100644
  Type: filesandordirs; Name: "{app}\{#VersionedResourcesFolder}\resources\app\out"; Check: IsNotBackgroundUpdate
  Type: filesandordirs; Name: "{app}\{#VersionedResourcesFolder}\resources\app\plugins"; Check: IsNotBackgroundUpdate
  Type: filesandordirs; Name: "{app}\{#VersionedResourcesFolder}\resources\app\extensions"; Check: IsNotBackgroundUpdate
-@@ -125,6 +133,12 @@
+@@ -76,6 +84,7 @@ Type: files; Name: "{app}\{#VersionedResourcesFolder}\resources\app\node_modules
+ Type: files; Name: "{app}\{#VersionedResourcesFolder}\resources\app\Credits_45.0.2454.85.html"; Check: IsNotBackgroundUpdate
+ 
+ [UninstallDelete]
++Type: files; Name: "{group}\Insilode Agents.lnk"
+ Type: filesandordirs; Name: "{app}\_"
+ Type: filesandordirs; Name: "{app}\bin"
+ Type: files; Name: "{app}\old_*"
+@@ -111,6 +120,7 @@ Source: "appx\{#AppxPackageDll}"; DestDir: "{code:GetDestDir}\{#VersionedResourc
+ 
+ [Icons]
+ Name: "{group}\{#NameLong}"; Filename: "{app}\{#ExeBasename}.exe"; AppUserModelID: "{#AppUserId}"; Check: ShouldUpdateShortcut(ExpandConstant('{group}\{#NameLong}.lnk'))
++Name: "{group}\Insilode Agents"; Filename: "{app}\{#ExeBasename}.exe"; Parameters: "--agents-only"; AppUserModelID: "{#AppUserId}"; Check: ShouldUpdateShortcut(ExpandConstant('{group}\Insilode Agents.lnk'))
+ Name: "{autodesktop}\{#NameLong}"; Filename: "{app}\{#ExeBasename}.exe"; Tasks: desktopicon; AppUserModelID: "{#AppUserId}"; Check: ShouldUpdateShortcut(ExpandConstant('{autodesktop}\{#NameLong}.lnk'))
+ Name: "{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}"; Filename: "{app}\{#ExeBasename}.exe"; Tasks: quicklaunchicon; AppUserModelID: "{#AppUserId}"; Check: ShouldUpdateShortcut(ExpandConstant('{userappdata}\Microsoft\Internet Explorer\Quick Launch\{#NameLong}.lnk'))
+ 
+@@ -125,6 +135,12 @@ Filename: "{app}\{#ExeBasename}.exe"; Description: "{cm:LaunchProgram,{#NameLong
  #define SoftwareClassesRootKey "HKLM"
  #endif
  
@@ -1128,7 +1144,7 @@ index 5b43061..1bef915 100644
  Root: {#SoftwareClassesRootKey}; Subkey: "Software\Classes\.ascx\OpenWithProgids"; ValueType: none; ValueName: "{#RegValueName}"; Flags: deletevalue uninsdeletevalue; Tasks: associatewithfiles
  Root: {#SoftwareClassesRootKey}; Subkey: "Software\Classes\.ascx\OpenWithProgids"; ValueType: string; ValueName: "{#RegValueName}.ascx"; ValueData: ""; Flags: uninsdeletevalue; Tasks: associatewithfiles
  Root: {#SoftwareClassesRootKey}; Subkey: "Software\Classes\{#RegValueName}.ascx"; ValueType: string; ValueName: ""; ValueData: "{cm:SourceFile,ASCX}"; Flags: uninsdeletekey; Tasks: associatewithfiles
-@@ -1382,7 +1396,7 @@
+@@ -1382,7 +1398,7 @@ begin
  
    #if "user" == InstallTarget
      if not WizardSilent() and IsAdmin() then begin
@@ -1137,7 +1153,7 @@ index 5b43061..1bef915 100644
          Result := False;
        end;
      end;
-@@ -1636,7 +1650,8 @@
+@@ -1636,7 +1652,8 @@ begin
    if IsBackgroundUpdate() then
      Result := ''
    else
@@ -1604,3 +1620,333 @@ index e2659d27..5538be13 100644
  				order: 1,
  				group: 'navigation'
  			}
+diff --git a/src/vs/platform/environment/common/argv.ts b/src/vs/platform/environment/common/argv.ts
+index f6108fb1..824864b4 100644
+--- a/src/vs/platform/environment/common/argv.ts
++++ b/src/vs/platform/environment/common/argv.ts
+@@ -55,6 +55,7 @@ export interface NativeParsedArgs {
+ 	'new-window'?: boolean;
+ 	'reuse-window'?: boolean;
+ 	'agents'?: boolean;
++	'agents-only'?: boolean;
+ 	'session-title-base64'?: string;
+ 	locale?: string;
+ 	'user-data-dir'?: string;
+diff --git a/src/vs/platform/environment/node/argv.ts b/src/vs/platform/environment/node/argv.ts
+index 5077e95f..c51206fd 100644
+--- a/src/vs/platform/environment/node/argv.ts
++++ b/src/vs/platform/environment/node/argv.ts
+@@ -109,6 +109,7 @@ export const OPTIONS: OptionDescriptions<Required<NativeParsedArgs>> = {
+ 	'new-window': { type: 'boolean', cat: 'o', alias: 'n', description: localize('newWindow', "Force to open a new window.") },
+ 	'reuse-window': { type: 'boolean', cat: 'o', alias: 'r', description: localize('reuseWindow', "Force to open a file or folder in an already opened window.") },
+ 	'agents': { type: 'boolean', cat: 'o', deprecates: ['sessions'], description: localize('agents', "Opens the agents window. If a folder is provided, opens a new session with that folder selected.") },
++	'agents-only': { type: 'boolean', cat: 'o', description: localize('agentsOnly', "Starts with the Agents window only: the editor window stays hidden until an editor opens in it or it is asked for.") },
+ 	'session-title-base64': { type: 'string' },
+ 	'wait': { type: 'boolean', cat: 'o', alias: 'w', description: localize('wait', "Wait for the files to be closed before returning.") },
+ 	'waitMarkerFilePath': { type: 'string' },
+diff --git a/src/vs/platform/windows/electron-main/windowImpl.ts b/src/vs/platform/windows/electron-main/windowImpl.ts
+index 307ac9e9..188f12be 100644
+--- a/src/vs/platform/windows/electron-main/windowImpl.ts
++++ b/src/vs/platform/windows/electron-main/windowImpl.ts
+@@ -54,6 +54,9 @@ export interface IWindowCreationOptions {
+ 	readonly extensionDevelopmentPath?: string[];
+ 	readonly isExtensionTestHost?: boolean;
+ 	readonly isSessionsWindow?: boolean;
++
++	/** Insilode: the window is created hidden and stays so until setHidden(false): the first window of an `--agents-only` start. */
++	readonly agentsOnly?: boolean;
+ }
+ 
+ interface ITouchBarSegment extends electron.SegmentedControlSegment {
+@@ -169,6 +172,9 @@ export abstract class BaseWindow extends Disposable implements IBaseWindow {
+ 	private readonly _onDidChangeAlwaysOnTop = this._register(new Emitter<boolean>());
+ 	readonly onDidChangeAlwaysOnTop = this._onDidChangeAlwaysOnTop.event;
+ 
++	private readonly _onDidChangeHidden = this._register(new Emitter<boolean>());
++	readonly onDidChangeHidden = this._onDidChangeHidden.event;
++
+ 	//#endregion
+ 
+ 	abstract readonly id: number;
+@@ -176,6 +182,19 @@ export abstract class BaseWindow extends Disposable implements IBaseWindow {
+ 	protected _lastFocusTime = Date.now(); // window is shown on creation so take current time
+ 	get lastFocusTime(): number { return this._lastFocusTime; }
+ 
++	/**
++	 * Insilode: whether the window is hidden, not closed, because the Agents window runs without it (see setHidden). A hidden window
++	 * comes back when something asks for it: focus(), a reload, a crash, or the workbench itself.
++	 */
++	protected _hidden = false;
++	get hidden(): boolean { return this._hidden; }
++
++	/** The window state applyState left out while hidden: maximize() and setFullScreen() would show the window. */
++	private deferredState: IWindowState | undefined;
++
++	/** What the window's page throttles by when it is shown (a sessions window never throttles). */
++	protected ownBackgroundThrottling = true;
++
+ 	private maximizedWindowState: IWindowState | undefined;
+ 
+ 	private hasWindowControlOverlay = false;
+@@ -335,6 +354,13 @@ export abstract class BaseWindow extends Disposable implements IBaseWindow {
+ 			}
+ 		}
+ 
++		if (this._hidden && (state.mode === WindowMode.Maximized || state.mode === WindowMode.Fullscreen)) {
++
++			// Insilode: maximize() shows a hidden window, so the mode is applied when the window is first shown
++			this.deferredState = state;
++			return;
++		}
++
+ 		if (state.mode === WindowMode.Maximized || state.mode === WindowMode.Fullscreen) {
+ 
+ 			// this call may or may not show the window, depends
+@@ -457,7 +483,44 @@ export abstract class BaseWindow extends Disposable implements IBaseWindow {
+ 		this.notifyFocusDisposable.clear();
+ 	}
+ 
++	/**
++	 * Insilode: hides the window without closing it, or shows it again. The Agents window is an auxiliary window of this window's page,
++	 * so while it is open this window is hidden instead of closed. Only this window is affected; shown again, it is focused.
++	 */
++	setHidden(hidden: boolean): void {
++		const win = this._win;
++		if (hidden === this._hidden || !win || win.isDestroyed()) {
++			return;
++		}
++
++		this._hidden = hidden;
++
++		// The hidden page still runs the Agents window (its terminals' output passes through it): Chromium must not throttle its timers.
++		// Shown again, the window gets back the throttling it was meant to have.
++		win.webContents.setBackgroundThrottling(hidden ? false : this.ownBackgroundThrottling);
++
++		if (hidden) {
++			win.hide();
++		} else {
++			const deferred = this.deferredState;
++			this.deferredState = undefined;
++			if (deferred) {
++				this.applyState(deferred); // maximizes or makes it fullscreen, which shows it
++			}
++			win.show();
++			this.doFocusWindow();
++		}
++
++		this._onDidChangeHidden.fire(hidden);
++	}
++
+ 	private doFocusWindow() {
++		// Insilode: a hidden window comes back when it is asked for (Insilode started again, the Dock icon): focus() alone would leave it hidden
++		if (this._hidden) {
++			this.setHidden(false);
++			return;
++		}
++
+ 		const win = this.win;
+ 		if (!win) {
+ 			return;
+@@ -762,6 +825,9 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
+ 	) {
+ 		super(configurationService, stateService, environmentMainService, logService);
+ 
++		this._hidden = !!config.agentsOnly;
++		this.ownBackgroundThrottling = !config.isSessionsWindow;
++
+ 		//#region create browser window
+ 		{
+ 			this.configObjectUrl = this._register(protocolMainService.createIPCObjectUrl<INativeWindowConfiguration>());
+@@ -776,11 +842,14 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
+ 				additionalArguments: [`--vscode-window-config=${this.configObjectUrl.resource.toString()}`],
+ 				v8CacheOptions: this.environmentMainService.useCodeCache ? 'bypassHeatCheck' : 'none'
+ 			};
+-			if (config.isSessionsWindow) {
+-				webPreferences.backgroundThrottling = false; // keep agents window responsive when in background
++			if (config.isSessionsWindow || config.agentsOnly) {
++				webPreferences.backgroundThrottling = false; // keep agents window responsive when in background (a hidden window runs the Agents window)
+ 			}
+ 
+ 			const options = instantiationService.invokeFunction(defaultBrowserWindowOptions, this.windowState, undefined, webPreferences);
++			if (config.agentsOnly) {
++				options.show = false; // an agents-only start never shows this window (applyState and the source build's late show leave it hidden too)
++			}
+ 			const iconPath = config.isSessionsWindow && isWindows ? join(this.environmentMainService.appRoot, 'resources/win32/sessions.ico') : undefined;
+ 			if (iconPath) {
+ 				options.icon = iconPath;
+@@ -1005,6 +1074,9 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
+ 			case WindowError.UNRESPONSIVE:
+ 			case WindowError.PROCESS_GONE:
+ 
++				// Insilode: the dialog below, and a window that reopens, need a window the user can see
++				this.setHidden(false);
++
+ 				// If we run extension tests from CLI, we want to signal
+ 				// back this state to the test runner by exiting with a
+ 				// non-zero exit code.
+@@ -1294,11 +1366,16 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
+ 		const wasLoaded = this.wasLoaded;
+ 		this.wasLoaded = true;
+ 
++		// Insilode: a reload (or a load into another folder) does not bring the Agents window back, so the window shows again
++		if (wasLoaded) {
++			this.setHidden(false);
++		}
++
+ 		// Make window visible if it did not open in N seconds because this indicates an error
+ 		// Only do this when running out of sources and not when running tests
+ 		if (!this.environmentMainService.isBuilt && !this.environmentMainService.extensionTestsLocationURI) {
+ 			this._register(new RunOnceScheduler(() => {
+-				if (this._win && !this._win.isVisible() && !this._win.isMinimized()) {
++				if (this._win && !this._hidden && !this._win.isVisible() && !this._win.isMinimized()) {
+ 					this._win.show();
+ 					this.focus({ mode: FocusMode.Force });
+ 					this._win.webContents.openDevTools();
+diff --git a/src/vs/platform/windows/electron-main/windowsMainService.ts b/src/vs/platform/windows/electron-main/windowsMainService.ts
+index 22bcd111..3e914a77 100644
+--- a/src/vs/platform/windows/electron-main/windowsMainService.ts
++++ b/src/vs/platform/windows/electron-main/windowsMainService.ts
+@@ -1610,7 +1610,9 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
+ 				state,
+ 				extensionDevelopmentPath: configuration.extensionDevelopmentPath,
+ 				isExtensionTestHost: !!configuration.extensionTestsPath,
+-				isSessionsWindow: configuration.isSessionsWindow
++				isSessionsWindow: configuration.isSessionsWindow,
++				// Insilode: only the app's first window starts hidden: windows restored after it, and any opened later, are normal ones
++				agentsOnly: !!options.cli?.['agents-only'] && this.getWindowCount() === 0
+ 			});
+ 			mark('code/didCreateCodeWindow');
+ 
+diff --git a/src/vs/platform/launch/electron-main/launchMainService.ts b/src/vs/platform/launch/electron-main/launchMainService.ts
+index 1984c46f..ff7faee5 100644
+--- a/src/vs/platform/launch/electron-main/launchMainService.ts
++++ b/src/vs/platform/launch/electron-main/launchMainService.ts
+@@ -5,6 +5,7 @@
+ 
+ import { app } from 'electron';
+ import { coalesce } from '../../../base/common/arrays.js';
++import { CancellationToken } from '../../../base/common/cancellation.js';
+ import { IProcessEnvironment, isMacintosh } from '../../../base/common/platform.js';
+ import { URI } from '../../../base/common/uri.js';
+ import { whenDeleted } from '../../../base/node/pfs.js';
+@@ -148,6 +149,15 @@ export class LaunchMainService implements ILaunchMainService {
+ 			usedWindows = await this.windowsMainService.openAgentsWindow(baseConfig);
+ 		}
+ 
++		// Insilode: `--agents-only` on a running instance brings its Agents window forward (the command opens it or reveals it) and leaves the
++		// editor window as it is. With no window open (macOS) it falls through: the window that opens starts hidden like a first one.
++		else if (args['agents-only'] && this.windowsMainService.getLastActiveWindow()) {
++			const lastActive = this.windowsMainService.getLastActiveWindow()!;
++			lastActive.sendWhenReady('vscode:runAction', CancellationToken.None, { id: 'flow.agents.openPage', from: 'menu' });
++
++			usedWindows = [lastActive];
++		}
++
+ 		// Start without file/folder arguments
+ 		else if (!args._.length && !args['folder-uri'] && !args['file-uri']) {
+ 			let openNewWindow = false;
+diff --git a/src/vs/workbench/browser/parts/notifications/notificationsToasts.ts b/src/vs/workbench/browser/parts/notifications/notificationsToasts.ts
+index 9b2f8c79..216b28a7 100644
+--- a/src/vs/workbench/browser/parts/notifications/notificationsToasts.ts
++++ b/src/vs/workbench/browser/parts/notifications/notificationsToasts.ts
+@@ -7,7 +7,7 @@ import './media/notificationsToasts.css';
+ import { localize } from '../../../../nls.js';
+ import { INotificationsModel, NotificationChangeType, INotificationChangeEvent, INotificationViewItem, NotificationViewItemContentChangeKind, NotificationsSettings, NotificationsPosition, getNotificationsPosition } from '../../../common/notifications.js';
+ import { IDisposable, dispose, toDisposable, DisposableStore } from '../../../../base/common/lifecycle.js';
+-import { addDisposableListener, EventType, Dimension, scheduleAtNextAnimationFrame, isAncestorOfActiveElement, getWindow, $, isHTMLElement, isEditableElement, getActiveElement, getDomNodePagePosition, getClientArea } from '../../../../base/browser/dom.js';
++import { addDisposableListener, EventType, Dimension, scheduleAtNextAnimationFrame, isAncestorOfActiveElement, getWindow, $, isHTMLElement, isEditableElement, getActiveElement, getDomNodePagePosition, getClientArea, getWindowById } from '../../../../base/browser/dom.js';
+ import { IInstantiationService } from '../../../../platform/instantiation/common/instantiation.js';
+ import { NotificationsList } from './notificationsList.js';
+ import { Event, Emitter } from '../../../../base/common/event.js';
+@@ -16,6 +16,7 @@ import { NOTIFICATIONS_TOAST_BORDER, NOTIFICATIONS_BACKGROUND } from '../../../c
+ import { IThemeService, Themable } from '../../../../platform/theme/common/themeService.js';
+ import { asCssVariable } from '../../../../platform/theme/common/colorRegistry.js';
+ import { IEditorGroupsService } from '../../../services/editor/common/editorGroupsService.js';
++import { isExclusiveEditorPart } from '../editor/auxiliaryEditorPart.js';
+ import { INotificationsToastController } from './notificationsCommands.js';
+ import { IContextKey, IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
+ import { Severity, NotificationsFilter, NotificationPriority, withSeverityPrefix } from '../../../../platform/notification/common/notification.js';
+@@ -45,6 +46,10 @@ enum ToastVisibility {
+ 	VISIBLE
+ }
+ 
++/** Insilode: set by the desktop contribution (contrib/insilodeAgentsAlone) while the IDE window is hidden; named here because browser/ must not import contrib/. */
++const IDE_HIDDEN = 'insilode.ideHidden';
++const IDE_HIDDEN_KEYS = new Set([IDE_HIDDEN]);
++
+ export class NotificationsToasts extends Themable implements INotificationsToastController {
+ 
+ 	private static readonly MAX_WIDTH = 450;
+@@ -88,7 +93,7 @@ export class NotificationsToasts extends Themable implements INotificationsToast
+ 		@IWorkbenchLayoutService private readonly layoutService: IWorkbenchLayoutService,
+ 		@IThemeService themeService: IThemeService,
+ 		@IEditorGroupsService private readonly editorGroupService: IEditorGroupsService,
+-		@IContextKeyService contextKeyService: IContextKeyService,
++		@IContextKeyService private readonly contextKeyService: IContextKeyService,
+ 		@ILifecycleService private readonly lifecycleService: ILifecycleService,
+ 		@IHostService private readonly hostService: IHostService,
+ 		@IWorkbenchEnvironmentService private readonly environmentService: IWorkbenchEnvironmentService,
+@@ -96,7 +101,7 @@ export class NotificationsToasts extends Themable implements INotificationsToast
+ 	) {
+ 		super(themeService);
+ 
+-		this.notificationsToastsVisibleContextKey = NotificationsToastsVisibleContext.bindTo(contextKeyService);
++		this.notificationsToastsVisibleContextKey = NotificationsToastsVisibleContext.bindTo(this.contextKeyService);
+ 		this.pendingToasts = this._register(new PendingNotificationToasts(
+ 			item => this.model.notifications.includes(item),
+ 			(item, other) => item.equals(other),
+@@ -122,6 +127,9 @@ export class NotificationsToasts extends Themable implements INotificationsToast
+ 		// Layout
+ 		this._register(this.layoutService.onDidLayoutMainContainer(dimension => this.layout(Dimension.lift(dimension))));
+ 
++		// Insilode: while the IDE window is hidden (the Agents window runs without it), the toasts show in the Agents window
++		this._register(this.contextKeyService.onDidChangeContext(e => e.affectsSome(IDE_HIDDEN_KEYS) && this.hostToasts()));
++
+ 		// Position changes
+ 		this._register(this.configurationService.onDidChangeConfiguration(e => {
+ 			if (e.affectsConfiguration(NotificationsSettings.NOTIFICATIONS_POSITION)) {
+@@ -166,6 +174,36 @@ export class NotificationsToasts extends Themable implements INotificationsToast
+ 		this.updateTopOffset();
+ 	}
+ 
++	/**
++	 * Insilode: where the toasts are shown: the main window, or the Agents window (the exclusive window) while the IDE window is hidden,
++	 * which the desktop contribution says with the `insilode.ideHidden` context key.
++	 */
++	private hostContainer(): HTMLElement {
++		if (this.contextKeyService.getContextKeyValue<boolean>(IDE_HIDDEN)) {
++			const part = this.editorGroupService.parts.find(part => isExclusiveEditorPart(part));
++			const window = part && getWindowById(part.windowId)?.window;
++			if (window) {
++				return this.layoutService.getContainer(window);
++			}
++		}
++
++		return this.container;
++	}
++
++	/** shortcut: the room for toasts in the Agents window is measured when they move there, not on every resize of that window. */
++	private hostToasts(): void {
++		const toasts = this.notificationsToastsContainer;
++		if (!toasts) {
++			return;
++		}
++
++		const host = this.hostContainer();
++		if (toasts.parentElement !== host) {
++			host.appendChild(toasts);
++			this.layout(Dimension.lift(getClientArea(host)));
++		}
++	}
++
+ 	private updateTopOffset(): void {
+ 		if (!this.notificationsToastsContainer) {
+ 			return;
+@@ -256,6 +294,7 @@ export class NotificationsToasts extends Themable implements INotificationsToast
+ 			notificationsToastsContainer = this.notificationsToastsContainer = $('.notifications-toasts');
+ 
+ 			this.container.appendChild(notificationsToastsContainer);
++			this.hostToasts(); // Insilode: or the Agents window
+ 		}
+ 
+ 		// Apply position class

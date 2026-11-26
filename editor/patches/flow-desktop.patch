@@ -1,17 +1,19 @@
 diff --git a/src/vs/code/electron-main/app.ts b/src/vs/code/electron-main/app.ts
-index d0e7e0f..bda3e16 100644
+index d0e7e0f7..acc69c85 100644
 --- a/src/vs/code/electron-main/app.ts
 +++ b/src/vs/code/electron-main/app.ts
-@@ -60,6 +60,8 @@ import { IInstantiationService, ServicesAccessor } from '../../platform/instanti
+@@ -60,6 +60,10 @@ import { IInstantiationService, ServicesAccessor } from '../../platform/instanti
  import { ServiceCollection } from '../../platform/instantiation/common/serviceCollection.js';
  import { ProcessMainService } from '../../platform/process/electron-main/processMainService.js';
  import { IKeyboardLayoutMainService, KeyboardLayoutMainService } from '../../platform/keyboardLayout/electron-main/keyboardLayoutMainService.js';
 +import { INSILODE_OVERLAY_CHANNEL, IInsilodeOverlayService } from '../../platform/insilodeDesktop/common/insilodeDesktop.js';
 +import { InsilodeOverlayMainService } from '../../platform/insilodeDesktop/electron-main/insilodeOverlayMainService.js';
++import { INSILODE_AGENTS_ALONE_CHANNEL } from '../../platform/insilodeAgentsAlone/common/insilodeAgentsAlone.js';
++import { InsilodeAgentsAloneMainService } from '../../platform/insilodeAgentsAlone/electron-main/insilodeAgentsAloneMainService.js';
  import { ILaunchMainService, LaunchMainService } from '../../platform/launch/electron-main/launchMainService.js';
  import { ILifecycleMainService, LifecycleMainPhase, ShutdownReason } from '../../platform/lifecycle/electron-main/lifecycleMainService.js';
  import { ILoggerService, ILogService } from '../../platform/log/common/log.js';
-@@ -1264,6 +1266,9 @@ export class CodeApplication extends Disposable {
+@@ -1264,6 +1268,9 @@ export class CodeApplication extends Disposable {
  		// Keyboard Layout
  		services.set(IKeyboardLayoutMainService, new SyncDescriptor(KeyboardLayoutMainService));
  
@@ -21,13 +23,17 @@ index d0e7e0f..bda3e16 100644
  		// Native Host
  		services.set(INativeHostMainService, new SyncDescriptor(NativeHostMainService, undefined, false /* proxied to other processes */));
  
-@@ -1449,6 +1454,10 @@ export class CodeApplication extends Disposable {
+@@ -1449,6 +1456,14 @@ export class CodeApplication extends Disposable {
  		const keyboardLayoutChannel = ProxyChannel.fromService(accessor.get(IKeyboardLayoutMainService), disposables);
  		mainProcessElectronServer.registerChannel('keyboardLayout', keyboardLayoutChannel);
  
 +		// Insilode: the desktop agent status overlay
 +		const insilodeOverlayChannel = ProxyChannel.fromService(accessor.get(IInsilodeOverlayService), disposables);
 +		mainProcessElectronServer.registerChannel(INSILODE_OVERLAY_CHANNEL, insilodeOverlayChannel);
++
++		// Insilode: hides the editor window while the Agents window runs without it
++		const insilodeAgentsAlone = disposables.add(accessor.get(IInstantiationService).createInstance(InsilodeAgentsAloneMainService));
++		mainProcessElectronServer.registerChannel(INSILODE_AGENTS_ALONE_CHANNEL, insilodeAgentsAlone.channel());
 +
  		// Native host (main & shared process)
  		this.nativeHostMainService = accessor.get(INativeHostMainService);
@@ -1619,15 +1625,18 @@ index 0000000..3f658c4
 +
 +registerWorkbenchContribution2(InsilodeDesktopContribution.ID, InsilodeDesktopContribution, WorkbenchPhase.BlockRestore);
 diff --git a/src/vs/workbench/workbench.desktop.main.ts b/src/vs/workbench/workbench.desktop.main.ts
-index 74be4ca..60cbf66 100644
+index 74be4cac..c8570095 100644
 --- a/src/vs/workbench/workbench.desktop.main.ts
 +++ b/src/vs/workbench/workbench.desktop.main.ts
-@@ -219,6 +219,9 @@ import './contrib/keybindingsExport/electron-browser/keybindingsExport.contribut
+@@ -219,6 +219,12 @@ import './contrib/keybindingsExport/electron-browser/keybindingsExport.contribut
  // System-wide (OS global) Keybindings
  import './contrib/keybindings/electron-browser/systemWideKeybindings.contribution.js';
  
 +// Insilode: agent status on the app icon and in the desktop overlay
 +import './contrib/insilodeDesktop/electron-browser/insilodeDesktop.contribution.js';
++
++// Insilode: the Agents window without the editor window
++import './contrib/insilodeAgentsAlone/electron-browser/insilodeAgentsAlone.contribution.js';
 +
  //#endregion
  
@@ -1904,3 +1913,388 @@ index 3d34aea..c148e2f 100644
  const args = parseCLIArgs();
  // Configure static command line arguments
  perf.mark('code/willConfigureCommandlineSwitches');
+diff --git a/src/vs/platform/insilodeAgentsAlone/common/insilodeAgentsAlone.ts b/src/vs/platform/insilodeAgentsAlone/common/insilodeAgentsAlone.ts
+new file mode 100644
+index 0000000..2daf74a
+--- /dev/null
++++ b/src/vs/platform/insilodeAgentsAlone/common/insilodeAgentsAlone.ts
+@@ -0,0 +1,26 @@
++/*---------------------------------------------------------------------------------------------
++ *  Insilode: the Agents window on its own. The Agents window is an auxiliary window of the editor window's page, so the
++ *  editor window is hidden, not closed, while it runs. The main process hides and shows the window (CodeWindow.setHidden);
++ *  the workbench (contrib/insilodeAgentsAlone) decides when, and learns when the main process shows it on its own.
++ *--------------------------------------------------------------------------------------------*/
++
++import { Event } from '../../../base/common/event.js';
++import { createDecorator } from '../../instantiation/common/instantiation.js';
++
++export const INSILODE_AGENTS_ALONE_CHANNEL = 'insilodeAgentsAlone';
++
++export const IInsilodeAgentsAloneService = createDecorator<IInsilodeAgentsAloneService>('insilodeAgentsAloneService');
++
++/** Every call is about the calling window and no other: the main process takes the window from the IPC context, not from an argument. */
++export interface IInsilodeAgentsAloneService {
++	readonly _serviceBrand: undefined;
++
++	/** The calling window was hidden or shown, whoever asked (an Insilode started again shows it, a reload shows it). */
++	readonly onDidChangeWindowHidden: Event<boolean>;
++
++	/** Hides the calling window without closing it, or shows it again and focuses it. */
++	setWindowHidden(hidden: boolean): Promise<void>;
++
++	/** Whether the calling window is hidden now: an `--agents-only` start creates it so. */
++	isWindowHidden(): Promise<boolean>;
++}
+diff --git a/src/vs/platform/insilodeAgentsAlone/electron-main/insilodeAgentsAloneMainService.ts b/src/vs/platform/insilodeAgentsAlone/electron-main/insilodeAgentsAloneMainService.ts
+new file mode 100644
+index 0000000..3cc7df5
+--- /dev/null
++++ b/src/vs/platform/insilodeAgentsAlone/electron-main/insilodeAgentsAloneMainService.ts
+@@ -0,0 +1,71 @@
++/*---------------------------------------------------------------------------------------------
++ *  Insilode: hides and shows the editor window for the Agents window (see ../common/insilodeAgentsAlone.ts). The window
++ *  does it itself (CodeWindow.setHidden); this is the way the workbench asks, over a channel that knows who is asking.
++ *--------------------------------------------------------------------------------------------*/
++
++import { Event, Emitter } from '../../../base/common/event.js';
++import { Disposable } from '../../../base/common/lifecycle.js';
++import { IServerChannel } from '../../../base/parts/ipc/common/ipc.js';
++import { ICodeWindow } from '../../window/electron-main/window.js';
++import { CodeWindow } from '../../windows/electron-main/windowImpl.js';
++import { IWindowsMainService } from '../../windows/electron-main/windows.js';
++
++export class InsilodeAgentsAloneMainService extends Disposable {
++
++	private readonly _onDidChange = this._register(new Emitter<{ readonly windowId: number; readonly hidden: boolean }>());
++
++	constructor(@IWindowsMainService private readonly windowsMainService: IWindowsMainService) {
++		super();
++
++		const watch = (window: ICodeWindow) => {
++			if (window instanceof CodeWindow) {
++				window.onDidChangeHidden(hidden => this._onDidChange.fire({ windowId: window.id, hidden })); // the window disposes its emitter
++			}
++		};
++		windowsMainService.getWindows().forEach(watch);
++		this._register(windowsMainService.onDidOpenWindow(watch));
++	}
++
++	private window(windowId: number | undefined): CodeWindow | undefined {
++		const window = windowId === undefined ? undefined : this.windowsMainService.getWindowById(windowId);
++		return window instanceof CodeWindow ? window : undefined;
++	}
++
++	setWindowHidden(windowId: number | undefined, hidden: boolean): void {
++		this.window(windowId)?.setHidden(hidden);
++	}
++
++	isWindowHidden(windowId: number | undefined): boolean {
++		return this.window(windowId)?.hidden ?? false;
++	}
++
++	/** The IPC context of a window's renderer is `window:<id>` (mainProcessService.ts): a renderer cannot name another window. */
++	channel(): IServerChannel<string> {
++		const idOf = (ctx: string): number | undefined => {
++			const match = /^window:(\d+)$/.exec(ctx);
++			return match ? Number(match[1]) : undefined;
++		};
++
++		return {
++			listen: <T>(ctx: string, event: string): Event<T> => {
++				if (event !== 'onDidChangeWindowHidden') {
++					throw new Error(`Event not found: ${event}`);
++				}
++
++				const windowId = idOf(ctx);
++				return Event.map(Event.filter(this._onDidChange.event, e => e.windowId === windowId), e => e.hidden) as Event<unknown> as Event<T>;
++			},
++			call: async <T>(ctx: string, command: string, args?: unknown[]): Promise<T> => {
++				switch (command) {
++					case 'setWindowHidden':
++						this.setWindowHidden(idOf(ctx), args?.[0] === true);
++						return undefined as T;
++					case 'isWindowHidden':
++						return this.isWindowHidden(idOf(ctx)) as T;
++				}
++
++				throw new Error(`Method not found: ${command}`);
++			}
++		};
++	}
++}
+diff --git a/src/vs/workbench/contrib/insilodeAgentsAlone/electron-browser/insilodeAgentsAlone.contribution.ts b/src/vs/workbench/contrib/insilodeAgentsAlone/electron-browser/insilodeAgentsAlone.contribution.ts
+new file mode 100644
+index 0000000..df3f186
+--- /dev/null
++++ b/src/vs/workbench/contrib/insilodeAgentsAlone/electron-browser/insilodeAgentsAlone.contribution.ts
+@@ -0,0 +1,270 @@
++/*---------------------------------------------------------------------------------------------
++ *  Insilode: the Agents window on its own. The Agents window is an auxiliary window of this window's page (one renderer, one
++ *  extension host, every agent's terminal), so the editor window cannot really go while it runs. Instead:
++ *
++ *   - closing the editor window hides it (the main process: CodeWindow.setHidden), and an editor that opens in it, "Show IDE
++ *     Window", an Insilode started again, a reload or a crash show it;
++ *   - while it is hidden, quick open, toasts and dialogs show in the Agents window (the `insilode.ideHidden` context key, which
++ *     notificationsToasts.ts reads; the others follow the focused window, so the Agents window is focused when the window hides);
++ *   - closing the Agents window, or its tab, while the window is hidden asks "N agents running, close?" when agents would end
++ *     (flow-agent keeps `insilode.agentsRunning`), and then closes the hidden editor window with it.
++ *
++ *  `insilode --agents-only` creates the window hidden (main process); this opens the Agents page in it.
++ *--------------------------------------------------------------------------------------------*/
++
++import { addDisposableListener, getWindowById } from '../../../../base/browser/dom.js';
++import { Event } from '../../../../base/common/event.js';
++import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
++import { localize, localize2 } from '../../../../nls.js';
++import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
++import { ICommandService } from '../../../../platform/commands/common/commands.js';
++import { IContextKey, IContextKeyService, RawContextKey } from '../../../../platform/contextkey/common/contextkey.js';
++import { ConfirmResult, IDialogService } from '../../../../platform/dialogs/common/dialogs.js';
++import { ServicesAccessor } from '../../../../platform/instantiation/common/instantiation.js';
++import { registerMainProcessRemoteService } from '../../../../platform/ipc/electron-browser/services.js';
++import { ILogService } from '../../../../platform/log/common/log.js';
++import { FocusMode, INativeHostService } from '../../../../platform/native/common/native.js';
++import { INSILODE_AGENTS_ALONE_CHANNEL, IInsilodeAgentsAloneService } from '../../../../platform/insilodeAgentsAlone/common/insilodeAgentsAlone.js';
++import { isExclusiveEditorPart } from '../../../browser/parts/editor/auxiliaryEditorPart.js';
++import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../common/contributions.js';
++import { GroupModelChangeKind } from '../../../common/editor.js';
++import { EditorInput, IEditorCloseHandler } from '../../../common/editor/editorInput.js';
++import { IAuxiliaryWindowService } from '../../../services/auxiliaryWindow/browser/auxiliaryWindowService.js';
++import { IEditorGroupsService, IAuxiliaryEditorPart } from '../../../services/editor/common/editorGroupsService.js';
++import { IEditorService } from '../../../services/editor/common/editorService.js';
++import { IHostService } from '../../../services/host/browser/host.js';
++import { ILifecycleService, LifecyclePhase, ShutdownReason } from '../../../services/lifecycle/common/lifecycle.js';
++import { IWorkingCopyService } from '../../../services/workingCopy/common/workingCopyService.js';
++
++registerMainProcessRemoteService(IInsilodeAgentsAloneService, INSILODE_AGENTS_ALONE_CHANNEL);
++
++/** The Agents page's webview (flow-agent's agentsPage.ts), the way auxiliaryEditorPart.ts recognises it. */
++const AGENTS_PAGE_VIEW_TYPE = 'mainThreadWebview-flow.agentsPage';
++const OPEN_AGENTS_PAGE = 'flow.agents.openPage';
++/** Set while this window is hidden; notificationsToasts.ts reads it by name (browser/ must not import contrib/). */
++const IdeHiddenContext = new RawContextKey<boolean>('insilode.ideHidden', false);
++/** flow-agent keeps it at the number of live agents (state not ended). */
++const AGENTS_RUNNING = 'insilode.agentsRunning';
++/** An agents-only start whose Agents window does not come up in this time shows the editor window instead of leaving nothing on screen. */
++const AGENTS_WINDOW_WAIT_MS = 30_000;
++
++class InsilodeAgentsAloneContribution extends Disposable implements IWorkbenchContribution {
++
++	static readonly ID = 'workbench.contrib.insilodeAgentsAlone';
++
++	private hidden = false;
++	private agents: IAuxiliaryEditorPart | undefined;
++	/** The editor window is going away (quit, or the user chose Close): nothing is asked, vetoed or hidden any more. */
++	private closing = false;
++	private asking = false;
++	private readonly ideHiddenContext: IContextKey<boolean>;
++
++	private readonly closeHandler: IEditorCloseHandler = {
++		showConfirm: () => this.wouldEndAgents(),
++		confirm: async () => await this.confirmClose() ? ConfirmResult.DONT_SAVE : ConfirmResult.CANCEL
++	};
++
++	constructor(
++		@IInsilodeAgentsAloneService private readonly agentsAlone: IInsilodeAgentsAloneService,
++		@INativeHostService private readonly nativeHostService: INativeHostService,
++		@IHostService private readonly hostService: IHostService,
++		@IDialogService private readonly dialogService: IDialogService,
++		@IContextKeyService private readonly contextKeyService: IContextKeyService,
++		@IEditorGroupsService private readonly editorGroupsService: IEditorGroupsService,
++		@IEditorService editorService: IEditorService,
++		@IAuxiliaryWindowService private readonly auxiliaryWindowService: IAuxiliaryWindowService,
++		@ILifecycleService private readonly lifecycleService: ILifecycleService,
++		@IWorkingCopyService private readonly workingCopyService: IWorkingCopyService,
++		@ICommandService private readonly commandService: ICommandService,
++		@ILogService private readonly logService: ILogService,
++	) {
++		super();
++
++		this.ideHiddenContext = IdeHiddenContext.bindTo(this.contextKeyService);
++		this._register(this.agentsAlone.onDidChangeWindowHidden(hidden => this.setHidden(hidden)));
++
++		// Closing the window hides it while the Agents window is open (RC01); quit and reload are not closing
++		this._register(this.lifecycleService.onBeforeShutdown(e => {
++			if (this.closing) {
++				return;
++			}
++
++			if (e.reason === ShutdownReason.CLOSE && this.agents) {
++				this.logService.info('[insilode agents-alone] the editor window closes while the Agents window is open: hiding it instead');
++				e.veto(this.hide(), 'insilode.agentsAlone');
++				return;
++			}
++
++			// Hot exit may need no question, but when one comes (unsaved files) it must come in a window the user can see
++			if (this.hidden && this.workingCopyService.modifiedWorkingCopies.length > 0) {
++				this.show();
++			}
++		}));
++		this._register(this.lifecycleService.onWillShutdown(() => this.closing = true));
++
++		// An editor opens in this window (Open in IDE, quick open, Show in Flow): the window shows
++		this._register(editorService.onDidEditorsChange(e => {
++			const event = e.event;
++			if (event.kind === GroupModelChangeKind.EDITOR_OPEN && event.editor) {
++				this.guard(event.editor);
++				if (this.hidden && this.editorGroupsService.mainPart.groups.some(group => group.id === e.groupId)) {
++					this.logService.info('[insilode agents-alone] an editor opened in the hidden editor window: showing it');
++					this.show();
++				}
++			}
++		}));
++
++		// The Agents window
++		this._register(this.editorGroupsService.onDidCreateAuxiliaryEditorPart(part => this.watch(part)));
++		this.editorGroupsService.parts.forEach(part => this.watch(part));
++
++		// An agents-only start: the main process created the window hidden, the page is opened here
++		this.agentsAlone.isWindowHidden().then(hidden => {
++			this.setHidden(hidden);
++			return hidden ? this.openAgentsOnly() : undefined;
++		}).catch(err => this.logService.warn(`[insilode agents-alone] ${err}`));
++	}
++
++	private running(): number {
++		const running = this.contextKeyService.getContextKeyValue<number>(AGENTS_RUNNING);
++		return typeof running === 'number' ? running : 0;
++	}
++
++	/** Closing the Agents window now would end agents: the editor window is hidden (so closing it ends the app) and one runs. */
++	private wouldEndAgents(): boolean {
++		return !this.closing && this.hidden && this.running() > 0;
++	}
++
++	private setHidden(hidden: boolean): void {
++		this.hidden = hidden;
++		this.ideHiddenContext.set(hidden);
++		if (hidden) {
++			this.focusAgents();
++		}
++	}
++
++	private async hide(): Promise<boolean> {
++		await this.agentsAlone.setWindowHidden(true);
++		this.setHidden(true);
++		return true; // the veto: the window is hidden, not closed
++	}
++
++	private show(): void {
++		this.setHidden(false);
++		this.agentsAlone.setWindowHidden(false).catch(err => this.logService.warn(`[insilode agents-alone] ${err}`));
++	}
++
++	private agentsWindow(): Window | undefined {
++		return this.agents && getWindowById(this.agents.windowId)?.window;
++	}
++
++	/** The Agents window has the focus while the editor window is hidden: quick open and dialogs go to the focused window. */
++	private focusAgents(): Promise<void> {
++		const window = this.agentsWindow();
++		return window ? this.hostService.focus(window, { mode: FocusMode.Force }) : Promise.resolve();
++	}
++
++	private async openAgentsOnly(): Promise<void> {
++		await this.lifecycleService.when(LifecyclePhase.Restored);
++		await this.commandService.executeCommand(OPEN_AGENTS_PAGE);
++		for (let waited = 0; !this.agents && waited < AGENTS_WINDOW_WAIT_MS; waited += 100) {
++			await new Promise(resolve => setTimeout(resolve, 100));
++		}
++
++		if (this.agents) {
++			await this.focusAgents();
++		} else {
++			this.logService.warn('[insilode agents-alone] the Agents window did not open: showing the editor window');
++			this.show();
++		}
++	}
++
++	private watch(part: unknown): void {
++		if (!isExclusiveEditorPart(part)) {
++			return;
++		}
++
++		const agents = part as IAuxiliaryEditorPart;
++		const disposables = new DisposableStore();
++		this.agents = agents;
++		agents.groups.forEach(group => group.editors.forEach(editor => this.guard(editor)));
++
++		const agentsWindow = this.auxiliaryWindowService.getWindow(agents.windowId);
++		if (!agentsWindow) {
++			return;
++		}
++
++		// The window's own close button (and Close Window): the unload is held back while the question is open
++		disposables.add(addDisposableListener(agentsWindow.window, 'beforeunload', (e: BeforeUnloadEvent) => {
++			if (this.wouldEndAgents()) {
++				e.preventDefault();
++				e.returnValue = true;
++				void this.confirmClose();
++			}
++		}));
++
++		// The Agents window is gone while the editor window is hidden: nothing visible is left, so that goes too (and with it the app)
++		disposables.add(Event.once(agentsWindow.onUnload)(() => {
++			disposables.dispose();
++			if (this.agents === agents) {
++				this.agents = undefined;
++			}
++			if (this.hidden && !this.closing) {
++				this.closeIde();
++			}
++		}));
++		this._register(disposables);
++	}
++
++	/** The Agents page asks before it closes (Ctrl+W, its tab, a command) when that would end agents. */
++	private guard(editor: EditorInput): void {
++		if ((editor as EditorInput & { viewType?: string }).viewType === AGENTS_PAGE_VIEW_TYPE && !editor.closeHandler) {
++			Object.defineProperty(editor, 'closeHandler', { value: this.closeHandler, configurable: true });
++		}
++	}
++
++	/** "N agents running, close?" over the Agents window; on Close the hidden editor window closes. */
++	private async confirmClose(): Promise<boolean> {
++		if (this.asking) {
++			return false;
++		}
++
++		this.asking = true;
++		try {
++			const running = this.running();
++			await this.focusAgents();
++			const { confirmed } = await this.dialogService.confirm({
++				type: 'warning',
++				message: running === 1
++					? localize('insilode.agentsAlone.closeOne', "1 agent running, close?")
++					: localize('insilode.agentsAlone.closeMany', "{0} agents running, close?", running),
++				primaryButton: localize('insilode.agentsAlone.close', "Close"),
++				cancelButton: localize('insilode.agentsAlone.cancel', "Cancel")
++			});
++			if (confirmed) {
++				this.closeIde();
++			}
++
++			return confirmed;
++		} finally {
++			this.asking = false;
++		}
++	}
++
++	private closeIde(): void {
++		this.closing = true;
++		this.logService.info('[insilode agents-alone] closing the hidden editor window');
++		this.nativeHostService.closeWindow();
++	}
++}
++
++registerWorkbenchContribution2(InsilodeAgentsAloneContribution.ID, InsilodeAgentsAloneContribution, WorkbenchPhase.AfterRestored);
++
++registerAction2(class extends Action2 {
++	constructor() {
++		super({ id: 'insilode.agentsAlone.showIde', title: localize2('insilode.agentsAlone.showIde', "Show IDE Window"), category: localize2('insilode.category', "Insilode"), f1: true });
++	}
++	run(accessor: ServicesAccessor): Promise<void> {
++		return accessor.get(IInsilodeAgentsAloneService).setWindowHidden(false);
++	}
++});
