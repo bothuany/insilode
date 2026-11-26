@@ -96,6 +96,8 @@ Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call 
   | peek applyDiscount open | applyDiscount call removed | peek gone, cursor on place |
   | the same method reached twice | — | each occurrence its own path |
   | reading X | X no longer in the flow | the entry |
+  | peek on the first of two identical lines `audit.log(x);` | the first removed | the peek moves to the second (they cannot be told apart) |
+  | reading createInvoice | its call line edited to `billing.createInvoice(saved, opts);` | the pane reads the entry (the step's call text changed) |
 - **Test:** ui/test/read-model.test.mjs, `flow-reading/RC05 …`: a call added earlier moves every key; line numbers move on Undo; a peek whose call was removed; a removed call's peek does not move to the next call of the same method (the call text is part of the path); the same method reached twice; a method that left the flow; history and walked paths pruned
 
 ### RC06 The pane's open/closed choice
@@ -151,3 +153,4 @@ Not covered live: AltGr (RC03 test), re-trace with moved keys (RC05 test; the fa
 - build: writer ticked 10/10; plan-check PASS 10/10 · rules 5/5; ui 200 pass, site e2e 20 pass, flow-view 793 pass / 15 skipped, arch green
 - code-review: started
 - code-review: 13 findings (2 reproduced: RC02 whole-file keep keeps unread changes, RC05 occurrence re-maps a removed call's peek); RC02 changed to always keepCard with the user's approval (2026-11-27); all findings sent to the writer
+- code-review round 2: 10 of 12 fixed; RC05 limits (identical call lines, an edited call line) written into the card as examples, pending the user's approval; narrow-width pane sent to the writer

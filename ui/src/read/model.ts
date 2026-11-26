@@ -505,5 +505,18 @@ export function initialPane(read: (() => string | null) | undefined, hero: boole
   }
 }
 
+/** The least the pane is wide, and the least it leaves the canvas. */
+export const PANE_MIN = 340
+export const CANVAS_MIN = 320
+
+/**
+ * How the pane sits in a body `bodyW` wide when the reader wants it `want` wide: never narrower than PANE_MIN, never leaving the canvas
+ * less than CANVAS_MIN. A body that holds both minimums at most is too narrow (a phone): the pane steps aside, and comes back when there is room.
+ */
+export function paneFit(bodyW: number, want: number) {
+  const max = bodyW - CANVAS_MIN
+  return { show: max >= PANE_MIN, width: Math.max(PANE_MIN, Math.min(max, want)) }
+}
+
 /** The pane is drawn when it is open and no tour plays: a tour talks about the cards' code, so they show it. */
 export const paneShown = (open: boolean, touring: boolean) => open && !touring

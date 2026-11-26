@@ -15,6 +15,7 @@ import {
   markKept,
   out,
   over,
+  paneFit,
   paneKey,
   paneShown,
   peekDiff,
@@ -538,4 +539,18 @@ test('flow-reading/RC06 the site\'s home hero never opens it, and a tour hides i
   assert.equal(paneShown(true, false), true)
   assert.equal(paneShown(true, true), false, 'a tour plays: the cards show their code')
   assert.equal(paneShown(false, false), false)
+})
+
+// ---- how wide the pane may be ------------------------------------------------------------------------------------------------
+test('pane width: the pane never leaves the canvas less than its minimum, and is hidden where it cannot fit', () => {
+  // Wide enough: the wanted width, within the pane's own minimum and what leaves the canvas 320.
+  assert.deepEqual(paneFit(1440, 560), { show: true, width: 560 })
+  assert.deepEqual(paneFit(1440, 100), { show: true, width: 340 }, 'not narrower than its minimum')
+  assert.deepEqual(paneFit(1000, 900), { show: true, width: 680 }, 'not wider than the body less the canvas')
+  // Exactly the pane's minimum and the canvas's: still fits.
+  assert.deepEqual(paneFit(660, 560), { show: true, width: 340 })
+  // A phone (the site's try page at 390) or a narrow editor group: no room for both, the pane steps aside.
+  assert.equal(paneFit(390, 560).show, false)
+  assert.equal(paneFit(659, 560).show, false)
+  assert.equal(paneFit(0, 560).show, false)
 })

@@ -13,7 +13,7 @@ import { placeOf, type CardChips, type ChipsView, type Detail, type TypeTree } f
 import { CODE_PAD, HEADER_H, LINE_H, initialHidden, layout, layoutCallers, setEditMaxWidth, type CardData, type EditTarget } from './layout'
 import { ReadPane } from './read/ReadPane'
 import { commonFolder } from './read/reading'
-import { ROOT, calleeUnder, indexFlow, initialPane, markKept, paneShown, readAt, retrace, startReading, topOf, traceOf, type KeepTarget, type Reading } from './read/model'
+import { PANE_MIN, ROOT, calleeUnder, indexFlow, initialPane, markKept, paneFit, paneShown, readAt, retrace, startReading, topOf, traceOf, type KeepTarget, type Reading } from './read/model'
 import { definitionInFile, notify, registerIde } from './ide'
 import { ActionsCtx, LANG_BY_EXT, nodeTypes, recolor, type CanvasActions, type Caret } from './nodes'
 import { cardAt, samePath } from './tour/cards'
@@ -192,6 +192,8 @@ function Flow() {
   // The reading pane: open or not (remembered), its width, and the methods read in it, as a back/forward history.
   const [paneOpen, setPaneOpen] = useState(paneStored)
   const [paneW, setPaneW] = useState(560)
+  /** How wide the canvas and the pane have together: a body too narrow for both hides the pane (read/model.ts paneFit). */
+  const [bodyW, setBodyW] = useState(Infinity)
   /** What the pane reads: by paths from the flow's entry, which outlive a re-trace (read/model.ts). */
   const [reading, setReading] = useState<Reading | null>(null)
   /** A tour plays: the pane steps aside and the cards show their code, for the tour talks about it. Mirrors the tour player's state, which is made below. */
@@ -455,7 +457,8 @@ function Flow() {
 
   // The flow indexed by path, and whether the reading pane is there: while it is, a card is a one-line signature and the pane has the code.
   const idx = useMemo(() => indexFlow(down, showUp ? up : null), [down, up, showUp])
-  const showPane = paneShown(paneOpen, touringNow)
+  const fit = paneFit(bodyW, paneW)
+  const showPane = paneShown(paneOpen, touringNow) && fit.show
   // The canvas acts on the pane only while it is there: a click or Enter during a tour, on the hero or with the pane closed is the card's own.
   const paneShownRef = useRef(showPane)
   paneShownRef.current = showPane
@@ -529,15 +532,12 @@ function Flow() {
     return () => clearTimeout(panTimer.current)
   }, [showPane, cursorKey, calleeKey]) // eslint-disable-line react-hooks/exhaustive-deps
   /** The pane's width: dragged, or moved with the arrow keys while the splitter has the focus. */
-  const PANE_MIN = 340
-  const paneMax = () => (document.querySelector('.wv-body') as HTMLElement | null)?.clientWidth ?? 1200
-  const clampPane = (w: number) => Math.max(PANE_MIN, Math.min(Math.max(PANE_MIN, paneMax() - 320), w))
-  // A window that gets narrower leaves the canvas its room too, not only a drag of the splitter.
+  const clampPane = (w: number) => paneFit(bodyW, w).width
+  // The body's width is watched: a window or editor group that gets narrower leaves the canvas its room, and one too narrow for both hides the pane.
   useEffect(() => {
     const body = document.querySelector<HTMLElement>('.wv-body')
     if (!body) return
-    const fit = () => setPaneW(w => Math.max(PANE_MIN, Math.min(w, body.clientWidth - 320)))
-    const seen = new ResizeObserver(fit)
+    const seen = new ResizeObserver(() => setBodyW(body.clientWidth))
     seen.observe(body)
     return () => seen.disconnect()
   }, [])
@@ -555,7 +555,7 @@ function Flow() {
   const resizeKey = (e: ReactKeyboardEvent) => {
     const step = e.shiftKey ? 80 : 24
     // The pane is on the right: Left makes it wider, Right narrower.
-    const next = e.key === 'ArrowLeft' ? paneW + step : e.key === 'ArrowRight' ? paneW - step : e.key === 'Home' ? PANE_MIN : e.key === 'End' ? paneMax() : undefined
+    const next = e.key === 'ArrowLeft' ? paneW + step : e.key === 'ArrowRight' ? paneW - step : e.key === 'Home' ? PANE_MIN : e.key === 'End' ? bodyW : undefined
     if (next === undefined) return
     e.preventDefault()
     setPaneW(clampPane(next))
@@ -1197,14 +1197,14 @@ function Flow() {
             role="separator"
             aria-orientation="vertical"
             aria-label="Resize the reading pane (arrow keys)"
-            aria-valuenow={paneW}
+            aria-valuenow={fit.width}
             aria-valuemin={PANE_MIN}
-            aria-valuemax={Math.max(PANE_MIN, paneMax() - 320)}
+            aria-valuemax={paneFit(bodyW, bodyW).width}
             tabIndex={0}
             onPointerDown={startResize}
             onKeyDown={resizeKey}
           />
-          <div className="rp-wrap" style={{ width: paneW }}>
+          <div className="rp-wrap" style={{ width: fit.width }}>
             <ReadPane
               idx={idx}
               base={flowBase}
