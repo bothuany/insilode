@@ -37,3 +37,4 @@ waiting: user
 
 - gather: started from the user's request (2026-11-26); split into Flow (this cycle) and agents-standalone (next)
 - gather: design artifact published with today's screens (live site canvas) and options A/B/C; waiting for the user's pick
+- gather: redid A/B/C as interactive prototypes on the real demo flow (A lens, B navigator + reading pane, C reading river); waiting for the user's pick
