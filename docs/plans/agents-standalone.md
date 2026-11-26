@@ -1,9 +1,8 @@
 ---
 cycle: agents-standalone
 author: rbdikmen@gmail.com
-phase: gather
+phase: plan
 branch: cycle/agents-standalone
-waiting: user
 ---
 
 # Agents window on its own
@@ -19,6 +18,7 @@ The Agents page (`editor/extensions/flow-agent`, opened by `flow.agents.openPage
   - (a) `spike/agents-core`: a VS Code core patch (`editor/patches/flow-core.patch`, `_insilode.agents.openWindow`, `createAuxiliaryEditorPart`) that keeps the exclusive auxiliary Agents window alive without the main workbench window.
   - (b) `spike/agents-native`: a native Rust Agents app (a terminal engine such as alacritty_terminal or the wezterm crates, a shell such as Tauri or GPUI) that runs agents in its own ptys, keeps them alive after its window closes, and connects to the IDE when it is open (Open in IDE, show in Flow, the insilode MCP bridge).
 - Cost and time are not constraints for the spikes (user, 2026-11-27).
+- Direction: (a), the core patch: the existing Agents window, the IDE window hides instead of closing (user, 2026-11-27, after the spike comparison). Known work: route the quick input, notifications and dialogs to the Agents window while the IDE is hidden; no IDE flash on an agents-only start. Agents still end when the Agents window closes (after the confirmation).
 - Desktop behaviour is tested only in Docker (`npm run docker:e2e -- --probe`) or Windows Sandbox, never by opening a window on this machine (CLAUDE.md, PROBE.md).
 - This branch starts at the end of `cycle/flow-reading` (`1c85996`), which is not merged into `main` yet; the cycle's PR carries those commits until it is.
 
@@ -38,3 +38,4 @@ Written in `plan`. For the spikes: the same script for both, in Docker under xvf
 
 - gather: started 2026-11-27 from `cycle/flow-reading` `1c85996`; spikes (a) and (b) under way.
 - gather: spike (b) `spike/agents-native` 4fdc63d, Docker probe 8/8 pass (close asks, agent lives after window close, scrollback on reopen, Open in IDE argv); window ~400 MB RSS + daemon 2.4 MB, start 0.3 s. Spike (a) `spike/agents-core` 3b8d432 (flow-desktop.patch), Docker probe: IDE hides instead of closing, agent runs with IDE hidden, agents-only start, quit when Agents closes PASS; quick open / palette open in the hidden IDE window FAIL; ~2.4 GB RSS, 11 s cold start. Comparison: https://claude.ai/artifact/3DiCBxZ26xLaVQtHXV4anf; waiting for the user to pick.
+- plan: the user picked (a), the core patch (2026-11-27); spike (b) stays on `spike/agents-native` for reference.
