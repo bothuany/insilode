@@ -17,7 +17,7 @@ Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call 
 - The canvas is the map, the pane is the reading. While the pane is open a card is a one-line signature label and the canvas draws the reading as a trace: path to the cursor solid, read cards plain, the callee under the cursor full, the rest faded (borders instead of fading in high contrast).
 - The pane: read-only Monaco on the right, resizable, opens with the entry method, its open/closed choice remembered. A call opens as a peek under its line, two deep; deeper, the callee takes the top and the chain above stays as folded one-line headers (user, 2026-11-27). A cursor steps over / into / out of calls; the canvas follows it.
 - Where the pane opens: in the editor and on the site's try page; not on the site's home hero (a scrolling page, the canvas is a picture there). While a tour plays the pane hides and cards show their code; it comes back when the tour ends.
-- A change reads in place (added lines marked, removed lines under the line they followed), so peeks and stepping work in review. Keep/Undo live in the pane: per method on its header or peek, and "Keep this path" with a "k of n kept" count. Keep follows the canvas's existing rule (ui/src/agentEdit/AgentEditActions.tsx:21-24, 75-79): the whole file only when the method is the only changed one in it, else `keepCard` on the method's own lines, so no unread method is kept. Viewed in the pane shares the Changes rail's state; the card's Keep/Undo hide while the pane is open (its +/− badge stays). (Lead's call, user delegated.)
+- A change reads in place (added lines marked, removed lines under the line they followed), so peeks and stepping work in review. Keep/Undo live in the pane: per method on its header or peek, and "Keep this path" with a "k of n kept" count. Keep in the pane is always `keepCard` on the method's own lines (user, 2026-11-27, after code review): the canvas knows only the changed methods drawn in the flow, so a whole-file keep could keep an unread change; the host forgets the file itself once nothing is left in it (agentDiff.ts keepInRange). Viewed in the pane shares the Changes rail's state; the card's Keep/Undo hide while the pane is open (its +/− badge stays). (Lead's call, user delegated.)
 - Keys only while the pane has the focus (the webview hands every key to the workbench too): j / l / h and Alt+F10 / Alt+F11 / Alt+Shift+F11 step over / into / out (user); Enter toggles the peek at the cursor; Escape closes the cursor's peek, at the top returns the focus to the card; [ ] back / forward, AltGr included. Bare F10/F11 and Alt+←/→ stay VS Code's. Inside the focused pane Alt+F10 (VS Code: focus menu bar, menubarControl.ts:308) and Alt+F11 (step into on web+Windows, debugCommands.ts:517) are the pane's.
 - Look: VS Code theme tokens only (peek view, diff, debug stack frame), no decoration.
 - Probe on the site's production build (real `ui/` canvas, fake host over `site/demo`): `npm run setup` fails here (needs the Visual Studio 2022 C++ build tools); an in-editor probe waits for them. The site dev server's blank canvas is pre-existing.
@@ -41,16 +41,16 @@ Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call 
 
 ### RC02 Keep this path keeps exactly the open changed methods
 - **Priority:** P0
-- **Rule:** "Keep this path" keeps each changed method open in the pane (the top method, its open peeks and the folded chain above) by the canvas's rule (whole file only when it is the file's only changed method, else its own lines); it never keeps a method that is not open and never undoes; the count is open changed methods kept of open changed methods.
-- **Source:** ui/src/agentEdit/AgentEditActions.tsx:21-24, 75-79 (`keepCard` vs file keep); ui/src/webview.tsx `keep` → `request('keep', { file })`; extension side panel.ts:590, agentDiff.ts:672.
+- **Rule:** "Keep this path" keeps each changed method open in the pane (the top method, its open peeks and the folded chain above) by its own lines only (`keepCard`); it never keeps a method that is not open and never undoes; the count is open changed methods kept of open changed methods.
+- **Source:** editor/extensions/flow-view/src agentDiff.ts:666 (`keep` forgets the whole file) and :672 (`keepCard`, keepInRange); code review 2026-11-27 (the canvas sees only drawn methods; ui/src/agentEdit/AgentEditActions.tsx:21-24 has the same blind spot, pre-existing).
 - **Examples:**
   | open in the pane | changed methods | Keep this path does | count |
   |---|---|---|---|
   | `place` only | place, applyDiscount (both OrderService.java) | keepCard place's lines | 1 of 1; applyDiscount still pending |
   | `place` + peek `applyDiscount` | same | keepCard both | 2 of 2 |
-  | `place` | place (A.java, only change there), x (B.java, not open) | keep A.java | 1 of 1; B.java pending |
+  | `place` | place (A.java, only change there), x (B.java, not open) | keepCard place (host then forgets A.java) | 1 of 1; B.java pending |
   | `place` | place, plus z in OrderService.java not on the flow | keepCard place | 1 of 1; z pending |
-  | top `create_invoice`, chain `place › place › createInvoice`, place changed | place (in the chain) | keepCard place | 1 of 1 |
+  | top `create_invoice`, chain `place › place › createInvoice`, place and applyDiscount changed | place (in the chain) | keepCard place | 1 of 1; applyDiscount pending |
   | nothing changed open | — | button hidden | — |
 - **Test:** ui/test/read-model.test.mjs, `flow-reading/RC02 …`: one of two changed methods open keeps its own lines; method and peek both open; the only changed method of a file keeps the whole file and an unopened one is never kept; a changed method of the file that is not on the flow; a method in the folded chain; nothing changed open
 
@@ -150,3 +150,4 @@ Not covered live: AltGr (RC03 test), re-trace with moved keys (RC05 test; the fa
 - build: started; writer on the plan
 - build: writer ticked 10/10; plan-check PASS 10/10 · rules 5/5; ui 200 pass, site e2e 20 pass, flow-view 793 pass / 15 skipped, arch green
 - code-review: started
+- code-review: 13 findings (2 reproduced: RC02 whole-file keep keeps unread changes, RC05 occurrence re-maps a removed call's peek); RC02 changed to always keepCard with the user's approval (2026-11-27); all findings sent to the writer
