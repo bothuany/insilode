@@ -1,16 +1,15 @@
 ---
 cycle: flow-reading
 author: rbdikmen@gmail.com
-phase: plan-review
+phase: build
 branch: cycle/flow-reading
-waiting: user
 ---
 
 # Comfortable code reading on Flow
 
 ## Why
 
-Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call pills cover line ends, long methods are skeletons, zoomed-out code is scaled text, the wheel pans the canvas, there is no history, find matches card names only. The idea (the flow as a canvas across services) stays; reading moves into a pane beside it. Three jobs weigh the same: read a path, see its shape, review an agent's change. (The standalone Agents window is the next cycle, `agents-standalone`.)
+Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call pills cover line ends, long methods are skeletons, zoomed-out code is scaled text, the wheel pans the canvas, there is no history, find matches card names only. The idea (the flow as a canvas across services) stays; reading moves into a pane beside it. Three jobs weigh the same: read a path, see its shape, review an agent's change. (The standalone Agents window is the next cycle, `agents-standalone`; its gather tries both a VS Code core patch and a native Rust Agents app side by side, user 2026-11-27.)
 
 ## Decisions
 
@@ -147,3 +146,5 @@ Not covered live: AltGr (RC03 test), re-trace with moved keys (RC05 test; the fa
 - gather: spike v1-v3 on spike/flow-reading-pane (bf26603), five persona reviews twice; decisions settled with the user (2026-11-27)
 - plan: branch fast-forwarded to bf26603; plan written with RC01-RC06 and 11 items
 - plan-review: reviewer found 9 (RC02 kept unread methods, RC04/RC05 examples wrong, weak checks, hero/tour scope, fake-host probe step); all settled: RC02 reuses keepCard, RC04/RC05 rewritten, checks use test-name patterns, tour centring split out, 10 items; waiting for the user's approval
+- plan-review: approved by the user (2026-11-27) after the plan screens on the design board (page "Plan: son hal")
+- build: started; writer on the plan
