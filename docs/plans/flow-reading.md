@@ -1,7 +1,7 @@
 ---
 cycle: flow-reading
 author: rbdikmen@gmail.com
-phase: plan
+phase: plan-review
 branch: cycle/flow-reading
 ---
 
@@ -146,3 +146,4 @@ Expected as written; AltGr cannot be pressed through the browser pane (covered b
 - gather: design artifact with today's screens and options A/B/C, then as interactive prototypes; the user found them AI-slop and chose a spike in the real canvas
 - gather: spike v1-v3 on spike/flow-reading-pane (bf26603), five persona reviews twice; decisions settled with the user (2026-11-27)
 - plan: branch fast-forwarded to bf26603; plan written with RC01-RC06 and 11 items
+- plan-review: started; reviewer on the plan file
