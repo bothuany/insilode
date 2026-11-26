@@ -1,7 +1,7 @@
 ---
 cycle: flow-reading
 author: rbdikmen@gmail.com
-phase: code-review
+phase: probe
 branch: cycle/flow-reading
 ---
 
@@ -154,3 +154,4 @@ Not covered live: AltGr (RC03 test), re-trace with moved keys (RC05 test; the fa
 - code-review: started
 - code-review: 13 findings (2 reproduced: RC02 whole-file keep keeps unread changes, RC05 occurrence re-maps a removed call's peek); RC02 changed to always keepCard with the user's approval (2026-11-27); all findings sent to the writer
 - code-review round 2: 10 of 12 fixed; RC05 limits (identical call lines, an edited call line) written into the card as examples, pending the user's approval; narrow-width pane sent to the writer
+- code-review: closed after 2 rounds (narrow-width pane fixed in 7e5faa5); probe: started
