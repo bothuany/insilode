@@ -3,6 +3,7 @@ cycle: agents-standalone
 author: rbdikmen@gmail.com
 phase: gather
 branch: cycle/agents-standalone
+waiting: user
 ---
 
 # Agents window on its own
@@ -36,3 +37,4 @@ Written in `plan`. For the spikes: the same script for both, in Docker under xvf
 ## Log
 
 - gather: started 2026-11-27 from `cycle/flow-reading` `1c85996`; spikes (a) and (b) under way.
+- gather: spike (b) `spike/agents-native` 4fdc63d, Docker probe 8/8 pass (close asks, agent lives after window close, scrollback on reopen, Open in IDE argv); window ~400 MB RSS + daemon 2.4 MB, start 0.3 s. Spike (a) `spike/agents-core` 3b8d432 (flow-desktop.patch), Docker probe: IDE hides instead of closing, agent runs with IDE hidden, agents-only start, quit when Agents closes PASS; quick open / palette open in the hidden IDE window FAIL; ~2.4 GB RSS, 11 s cold start. Comparison: https://claude.ai/artifact/3DiCBxZ26xLaVQtHXV4anf; waiting for the user to pick.
