@@ -7,7 +7,7 @@ process.stdin.on('end', () => {
 		[/\/editor\/vscode\//i, 'editor/vscode is the generated VS Code checkout; Insilode changes to VS Code go in editor/patches/flow-core.patch (see docs/building.md).'],
 		[/\/(out|dist|dist-webview|node_modules|bin|obj)\//i, 'this is build output; edit the source and rebuild.'],
 		[/package-lock\.json$/i, 'lockfiles change through npm install / npm ci, not by hand.'],
-		[/\/test\/(expected|types-expected)\//i, 'expected output is regenerated with `UPDATE=1 npm test` in flow-view, then reviewed as a diff.'],
+		[/\/test\/(expected|types-expected|table-expected)\//i, 'expected output is regenerated with `UPDATE=1 npm test` in flow-view, then reviewed as a diff.'],
 	]
 	const hit = rules.find(([re]) => re.test(path))
 	if (hit) {
