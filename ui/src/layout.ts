@@ -123,20 +123,28 @@ export function toRows(node: FlowNode, lines: CodeLine[], full: boolean): Row[] 
     }
     return rows
   }
-  if (full || lines.length <= COMPACT_OVER) return lines
+  if (full || (!outline && lines.length <= COMPACT_OVER)) return lines
   const callLines = new Set(node.children.map(c => c.callLine))
-  const sigEnd = Math.min(3, lines.findIndex(l => /[{]\s*$|=>/.test(l.text)))
+  const sigEnd = Math.min(3, lines.findIndex(l => /[{]\s*$|=>|:\s*$/.test(l.text)))
   const rows: Row[] = []
   let gapFrom = -1
   lines.forEach((l, i) => {
-    const keep = i <= Math.max(sigEnd, 0) || i === lines.length - 1 || callLines.has(l.no) || SKELETON.test(l.text)
+    // With the reading pane open a card is an outline (signature and calls): the pane has the whole method.
+    const keep = i <= Math.max(sigEnd, 0) || i === lines.length - 1 || callLines.has(l.no) || (!outline && SKELETON.test(l.text))
     if (keep) {
-      if (gapFrom >= 0) rows.push({ gap: i - gapFrom, from: lines[gapFrom].no })
+      // A gap row for a single line takes the same room as the line: show the line.
+      if (gapFrom >= 0) rows.push(i - gapFrom === 1 ? lines[gapFrom] : { gap: i - gapFrom, from: lines[gapFrom].no })
       gapFrom = -1
       rows.push(l)
     } else if (gapFrom < 0) gapFrom = i
   })
   return rows
+}
+
+/** Cards as outlines (signature and call lines), set while the reading pane is open. */
+let outline = false
+export function setOutline(on: boolean) {
+  outline = on
 }
 
 /** Extra room while a card is being edited: a few spare lines plus the save bar. */
@@ -222,7 +230,7 @@ export function layout(root: FlowNode, hidden: Set<string>, full: Set<string>, s
         lines,
         rows,
         full: full.has(node.key),
-        compactable: lines.length > COMPACT_OVER,
+        compactable: rows.length < lines.length || lines.length > COMPACT_OVER,
         selected: node.key === selectedKey,
         touched: !!node.file && touched.has(node.file),
         editing: ed,
@@ -329,7 +337,7 @@ export function layoutCallers(up: FlowNode, rootKey: string, rootY: number, hidd
           lines,
           rows,
           full: full.has(caller.key),
-          compactable: lines.length > COMPACT_OVER,
+          compactable: rows.length < lines.length || lines.length > COMPACT_OVER,
           selected: caller.key === selectedKey,
           touched: !!caller.file && touched.has(caller.file),
           editing: ed,

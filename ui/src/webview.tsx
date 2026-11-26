@@ -1,7 +1,7 @@
 // Insilode canvas as a VS Code webview: callers on the left, the method in the middle, callees on the right.
 // All data comes through the extension host (which picks Roslyn, LSP, … per language); edits are applied
 // by the host to the real document, so undo and the agent's Keep/Undo stay consistent.
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Background, BackgroundVariant, ControlButton, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow } from '@xyflow/react'
 import * as monaco from 'monaco-editor'
@@ -10,7 +10,8 @@ import '@xyflow/react/dist/style.css'
 import './styles.css'
 import './webview.css'
 import { placeOf, type CardChips, type ChipsView, type Detail, type TypeTree } from './chips'
-import { CODE_PAD, HEADER_H, LINE_H, initialHidden, layout, layoutCallers, setEditMaxWidth, type CardData, type EditTarget } from './layout'
+import { CODE_PAD, HEADER_H, LINE_H, initialHidden, layout, layoutCallers, setEditMaxWidth, setOutline, type CardData, type EditTarget } from './layout'
+import { ReadPane, type PaneCall } from './read/ReadPane'
 import { definitionInFile, notify, registerIde } from './ide'
 import { ActionsCtx, LANG_BY_EXT, nodeTypes, recolor, type CanvasActions, type Caret } from './nodes'
 import { cardAt, samePath } from './tour/cards'
@@ -83,6 +84,35 @@ window.addEventListener('message', e => {
 
 // Completion, hover, signature help and go-to-definition in the card editor come from the editor host's language servers.
 registerIde(Object.values(LANG_BY_EXT), { request })
+
+/** The reading pane's open/closed choice outlives the page; storage can be missing or refuse, and then it is just open. */
+const PANE_KEY = 'insilode.readPane'
+function paneStored() {
+  try {
+    return localStorage.getItem(PANE_KEY) !== 'closed'
+  } catch {
+    return true
+  }
+}
+function storePane(open: boolean) {
+  try {
+    localStorage.setItem(PANE_KEY, open ? 'open' : 'closed')
+  } catch {
+    // Not remembered: the pane still opens and closes for this page.
+  }
+}
+
+/** Each method of the flow below the root and the call that reaches it: the pane's "called from" line. */
+function parentsOf(root: FlowNode | null) {
+  const out = new Map<string, { node: FlowNode; line: number }>()
+  const walk = (n: FlowNode) =>
+    n.children.forEach(c => {
+      out.set(c.node.key, { node: n, line: c.callLine })
+      walk(c.node)
+    })
+  if (root) walk(root)
+  return out
+}
 
 function find(n: FlowNode | null, key: string): FlowNode | null {
   if (!n) return null
@@ -171,6 +201,12 @@ function Flow() {
   const impact = impactFill.value
   const [callersError, setCallersError] = useState('')
   const [selected, setSelected] = useState<string | null>(null)
+  // The reading pane: open or not (remembered), its width, and the methods read in it, as a back/forward history.
+  const [paneOpen, setPaneOpen] = useState(paneStored)
+  const [paneW, setPaneW] = useState(560)
+  const [readHist, setReadHist] = useState<{ keys: string[]; i: number }>({ keys: [], i: -1 })
+  const paneOpenRef = useRef(paneOpen)
+  paneOpenRef.current = paneOpen
   const { fitView, setCenter, getNode, getNodes, getViewport } = useReactFlow()
   const editingRef = useRef(editing)
   const actionsRef = useRef<CanvasActions>({ toggle() {}, toggleAll() {}, open() {}, toggleFull() {} })
@@ -421,15 +457,82 @@ function Flow() {
   const { nodes, edges } = useMemo(() => {
     if (!down) return { nodes: [], edges: [] }
     setEditMaxWidth(canvasW - 48)
+    setOutline(paneOpen)
     const d = layout(down, hidden, full, selected, new Set(), editing, chipsView)
     if (!showUp || !up) return d
     const rootCard = d.nodes.find(n => n.id === down.key)
     const u = layoutCallers(up, down.key, rootCard?.position.y ?? 0, hidden, full, selected, new Set(), editing, chipsView)
     return { nodes: [...d.nodes, ...u.nodes], edges: [...d.edges, ...u.edges] }
-  }, [down, up, hidden, full, showUp, editing, selected, canvasW, chipsView])
+  }, [down, up, hidden, full, showUp, editing, selected, canvasW, chipsView, paneOpen])
 
   // The fit button fits the whole flow, however small that makes it. Opening a flow does not: it lands at 100% on a card (below).
   const frame = useCallback(() => fitView({ padding: 0.1, maxZoom: 1, duration: 250 }), [fitView])
+
+  /** Pans to a card only when it is off screen, at the zoom the reader chose: entering a call from the pane must not jump the view. */
+  const panIfOff = (key: string) => {
+    const card = getNode(key)
+    const el = document.querySelector('.wv-canvas') as HTMLElement | null
+    if (!card || !el) return
+    const { x, y, zoom } = getViewport()
+    const w = Number(card.style?.width) || 300
+    const sx = card.position.x * zoom + x
+    const sy = card.position.y * zoom + y
+    if (sx < 0 || sy < 0 || sx + Math.min(w * zoom, 200) > el.clientWidth || sy + 60 > el.clientHeight)
+      setCenter(card.position.x + Math.min(w, el.clientWidth / zoom - 40) / 2, card.position.y + 120 / zoom, { zoom, duration: 250 })
+  }
+  /** Reads a method in the pane: a new step in its history, the card selected, its call opened on the canvas if it was folded. */
+  const readRef = useRef<(key: string) => void>(() => {})
+  readRef.current = (key: string) => {
+    setReadHist(h => (h.keys[h.i] === key ? h : { keys: [...h.keys.slice(0, h.i + 1), key], i: h.i + 1 }))
+    setSelected(key)
+    currentRef.current?.(key)
+    if (!paneOpenRef.current) setPane(true)
+    setHidden(h => (h.has(key) ? new Set([...h].filter(k => k !== key)) : h))
+    setTimeout(() => panIfOff(key), 60)
+  }
+  const stepRead = (d: number) => {
+    const h = readHistRef.current
+    const i = h.i + d
+    if (i < 0 || i >= h.keys.length) return
+    setReadHist({ ...h, i })
+    setSelected(h.keys[i])
+    setTimeout(() => panIfOff(h.keys[i]), 60)
+  }
+  const readHistRef = useRef(readHist)
+  readHistRef.current = readHist
+  const stepReadRef = useRef(stepRead)
+  stepReadRef.current = stepRead
+  const setPane = (open: boolean) => {
+    setPaneOpen(open)
+    storePane(open)
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.altKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') || !paneOpenRef.current) return
+      e.preventDefault()
+      stepReadRef.current(e.key === 'ArrowLeft' ? -1 : 1)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  const parents = useMemo(() => parentsOf(down), [down])
+  const readKey = readHist.keys[readHist.i]
+  const readNode = readKey ? (find(down, readKey) ?? find(up, readKey)) : null
+  const inDown = !!readKey && !!find(down, readKey)
+  const readCaller = !readNode || !inDown ? null : (parents.get(readNode.key) ?? (readNode.key === down?.key && up?.children[0] ? { node: up.children[0].node, line: up.children[0].callLine } : null))
+  const readCalls = useMemo<PaneCall[]>(() => (readNode && inDown ? readNode.children.map(c => ({ key: c.node.key, line: c.callLine, node: c.node })) : []), [readNode, inDown])
+  const startResize = (e: ReactPointerEvent) => {
+    const body = (e.currentTarget as HTMLElement).parentElement!
+    const right = body.getBoundingClientRect().right
+    const max = body.clientWidth - 320
+    const move = (ev: PointerEvent) => setPaneW(Math.max(340, Math.min(max, right - ev.clientX)))
+    const stop = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+  }
 
   // Callers turned on and there are none: say so, or the chip seems to do nothing.
   useEffect(() => {
@@ -465,8 +568,11 @@ function Flow() {
         const n = find(down, key) ?? find(up, key)
         if (n?.file) vscode.postMessage({ type: 'open', file: n.file, line: n.startLine })
       },
+      read: key => readRef.current(key),
       reveal: key => {
         const n = find(down, key) ?? find(up, key)
+        // With the reading pane open, a click reads the method there: the editor beside the canvas is left alone.
+        if (paneOpenRef.current) return readRef.current(key)
         setSelected(key)
         // The card you clicked is where the arrow keys go on from.
         currentRef.current?.(key)
@@ -685,11 +791,16 @@ function Flow() {
   }, [cardNames])
   // Another flow has cards with the same keys: nothing in it is current until the keys or a click say so.
   useEffect(() => setNavCurrent(null), [down?.symbolId])
+  // A new flow starts its reading at its entry (or at the first change of a change set).
   useEffect(() => {
     if (!down) return
-    const t = setTimeout(() => goTo((target.target.kind === 'changes' ? changedRef.current[0]?.key : undefined) ?? down.key, false), 50)
+    setReadHist({ keys: [(target.target.kind === 'changes' ? changedRef.current[0]?.key : undefined) ?? down.key], i: 0 })
+  }, [down?.symbolId]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!down) return
+    const t = setTimeout(() => goTo((target.target.kind === 'changes' ? changedRef.current[0]?.key : undefined) ?? down.key, false), 150)
     return () => clearTimeout(t)
-  }, [down?.symbolId, showUp]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [down?.symbolId, showUp, paneOpen && !!readNode]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const s = navRef.current
@@ -718,7 +829,7 @@ function Flow() {
       } else if (action === 'open' || action === 'full' || action === 'edit') {
         // A button or link under the focus keeps its own Enter and Space.
         if (!s.current || (t instanceof HTMLElement && t.closest('button, a, [role=button], summary'))) return
-        if (action === 'open') actionsRef.current.open(s.current)
+        if (action === 'open') (paneOpenRef.current ? readRef.current(s.current) : actionsRef.current.open(s.current))
         // Space and E press the card's own buttons: a card that offers neither (a changed card, a table) is left as it is.
         else document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(s.current)}"] button[data-key="${action}"]`)?.click()
       } else if (action === 'viewed') {
@@ -849,6 +960,9 @@ function Flow() {
           </button>
         )}
         <span className="wv-spacer" />
+        <button className="chip" aria-pressed={paneOpen} disabled={!down} onClick={() => setPane(!paneOpen)} title="Read the selected method beside the canvas">
+          Read
+        </button>
         {status && <span className="wv-status" title={status}>{status}</span>}
         {gaze.toggle}
         <button className="icon-btn" onClick={() => load(target.target, true)} title="Trace the flow again" aria-label="Trace the flow again">
@@ -858,6 +972,7 @@ function Flow() {
           Ask about this flow
         </button>
       </header>
+      <div className="wv-body">
       <div className={`wv-canvas${locked ? ' locked' : ''}`} onClickCapture={tour.onClickCapture}>
         {!down && (
           <div className="wv-empty">
@@ -993,6 +1108,27 @@ function Flow() {
             }}
           />
         )}
+      </div>
+      {paneOpen && readNode && (
+        <>
+          <div className="rp-split" role="separator" aria-orientation="vertical" aria-label="Resize the reading pane" onPointerDown={startResize} />
+          <div className="rp-wrap" style={{ width: paneW }}>
+            <ReadPane
+              node={readNode}
+              caller={readCaller}
+              calls={readCalls}
+              canBack={readHist.i > 0}
+              canForward={readHist.i < readHist.keys.length - 1}
+              onBack={() => stepRead(-1)}
+              onForward={() => stepRead(1)}
+              onEnter={key => readRef.current(key)}
+              onCaller={() => readCaller && readRef.current(readCaller.node.key)}
+              onOpen={() => actions.open(readNode.key)}
+              onClose={() => setPane(false)}
+            />
+          </div>
+        </>
+      )}
       </div>
     </div>
   )

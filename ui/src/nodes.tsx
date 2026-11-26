@@ -26,6 +26,8 @@ export interface CanvasActions {
   cancelEdit?: () => void
   /** Show the method in the editor without leaving the canvas. */
   reveal?: (nodeKey: string) => void
+  /** Read the method in the reading pane beside the canvas. Absent in hosts without one: Enter then opens the file. */
+  read?: (nodeKey: string) => void
   keep?: (nodeKey: string) => void
   undo?: (nodeKey: string) => void
   /** A call line is hovered: light the wire from `source` to `target` (null clears). */
@@ -69,7 +71,7 @@ const KIND_NAME: Record<Kind, string> = {
 }
 
 /** One shape per kind, so kinds stay readable without colour: ▶ entry, ◆ handler, ● method, cylinder db. */
-function KindGlyph({ kind }: { kind: Kind }) {
+export function KindGlyph({ kind }: { kind: Kind }) {
   const c = KIND_COLOR[kind]
   const shape = {
     controller: <path d="M3 1.5 L10 6 L3 10.5 Z" fill={c} />,
@@ -99,7 +101,7 @@ function changeNote(change: NonNullable<FlowNode['tableChange']> | undefined) {
   return `${change.entity ? ' · entity changed' : ''}${(change.migration ?? []).map(m => ` · migration ${m.name}: ${m.summary}`).join('')}`
 }
 
-function splitLabel(label: string) {
+export function splitLabel(label: string) {
   const clean = label.replace(/\s*▸\s*/g, '.')
   const at = clean.lastIndexOf('.')
   return at > 0 ? { owner: clean.slice(0, at), member: clean.slice(at + 1) } : { owner: '', member: clean }
@@ -531,7 +533,8 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
         // Enter opens the card in the editor: the arrow keys bring the focus here, and a reveal would do nothing when the canvas is the only editor group.
         if (e.key === 'Enter' && e.target === e.currentTarget && (node.code || schema?.file)) {
           e.preventDefault()
-          actions.open(node.key)
+          if (actions.read) actions.read(node.key)
+          else actions.open(node.key)
         }
       }}
       onPointerDown={onDown}
@@ -550,7 +553,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
         style={{ height: headerH(node) }}
         onClick={e => still(e) && (node.code || schema?.file) && actions.reveal?.(node.key)}
         onDoubleClick={() => (node.code || schema?.file) && actions.open(node.key)}
-        title={node.code ? 'Click to select (an editor beside the canvas shows it), double-click to open it' : schema?.file ? 'Click to select the entity, double-click to open it' : undefined}
+        title={node.code ? (actions.read ? 'Click to read it beside the canvas, double-click to open it' : 'Click to select (an editor beside the canvas shows it), double-click to open it') : schema?.file ? 'Click to select the entity, double-click to open it' : undefined}
       >
         <KindGlyph kind={node.kind} />
         <div className="titles" title={node.tableChange ? [node.label, node.sub, changeNote(node.tableChange).replace(/^ · /, '')].filter(Boolean).join('\n') : undefined}>

@@ -81,7 +81,37 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .btn.ghost:hover { color: var(--fl-text); background: var(--fl-line); }
 
 /* ---- canvas -------------------------------------------------------------------------------- */
-.wv-canvas { flex: 1; min-height: 0; position: relative; }
+.wv-body { flex: 1; min-height: 0; display: flex; }
+.wv-canvas { flex: 1; min-width: 0; min-height: 0; position: relative; }
+
+/* ---- the reading pane: the selected method in an editor, beside the canvas (read/ReadPane.tsx) ------------------------- */
+/* It is part of the editor, not a card on the canvas: the editor's own background and widget borders, no shadow, no tint. */
+.rp-split { flex: none; width: 5px; margin: 0 -2px; z-index: 5; cursor: col-resize; position: relative; }
+.rp-split::after { content: ''; position: absolute; inset: 0 2px; background: var(--fl-line); }
+.rp-split:hover::after, .rp-split:active::after { background: var(--vscode-sash-hoverBorder, var(--fl-signal)); }
+.rp-wrap { flex: none; min-width: 0; display: flex; }
+.rp { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--vscode-editor-background, var(--fl-canvas)); }
+.rp-head { flex: none; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px; border-bottom: 1px solid var(--fl-line); }
+.rp-nav { display: flex; gap: 2px; }
+.rp-nav .tool:disabled { opacity: .35; cursor: default; background: none; }
+.rp-title { font: 12.5px var(--fl-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rp-title .owner { color: var(--fl-muted); }
+.rp-title .member { font-weight: 600; }
+.rp-file { color: var(--fl-muted); font-size: 11.5px; white-space: nowrap; }
+.rp-caller { flex: none; display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 6px 12px; border: 0; border-bottom: 1px solid var(--fl-line); background: none; color: var(--fl-text); text-align: left; cursor: pointer; font: 12px var(--fl-mono); }
+.rp-caller:hover { background: var(--vscode-list-hoverBackground, var(--fl-line)); }
+.rp-caller-name { flex: none; color: var(--fl-muted); }
+.rp-caller-src { min-width: 0; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.rp-editor { flex: 1; min-height: 0; }
+.rp-empty { margin: 16px; color: var(--fl-muted); }
+.rp-call-line { background: color-mix(in srgb, var(--fl-text) 4%, transparent); }
+.rp-call-note::after { margin-left: 2.5em; color: var(--fl-muted); font-style: italic; cursor: pointer; }
+.rp-call-note:hover::after { color: var(--fl-text); text-decoration: underline; }
+.rp-calls { flex: none; display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-top: 1px solid var(--fl-line); }
+.rp-call { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border: 0; border-radius: 4px; background: none; color: var(--fl-text); font: 12px var(--fl-mono); cursor: pointer; }
+.rp-call::before { content: ''; width: 6px; height: 6px; border-radius: 3px; background: var(--c); }
+.rp-call:hover { background: var(--vscode-list-hoverBackground, var(--fl-line)); }
+.rp-call-line-no { color: var(--fl-muted); font-size: 11px; }
 .react-flow__background { background: var(--fl-canvas); }
 .react-flow__background circle { fill: var(--fl-line-strong); }
 .wv-empty { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; pointer-events: none; text-align: center; padding: 0 24px; }
