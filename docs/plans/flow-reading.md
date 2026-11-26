@@ -159,4 +159,4 @@ Not covered live: AltGr (RC03 test), re-trace with moved keys (RC05 test; the fa
 - probe re-run after 9e78298: A one-row cards (`def create_invoice(body: dict)`, `def issue(self, body)`) ok; B create_invoice and issue both fully in view ok; C chain click then l steps into ok; D call note without '· changed', gutter bar on :23 ok
 - code-review round 3: no important bugs, 2 nits (Read chip on narrow widths fixed; gutter bar vs cursor mark left, looked fine live)
 - probe: narrow first load reproduced (600px: canvas 39px) and fixed; re-checked live: 600px canvas 600 / no pane, 1440px pane 560; plan-check PASS 10/10 · rules 5/5
-- done: RC05's two limit examples await the user's approval
+- done: RC05 limit examples approved by the user (2026-11-27)
