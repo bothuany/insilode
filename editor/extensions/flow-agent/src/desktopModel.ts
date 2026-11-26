@@ -206,6 +206,17 @@ function contextPercent(u: OverlaySource['usage']): number | undefined {
 	return p === undefined || !Number.isFinite(p) ? undefined : Math.round(Math.min(100, Math.max(0, p)));
 }
 
+/** How many agents are live (`state !== 'ended'`): ended sessions stay in `agents.sessions` until they are removed. Core asks before the Agents window closes only while this is above zero. */
+export function liveAgents(sessions: Iterable<{ readonly state: string }>): number {
+	let n = 0;
+	for (const s of sessions) {
+		if (s.state !== 'ended') {
+			n++;
+		}
+	}
+	return n;
+}
+
 /** The overlay's agents, most urgent first like the dock; ended sessions never show. */
 export function overlayModel(sessions: Iterable<OverlaySource>, o: DesktopSettings): OverlayModel {
 	const items: OverlayItem[] = [];

@@ -119,7 +119,7 @@ Only item 7 proves behaviour (Docker, a patch change rebuilds VS Code: 20-40 min
   check: `! (grep -h "^diff --git" editor/patches/*.patch | sort | uniq -d | grep -q .) && grep -q "agents-only" editor/patches/flow-core.patch && grep -q "agents-only" editor/patches/flow-desktop.patch`
 - [ ] 4. Start-menu shortcut "Insilode Agents" (RC05): `build/win32/code.iss` (flow-core.patch) adds it with `--agents-only`; uninstall removes it.
   check: `grep -q "Insilode Agents" editor/patches/flow-core.patch`
-- [ ] 5. Live agent count (RC02): flow-agent sets the context key `insilode.agentsRunning` to the number of live agents (`state !== 'ended'`) whenever it changes; a unit test named `agents-standalone/RC02 counts live agents` covers 0, 1, 2 and ended sessions.
+- [x] 5. Live agent count (RC02): flow-agent sets the context key `insilode.agentsRunning` to the number of live agents (`state !== 'ended'`) whenever it changes; a unit test named `agents-standalone/RC02 counts live agents` covers 0, 1, 2 and ended sessions.
   check: `cd editor/extensions/flow-agent && npm run build && npm test 2>&1 | tee /tmp/fa.log && grep -q "agents-standalone/RC02" /tmp/fa.log`
 - [ ] 6. Close confirmation (RC02): the exclusive Agents window vetoes its unload, and its Agents tab's close (Ctrl+W), when the IDE is hidden and `insilode.agentsRunning` > 0; asks over the Agents window; on Close closes the IDE window.
   check: `! (grep -h "^diff --git" editor/patches/*.patch | sort | uniq -d | grep -q .) && grep -q "running, close" editor/patches/flow-desktop.patch`
