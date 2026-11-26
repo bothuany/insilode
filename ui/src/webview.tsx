@@ -483,16 +483,20 @@ function Flow() {
     const el = document.querySelector('.wv-canvas') as HTMLElement | null
     if (!card || !el) return
     const { x, y, zoom } = getViewport()
-    // A card and the call it is on: both in view when they fit, centred between them, only if one of them is off screen.
+    // A card and the call it is on: both fully in view, with a margin, when they fit in the canvas as it is now (its own width, which the
+    // pane has already taken from the window); centred between them only if one of them is out of that frame.
     const other = also ? getNode(also) : undefined
     if (other) {
-      const w2 = Number(other.style?.width) || 300
+      const M = 24
+      const sizeOf = (n: typeof card) => ({ w: Number(n.style?.width) || 300, h: Math.min(Number(n.style?.height) || 120, 160) })
+      const a = sizeOf(card)
+      const c = sizeOf(other)
       const left = Math.min(card.position.x, other.position.x)
-      const right = Math.max(card.position.x + (Number(card.style?.width) || 300), other.position.x + w2)
+      const right = Math.max(card.position.x + a.w, other.position.x + c.w)
       const topY = Math.min(card.position.y, other.position.y)
-      const bottom = Math.max(card.position.y, other.position.y) + 120
-      const off = left * zoom + x < 0 || right * zoom + x > el.clientWidth || topY * zoom + y < 0 || bottom * zoom + y > el.clientHeight
-      if ((right - left) * zoom < el.clientWidth - 40) {
+      const bottom = Math.max(card.position.y + a.h, other.position.y + c.h)
+      if ((right - left) * zoom <= el.clientWidth - 2 * M) {
+        const off = left * zoom + x < M || right * zoom + x > el.clientWidth - M || topY * zoom + y < M || bottom * zoom + y > el.clientHeight - M
         if (off) setCenter((left + right) / 2, (topY + bottom) / 2, { zoom, duration: 250 })
         return
       }

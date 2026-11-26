@@ -116,7 +116,7 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .rp-call-note:hover::before, .rp-call-note:hover::after { opacity: 1; }
 .rp-call-note:hover::after { text-decoration: underline; }
 /* A call line whose callee changed says so in the gutter, so a closed peek still shows where the change is. */
-.rp-chg-sign::before { content: '●'; color: var(--fl-signal); font-size: 8px; padding-left: 5px; }
+.rp-chg-sign::before { content: ''; position: absolute; left: 4px; top: 3px; bottom: 3px; width: 3px; border-radius: 1px; background: var(--fl-signal); }
 /* The pane's cursor: the line a step stands on, marked the way an editor marks the current statement of a paused debugger. */
 .rp-cur { box-sizing: border-box; border: 1px solid var(--vscode-debugIcon-stepOverForeground, #ffcc00); background: var(--vscode-editor-stackFrameHighlightBackground, color-mix(in srgb, #ffcc00 10%, transparent)); }
 .rp-cur-mark { border-left: 3px solid var(--vscode-debugIcon-stepOverForeground, #ffcc00); margin-left: 2px; }
@@ -518,3 +518,9 @@ body.vscode-high-contrast .wv-reading .react-flow__node.tr-read .card { border: 
 body.vscode-high-contrast .wv-reading .react-flow__node.tr-path .card { border: 2px solid var(--vscode-contrastActiveBorder, var(--vscode-focusBorder, currentColor)); }
 body.vscode-high-contrast .wv-reading .react-flow__node.tr-next .card { border: 2px dotted var(--vscode-contrastActiveBorder, var(--vscode-focusBorder, currentColor)); }
 body.vscode-high-contrast .wv-reading .react-flow__edge.tr-dim path { opacity: 1; stroke-dasharray: 2 4; }
+
+/* A card while the reading pane is open (CardData.outline): one row, the glyph and the signature; its buttons show on hover over the text. */
+.card-head.outline { position: relative; border-bottom: 0; border-radius: 8px; }
+.card-head .sig { flex: 1; min-width: 0; font: 12.5px var(--fl-mono); color: var(--fl-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-head.outline .tools { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); padding-left: 6px; border-radius: 5px; background: var(--fl-card); opacity: 0; }
+.card:hover .card-head.outline .tools, .card.selected .card-head.outline .tools, .card:focus-within .card-head.outline .tools { opacity: 1; }

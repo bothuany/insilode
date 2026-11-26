@@ -65,7 +65,7 @@ const MOVES: Record<Exclude<PaneAction, 'escape'>, (r: Reading, idx: Index) => R
 }
 
 export function ReadPane(props: Props) {
-  const { idx, base, reading, update, viewed, onClose } = props
+  const { idx, base, reading, viewed, onClose } = props
   const topPath = topOf(reading)
   const root = idx.node(topPath)!
   const downward = !isCaller(topPath)
@@ -76,20 +76,35 @@ export function ReadPane(props: Props) {
   const [doc, setDoc] = useState<ReadDoc | null>(null)
   const scrollKeep = useRef<{ path: string; top: number }>(undefined)
   const refocus = useRef(false)
+  /**
+   * Every move made from inside the pane. One that rebuilds the document or the buttons (a chain row, a peek's Read, Back) removes the
+   * element that had the focus, and the focus falls to the page: it goes back to the pane, so the keys go on stepping.
+   */
+  const moved = useRef(false)
+  const push = (f: (r: Reading, idx: Index) => Reading) => {
+    moved.current = true
+    cb.current.update(f)
+  }
+  useEffect(() => {
+    if (!moved.current) return
+    moved.current = false
+    const at = document.activeElement
+    if (!at || at === document.body) pane.current?.focus({ preventScroll: true })
+  }, [reading, doc])
 
   // ---- the document: built once for the method at the top, then changed in place -------------------------------------------------
   useEffect(() => {
     const el = host.current
     if (!el || root.code == null) return
     const hooks: DocHooks = {
-      moveTo: pos => cb.current.update(r => moveTo(r, pos)),
+      moveTo: pos => push(r => moveTo(r, pos)),
       note: (pos, enter) =>
-        cb.current.update((r, i) => {
+        push((r, i) => {
           const there = moveTo(r, pos)
           return enter ? into(there, i) : togglePeek(there, i)
         }),
-      closePeek: p => cb.current.update((r, i) => closePeek(r, i, p)),
-      read: p => cb.current.update((r, i) => readAt(r, i, p)),
+      closePeek: p => push((r, i) => closePeek(r, i, p)),
+      read: p => push((r, i) => readAt(r, i, p)),
       keep: p => {
         const node = idx.node(p)
         const t = node && keepTarget(p, node)
@@ -139,9 +154,9 @@ export function ReadPane(props: Props) {
     const now = cb.current
     if (a === 'escape') {
       const r = escapeStep(readingRef.current, idx)
-      return r === 'leave' ? now.onLeave() : now.update(() => r)
+      return r === 'leave' ? now.onLeave() : push(() => r)
     }
-    now.update(MOVES[a])
+    push(MOVES[a])
   }
   /** The pane's own keys, taken before the editors see them; only while the focus is in the pane (this handler is the pane's). */
   const onKeyDown = (e: ReactKeyboardEvent) => {
@@ -176,7 +191,7 @@ export function ReadPane(props: Props) {
   const stepping = downward && root.code != null
   const plan = useMemo(() => keepPlan(idx, reading), [idx, reading])
   const topTarget = root.diff ? keepTarget(topPath, root) : undefined
-  const go = (l: Link) => update((r, i) => readAt(r, i, l.path, { line: l.line, k: l.k }))
+  const go = (l: Link) => push((r, i) => readAt(r, i, l.path, { line: l.line, k: l.k }))
 
   return (
     <section ref={pane} className="rp" tabIndex={-1} aria-label={`Reading ${root.label}. j step over, l step into, h step out, Enter peek, Escape back.`} onKeyDownCapture={onKeyDown}>

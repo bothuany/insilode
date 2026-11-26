@@ -200,7 +200,7 @@ class MethodDoc {
     for (const [line, es] of this.byLine) {
       const l = at(line)
       if (l < 1 || l > model.getLineCount()) continue
-      const name = `${splitLabel(es[0].node.label).member}${es.length > 1 ? ` +${es.length - 1}` : ''}${es[0].node.diff ? ' · changed' : ''}`
+      const name = `${splitLabel(es[0].node.label).member}${es.length > 1 ? ` +${es.length - 1}` : ''}`
       css.push(`.${this.noteClass(line)}::before, .${this.noteClass(line)}::after { color: ${KIND_COLOR[es[0].node.kind]}; }`, `.${this.noteClass(line)}::after { content: ${JSON.stringify(name)}; }`)
     }
     this.style.textContent = css.join('\n')

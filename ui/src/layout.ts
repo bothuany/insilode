@@ -4,6 +4,8 @@ import type { FlowEdge, FlowNode, Kind } from './types'
 
 export const LINE_H = 20
 export const HEADER_H = 44
+/** A card while the reading pane is open: one row, the glyph and the signature. */
+export const OUTLINE_H = 34
 export const CODE_PAD = 6
 /** One character of the 13px code font, measured (canvas measureText over 100 glyphs: JetBrains Mono and Courier-like fonts 7.8px, Consolas 7.15px). The widest, so a line is never cut. */
 export const CHAR_W = 7.8
@@ -67,6 +69,8 @@ export interface CardData extends Record<string, unknown> {
   selected: boolean
   touched: boolean
   editing?: boolean
+  /** The card is one row, its signature (the reading pane is open): no code rows, no type chips, wires at the middle of the row. */
+  outline?: boolean
   /** Reverse view: how many callers this card has, and how many are folded away. */
   callers?: number
   callersHidden?: number
@@ -112,7 +116,11 @@ const SKELETON = /^\s*(if|else|return|throw|foreach|for|while|switch|case|defaul
 export function toRows(node: FlowNode, lines: CodeLine[], full: boolean, outline = false): Row[] {
   // With the reading pane open a card is a place on the map, a one-line label of its signature: the pane has the code, a change included.
   // The signature, not the annotation or attribute above it (`@PostMapping(...)`, `[HttpPost]`).
-  if (outline && lines.length) return [lines.find(l => !/^\s*(@|\[|#\[|\/\/|\/\*|\*)/.test(l.text)) ?? lines[0]]
+  // Without its brace, colon or arrow: what is left reads as a name.
+  if (outline && lines.length) {
+    const sig = lines.find(l => !/^\s*(@|\[|#\[|\/\/|\/\*|\*)/.test(l.text)) ?? lines[0]
+    return [{ ...sig, text: sig.text.replace(/\s*(\{|=>|:)\s*$/, '').replace(/\s*(=>|=)\s*$/, '') }]
+  }
   if (node.diff) {
     // An agent change is shown in full, with removed lines in place, so nothing is hidden in a gap.
     const rows: Row[] = []
@@ -175,10 +183,11 @@ export function portWidth(callees: readonly FlowNode[]) {
 /** `callees`: the calls the card draws ports for (a caller card draws the one call into the card it hangs off). */
 function cardSize(lines: CodeLine[], rows: Row[], editing = false, review = false, node?: FlowNode, chipsH = 0, outline = false, callees: readonly FlowNode[] = []) {
   if (node?.schema) return schemaSize(node)
+  // A one-row card is as wide as its signature and the glyph before it.
+  if (outline && lines.length) return { w: Math.min(560, Math.max(200, Math.max(...rows.map(r => ('text' in r ? r.text.length : 0))) * CHAR_W + 64)), h: OUTLINE_H + (review ? REVIEW_H : 0) }
   if (!lines.length) return node && isChangeRoot(node) ? { w: 340, h: headerH(node) } : { w: 260, h: HEADER_H }
-  // Removed rows count too: a long one must not be cut at the card's edge. An outline is as wide as its own line, not the method's longest.
-  const rowLen = (r: Row) => ('del' in r ? r.del.length : 'text' in r ? r.text.length : 0)
-  const longest = Math.max(...(outline ? rows.map(rowLen) : [...lines.map(l => l.text.length), ...rows.map(r => ('del' in r ? r.del.length : 0))]))
+  // Removed rows count too: a long one must not be cut at the card's edge.
+  const longest = Math.max(...lines.map(l => l.text.length), ...rows.map(r => ('del' in r ? r.del.length : 0)))
   return {
     w: editing ? Math.min(editMaxW, Math.max(560, longest * CHAR_W + CODE_EXTRA_W)) : Math.min(720, Math.max(320, longest * CHAR_W + CODE_EXTRA_W)) + portWidth(callees),
     h: HEADER_H + chipsH + (editing ? lines.length : rows.length) * LINE_H + CODE_PAD * 2 + (editing ? EDIT_EXTRA : review ? REVIEW_H : 0),
@@ -190,15 +199,16 @@ export type EditTarget = { key: string; file: string; startLine: number } | null
 const isEditing = (n: FlowNode, e: EditTarget) => !!e && n.key === e.key && n.file === e.file && n.startLine === e.startLine
 
 /** Y offset (within the card) of the row that makes a call. Ambiguous/leaf parents use the header. `chipsH`: the type chips between the header and the code. */
-export function callY(rows: Row[], callLine: number, chipsH = 0) {
+export function callY(rows: Row[], callLine: number, chipsH = 0, outline = false) {
+  if (outline) return OUTLINE_H / 2
   const idx = rows.findIndex(r => 'no' in r && (r as CodeLine).no === callLine)
   if (idx < 0) return HEADER_H / 2
   return HEADER_H + chipsH + CODE_PAD + idx * LINE_H + LINE_H / 2
 }
 
 /** The type chips a card shows: only a card with a method's source, and not while it is being edited (the editor takes the space). */
-function cardChips(node: FlowNode, lines: CodeLine[], editing: boolean, view: ChipsView) {
-  return lines.length && !editing && !node.schema ? chipsFor(node, view) : undefined
+function cardChips(node: FlowNode, lines: CodeLine[], editing: boolean, view: ChipsView, flat = false) {
+  return lines.length && !editing && !flat && !node.schema ? chipsFor(node, view) : undefined
 }
 
 /**
@@ -216,9 +226,9 @@ export function layout(root: FlowNode, hidden: Set<string>, full: Set<string>, s
     const lines = toLines(node)
     const ed = isEditing(node, editing)
     // A card shown in full (Space) or being edited keeps its code even while the pane is open.
-    const flat = outline && !ed && !full.has(node.key)
+    const flat = outline && !ed && !full.has(node.key) && lines.length > 0 && !node.schema
     const rows = toRows(node, lines, full.has(node.key) || ed, flat)
-    const tc = cardChips(node, lines, ed, chips)
+    const tc = cardChips(node, lines, ed, chips, flat)
     const { w, h } = cardSize(lines, rows, ed, !!node.diff, node, tc?.h ?? 0, flat, node.children.map(c => c.node))
     const visible = node.children.filter(c => !hidden.has(c.node.key))
     const hasFrame = visible.length > 0
@@ -242,7 +252,8 @@ export function layout(root: FlowNode, hidden: Set<string>, full: Set<string>, s
         selected: node.key === selectedKey,
         touched: !!node.file && touched.has(node.file),
         editing: ed,
-        calls: node.children.map(edge => ({ edge, hidden: hidden.has(edge.node.key), y: callY(rows, edge.callLine, tc?.h) })),
+        outline: flat,
+        calls: node.children.map(edge => ({ edge, hidden: hidden.has(edge.node.key), y: callY(rows, edge.callLine, tc?.h, flat) })),
         chips: tc?.chips,
         chipRows: tc?.rows,
         chipsOpen: tc?.open,
@@ -257,7 +268,7 @@ export function layout(root: FlowNode, hidden: Set<string>, full: Set<string>, s
     const cx = cardX + w + GAP
     for (const edge of visible) {
       // Pull each callee down to roughly the height of the line that calls it, so arrows stay flat.
-      cy = Math.max(cy, cardY + callY(rows, edge.callLine, tc?.h) - HEADER_H / 2 - PAD)
+      cy = Math.max(cy, cardY + callY(rows, edge.callLine, tc?.h, flat) - HEADER_H / 2 - PAD)
       const s = place(edge.node, cx, cy, depth + 1)
       cy += s.h + VGAP
       right = Math.max(right, cx + s.w)
@@ -327,9 +338,9 @@ export function layoutCallers(up: FlowNode, rootKey: string, rootY: number, hidd
       const caller = edge.node
       const lines = toLines(caller)
       const ed = isEditing(caller, editing)
-      const flat = outline && !ed && !full.has(caller.key)
+      const flat = outline && !ed && !full.has(caller.key) && lines.length > 0 && !caller.schema
       const rows = toRows(caller, lines, full.has(caller.key) || ed, flat)
-      const tc = cardChips(caller, lines, ed, chips)
+      const tc = cardChips(caller, lines, ed, chips, flat)
       const { w, h } = cardSize(lines, rows, ed, !!caller.diff, caller, tc?.h ?? 0, flat, [callee])
       const x = calleeX - GAP - w
       const visibleCallers = caller.children.filter(c => !hidden.has(c.node.key)).length
@@ -350,8 +361,9 @@ export function layoutCallers(up: FlowNode, rootKey: string, rootY: number, hidd
           selected: caller.key === selectedKey,
           touched: !!caller.file && touched.has(caller.file),
           editing: ed,
+          outline: flat,
           // The only outgoing arrow of a caller card is the call into `callee`.
-          calls: [{ edge: { ...edge, node: { ...callee, key: calleeKey } }, hidden: false, y: callY(rows, edge.callLine, tc?.h) }],
+          calls: [{ edge: { ...edge, node: { ...callee, key: calleeKey } }, hidden: false, y: callY(rows, edge.callLine, tc?.h, flat) }],
           callers: caller.children.length,
           callersHidden: caller.children.length - visibleCallers,
           chips: tc?.chips,
