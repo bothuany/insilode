@@ -109,12 +109,9 @@ const SKELETON = /^\s*(if|else|return|throw|foreach|for|while|switch|case|defaul
  * Long methods render as a flow skeleton: signature, every line that calls something,
  * and control-flow lines; everything between collapses into a "⋯ N lines" row.
  */
-export function toRows(node: FlowNode, lines: CodeLine[], full: boolean): Row[] {
-  // With the reading pane open a card is a place on the map, named by its signature: the pane has the code, a change included.
-  if (outline && !full && lines.length) {
-    const sigEnd = lines.findIndex(l => /[{]\s*$|=>|:\s*$/.test(l.text))
-    return lines.slice(0, Math.min(3, Math.max(sigEnd, 0)) + 1)
-  }
+export function toRows(node: FlowNode, lines: CodeLine[], full: boolean, outline = false): Row[] {
+  // With the reading pane open a card is a place on the map, a one-line label of its signature: the pane has the code, a change included.
+  if (outline && lines.length) return lines.slice(0, 1)
   if (node.diff) {
     // An agent change is shown in full, with removed lines in place, so nothing is hidden in a gap.
     const rows: Row[] = []
@@ -143,12 +140,6 @@ export function toRows(node: FlowNode, lines: CodeLine[], full: boolean): Row[] 
     } else if (gapFrom < 0) gapFrom = i
   })
   return rows
-}
-
-/** Cards as their signature only, set while the reading pane is open. */
-let outline = false
-export function setOutline(on: boolean) {
-  outline = on
 }
 
 /** Extra room while a card is being edited: a few spare lines plus the save bar. */
@@ -180,11 +171,12 @@ export function portWidth(node: FlowNode | undefined) {
   return Math.round(Math.min(170, 30 + longest * 6.6))
 }
 
-function cardSize(lines: CodeLine[], rows: Row[], editing = false, review = false, node?: FlowNode, chipsH = 0) {
+function cardSize(lines: CodeLine[], rows: Row[], editing = false, review = false, node?: FlowNode, chipsH = 0, outline = false) {
   if (node?.schema) return schemaSize(node)
   if (!lines.length) return node && isChangeRoot(node) ? { w: 340, h: headerH(node) } : { w: 260, h: HEADER_H }
-  // Removed rows count too: a long one must not be cut at the card's edge.
-  const longest = Math.max(...lines.map(l => l.text.length), ...rows.map(r => ('del' in r ? r.del.length : 0)))
+  // Removed rows count too: a long one must not be cut at the card's edge. An outline is as wide as its own line, not the method's longest.
+  const rowLen = (r: Row) => ('del' in r ? r.del.length : 'text' in r ? r.text.length : 0)
+  const longest = Math.max(...(outline ? rows.map(rowLen) : [...lines.map(l => l.text.length), ...rows.map(r => ('del' in r ? r.del.length : 0))]))
   return {
     w: editing ? Math.min(editMaxW, Math.max(560, longest * CHAR_W + CODE_EXTRA_W)) : Math.min(720, Math.max(320, longest * CHAR_W + CODE_EXTRA_W)) + portWidth(node),
     h: HEADER_H + chipsH + (editing ? lines.length : rows.length) * LINE_H + CODE_PAD * 2 + (editing ? EDIT_EXTRA : review ? REVIEW_H : 0),
@@ -212,7 +204,8 @@ function cardChips(node: FlowNode, lines: CodeLine[], editing: boolean, view: Ch
  * its callees are laid out (recursively, each in their own frame) to the right,
  * so "what this calls" is literally inside "this".
  */
-export function layout(root: FlowNode, hidden: Set<string>, full: Set<string>, selectedKey: string | null, touched: Set<string> = new Set(), editing: EditTarget = null, chips: ChipsView = NO_CHIPS) {
+/** `outline`: the reading pane is open, so every card is a one-line label of its signature (the pane has the code, a change included). */
+export function layout(root: FlowNode, hidden: Set<string>, full: Set<string>, selectedKey: string | null, touched: Set<string> = new Set(), editing: EditTarget = null, chips: ChipsView = NO_CHIPS, outline = false) {
   const frames: Node[] = []
   const cards: Node[] = []
   const edges: Edge[] = []
@@ -220,9 +213,11 @@ export function layout(root: FlowNode, hidden: Set<string>, full: Set<string>, s
   function place(node: FlowNode, x: number, y: number, depth: number): { w: number; h: number } {
     const lines = toLines(node)
     const ed = isEditing(node, editing)
-    const rows = toRows(node, lines, full.has(node.key) || ed)
+    // A card shown in full (Space) or being edited keeps its code even while the pane is open.
+    const flat = outline && !ed && !full.has(node.key)
+    const rows = toRows(node, lines, full.has(node.key) || ed, flat)
     const tc = cardChips(node, lines, ed, chips)
-    const { w, h } = cardSize(lines, rows, ed, !!node.diff, node, tc?.h ?? 0)
+    const { w, h } = cardSize(lines, rows, ed, !!node.diff, node, tc?.h ?? 0, flat)
     const visible = node.children.filter(c => !hidden.has(c.node.key))
     const hasFrame = visible.length > 0
     const cardX = hasFrame ? x + PAD : x
@@ -319,7 +314,7 @@ export function initialHidden(root: FlowNode, openDepth = 2): Set<string> {
  * Reverse flow, drawn to the LEFT of the root card that `layout` placed at (0,0): each method's callers
  * stack in the column before it, with an arrow from the caller's call line into the method it calls.
  */
-export function layoutCallers(up: FlowNode, rootKey: string, rootY: number, hidden: Set<string>, full: Set<string>, selectedKey: string | null, touched: Set<string> = new Set(), editing: EditTarget = null, chips: ChipsView = NO_CHIPS) {
+export function layoutCallers(up: FlowNode, rootKey: string, rootY: number, hidden: Set<string>, full: Set<string>, selectedKey: string | null, touched: Set<string> = new Set(), editing: EditTarget = null, chips: ChipsView = NO_CHIPS, outline = false) {
   const cards: Node[] = []
   const edges: Edge[] = []
 
@@ -330,9 +325,10 @@ export function layoutCallers(up: FlowNode, rootKey: string, rootY: number, hidd
       const caller = edge.node
       const lines = toLines(caller)
       const ed = isEditing(caller, editing)
-      const rows = toRows(caller, lines, full.has(caller.key) || ed)
+      const flat = outline && !ed && !full.has(caller.key)
+      const rows = toRows(caller, lines, full.has(caller.key) || ed, flat)
       const tc = cardChips(caller, lines, ed, chips)
-      const { w, h } = cardSize(lines, rows, ed, !!caller.diff, caller, tc?.h ?? 0)
+      const { w, h } = cardSize(lines, rows, ed, !!caller.diff, caller, tc?.h ?? 0, flat)
       const x = calleeX - GAP - w
       const visibleCallers = caller.children.filter(c => !hidden.has(c.node.key)).length
       cards.push({

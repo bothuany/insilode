@@ -1,7 +1,7 @@
 ---
 cycle: flow-reading
 author: rbdikmen@gmail.com
-phase: build
+phase: code-review
 branch: cycle/flow-reading
 ---
 
@@ -37,7 +37,7 @@ Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call 
   | `s.f(b=1, a=2)` / `s.f(x, y)` into `f(a, **kwargs)` / `f(opts)` into `f({ a, b })` | — | none |
   | `s.f(1)` | `void f(int a, int b)` | none (counts differ) |
   | label `X.get(` | any | none, no exception |
-- **Test:**
+- **Test:** ui/test/reading.test.mjs, the six `flow-reading/RC01 bindings …` tests (pairs Java arguments; reads Python and keeps nested calls whole; drops annotations and generics; gives nothing when counts or names differ; nothing for named/keyword/spread/destructured; never throws on regex-syntax labels)
 
 ### RC02 Keep this path keeps exactly the open changed methods
 - **Priority:** P0
@@ -52,7 +52,7 @@ Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call 
   | `place` | place, plus z in OrderService.java not on the flow | keepCard place | 1 of 1; z pending |
   | top `create_invoice`, chain `place › place › createInvoice`, place changed | place (in the chain) | keepCard place | 1 of 1 |
   | nothing changed open | — | button hidden | — |
-- **Test:**
+- **Test:** ui/test/read-model.test.mjs, `flow-reading/RC02 …`: one of two changed methods open keeps its own lines; method and peek both open; the only changed method of a file keeps the whole file and an unopened one is never kept; a changed method of the file that is not on the flow; a method in the folded chain; nothing changed open
 
 ### RC03 Pane keys
 - **Priority:** P1
@@ -65,7 +65,7 @@ Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call 
   | [ | Ctrl+Alt with AltGraph / Ctrl only | pane | back / passes through |
   | F11 | Alt / none | pane | step into / passes through (VS Code full screen) |
   | Enter | none, on a button | pane | the button's own |
-- **Test:**
+- **Test:** ui/test/read-model.test.mjs, `flow-reading/RC03 …`: j/l/h/Enter/Escape only in the pane; brackets with AltGr and not with Ctrl or Alt alone; Alt+F10, Alt+F11, Alt+Shift+F11 and bare F10/F11; any other combination passes; buttons and text fields keep their own keys
 
 ### RC04 Stepping
 - **Priority:** P1
@@ -82,7 +82,7 @@ Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call 
   | create_invoice :11 (top) | out | createInvoice :20 at the top |
   | ctl place :20 (top, no caller) | out | stays |
   | line with calls a(), b() | into, out, over | a; back on the line; then b |
-- **Test:**
+- **Test:** ui/test/read-model.test.mjs, `flow-reading/RC04 …`: into opens a peek on the first call; a callee without code; over past the last call (and on to the caller's next call); into on a line without a call is over; into past the second peek with the chain, and out at the top reads the caller; out of a peek and at the top; several callees on one line in order; Enter toggles the peek
 
 ### RC05 Pane state survives a re-trace
 - **Priority:** P1
@@ -96,36 +96,36 @@ Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call 
   | peek applyDiscount open | applyDiscount call removed | peek gone, cursor on place |
   | the same method reached twice | — | each occurrence its own path |
   | reading X | X no longer in the flow | the entry |
-- **Test:**
+- **Test:** ui/test/read-model.test.mjs, `flow-reading/RC05 …`: a call added earlier moves every key; line numbers move on Undo; a peek whose call was removed; the same method reached twice; a method that left the flow; history and walked paths pruned
 
 ### RC06 The pane's open/closed choice
 - **Priority:** P2
 - **Rule:** The pane opens unless the user closed it last time; when storage is missing or throws it opens; the site's home hero never opens it.
 - **Source:** ui/src/webview.tsx paneStored/storePane (:90-101).
 - **Examples:** stored "closed" → closed; nothing stored → open; localStorage throws → open; home hero → closed.
-- **Test:**
+- **Test:** ui/test/read-model.test.mjs, `flow-reading/RC06 …`: opens unless closed last time; storage missing or throwing; the home hero never opens it and a tour hides it
 
 ## Items
 
-- [ ] 1. Pure model in `ui/src/read/model.ts` (no Monaco): stepping (RC04), paths (RC05), the key map (RC03), Keep-this-path targets and count (RC02), open-set changes as add/remove lists, the folded chain; ReadPane and webview use it; RC01 tests renamed `flow-reading/RC01 …`.
+- [x] 1. Pure model in `ui/src/read/model.ts` (no Monaco): stepping (RC04), paths (RC05), the key map (RC03), Keep-this-path targets and count (RC02), open-set changes as add/remove lists, the folded chain; ReadPane and webview use it; RC01 tests renamed `flow-reading/RC01 …`.
   check: `cd ui && npm run typecheck && node --test --test-name-pattern "flow-reading/RC0[1-5]" test/reading.test.mjs test/read-model.test.mjs`
-- [ ] 2. Stable paths in the pane and webview (RC05): history, open peeks, cursor, walked set re-mapped on a new graph.
+- [x] 2. Stable paths in the pane and webview (RC05): history, open peeks, cursor, walked set re-mapped on a new graph.
   check: `cd ui && node --test --test-name-pattern "flow-reading/RC05" test/read-model.test.mjs`
-- [ ] 3. Incremental peeks: one editor per open peek that persists; open/close adds or removes its zone only; measured header heights (layoutZone); peeks follow the pane's width; removed-line zones and a peek on one line give correct offsets (zone order in a tested pure function).
+- [x] 3. Incremental peeks: one editor per open peek that persists; open/close adds or removes its zone only; measured header heights (layoutZone); peeks follow the pane's width; removed-line zones and a peek on one line give correct offsets (zone order in a tested pure function).
   check: `cd ui && node --test --test-name-pattern "peek zones" test/read-model.test.mjs && npm run build`
-- [ ] 4. Folded chain above a re-rooted top, one line per ancestor with its call line, each a button back to it.
+- [x] 4. Folded chain above a re-rooted top, one line per ancestor with its call line, each a button back to it.
   check: `cd ui && node --test --test-name-pattern "folded chain" test/read-model.test.mjs`
-- [ ] 5. Keys per RC03; Escape closes the cursor's peek; visible focus ring (focusBorder, contrastActiveBorder); the splitter a focusable separator with aria-valuenow and arrow-key resize.
+- [x] 5. Keys per RC03; Escape closes the cursor's peek; visible focus ring (focusBorder, contrastActiveBorder); the splitter a focusable separator with aria-valuenow and arrow-key resize.
   check: `cd ui && node --test --test-name-pattern "flow-reading/RC03" test/read-model.test.mjs && grep -q "aria-valuenow" src/webview.tsx`
-- [ ] 6. Review in the pane per RC02: Keep / Undo per method, Keep this path with its count, Viewed shared with the rail, card Keep/Undo hidden while the pane is open, the "changed" marker in the gutter, the cursor as an outline.
+- [x] 6. Review in the pane per RC02: Keep / Undo per method, Keep this path with its count, Viewed shared with the rail, card Keep/Undo hidden while the pane is open, the "changed" marker in the gutter, the cursor as an outline.
   check: `cd ui && node --test --test-name-pattern "flow-reading/RC02" test/read-model.test.mjs && npm run typecheck`
-- [ ] 7. Canvas trace from data (card and edge classes path / read / next / dim, no generated CSS), high-contrast borders, the signature card as a one-line label, `outline` as a layout argument; pane closed on the home hero and hidden while a tour plays (RC06).
+- [x] 7. Canvas trace from data (card and edge classes path / read / next / dim, no generated CSS), high-contrast borders, the signature card as a one-line label, `outline` as a layout argument; pane closed on the home hero and hidden while a tour plays (RC06).
   check: `cd ui && ! grep -n "^let outline" src/layout.ts && ! grep -n "readingCss" src/webview.tsx && node --test --test-name-pattern "flow-reading/RC06" test/read-model.test.mjs && npm test`
-- [ ] 8. Hints: `serviceOf` relative to the flow's common folder, tested with Windows paths (drive letter, backslashes, case).
+- [x] 8. Hints: `serviceOf` relative to the flow's common folder, tested with Windows paths (drive letter, backslashes, case).
   check: `cd ui && node --test --test-name-pattern "serviceOf" test/reading.test.mjs`
-- [ ] 9. Docs: README's canvas paragraph (README.md:34 no longer promises editable code on every card) and the try page describe the pane, peeks, stepping keys and review in the pane.
+- [x] 9. Docs: README's canvas paragraph (README.md:34 no longer promises editable code on every card) and the try page describe the pane, peeks, stepping keys and review in the pane.
   check: `grep -q "reading pane" README.md && grep -q "reading pane" site/try/index.html && ! grep -q "each with its real, editable code" README.md`
-- [ ] 10. Whole build and tests (root deps via `npm ci` first if missing).
+- [x] 10. Whole build and tests (root deps via `npm ci` first if missing).
   check: `npm run arch && cd ui && npm test && npm run build && cd ../site && npm run build && npm run test:e2e && cd ../editor/extensions/flow-view && npm test`
 
 ## Probe
@@ -148,3 +148,5 @@ Not covered live: AltGr (RC03 test), re-trace with moved keys (RC05 test; the fa
 - plan-review: reviewer found 9 (RC02 kept unread methods, RC04/RC05 examples wrong, weak checks, hero/tour scope, fake-host probe step); all settled: RC02 reuses keepCard, RC04/RC05 rewritten, checks use test-name patterns, tour centring split out, 10 items; waiting for the user's approval
 - plan-review: approved by the user (2026-11-27) after the plan screens on the design board (page "Plan: son hal")
 - build: started; writer on the plan
+- build: writer ticked 10/10; plan-check PASS 10/10 · rules 5/5; ui 200 pass, site e2e 20 pass, flow-view 793 pass / 15 skipped, arch green
+- code-review: started

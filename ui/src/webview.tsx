@@ -1,7 +1,7 @@
 // Insilode canvas as a VS Code webview: callers on the left, the method in the middle, callees on the right.
 // All data comes through the extension host (which picks Roslyn, LSP, … per language); edits are applied
 // by the host to the real document, so undo and the agent's Keep/Undo stay consistent.
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Background, BackgroundVariant, ControlButton, Controls, MiniMap, ReactFlow, ReactFlowProvider, useReactFlow } from '@xyflow/react'
 import * as monaco from 'monaco-editor'
@@ -10,8 +10,10 @@ import '@xyflow/react/dist/style.css'
 import './styles.css'
 import './webview.css'
 import { placeOf, type CardChips, type ChipsView, type Detail, type TypeTree } from './chips'
-import { CODE_PAD, HEADER_H, LINE_H, initialHidden, layout, layoutCallers, setEditMaxWidth, setOutline, type CardData, type EditTarget } from './layout'
-import { ReadPane, type Arrival } from './read/ReadPane'
+import { CODE_PAD, HEADER_H, LINE_H, initialHidden, layout, layoutCallers, setEditMaxWidth, type CardData, type EditTarget } from './layout'
+import { ReadPane } from './read/ReadPane'
+import { commonFolder } from './read/reading'
+import { ROOT, calleeUnder, indexFlow, initialPane, markKept, paneShown, readAt, retrace, startReading, topOf, traceOf, type KeepTarget, type Reading } from './read/model'
 import { definitionInFile, notify, registerIde } from './ide'
 import { ActionsCtx, LANG_BY_EXT, nodeTypes, recolor, type CanvasActions, type Caret } from './nodes'
 import { cardAt, samePath } from './tour/cards'
@@ -42,7 +44,8 @@ interface Engine {
 }
 declare global {
   interface Window {
-    __FLOW__: { target: Target; label: string; dark: boolean; engine?: Engine }
+    /** `hero`: this canvas is the picture on the site's home page, a page that scrolls: the reading pane stays closed there. */
+    __FLOW__: { target: Target; label: string; dark: boolean; engine?: Engine; hero?: boolean }
   }
 }
 
@@ -85,33 +88,18 @@ window.addEventListener('message', e => {
 // Completion, hover, signature help and go-to-definition in the card editor come from the editor host's language servers.
 registerIde(Object.values(LANG_BY_EXT), { request })
 
-/** The reading pane's open/closed choice outlives the page; storage can be missing or refuse, and then it is just open. */
+/** The reading pane's open/closed choice outlives the page; storage can be missing or refuse, and then it is just open (read/model.ts initialPane). */
 const PANE_KEY = 'insilode.readPane'
-function paneStored() {
-  try {
-    return localStorage.getItem(PANE_KEY) !== 'closed'
-  } catch {
-    return true
-  }
-}
+const HERO = window.__FLOW__.hero === true
+const paneStored = () => initialPane(() => localStorage.getItem(PANE_KEY), HERO)
 function storePane(open: boolean) {
+  // The hero is a picture on a page that scrolls: what a visitor does there is not their choice for the Try page.
+  if (HERO) return
   try {
     localStorage.setItem(PANE_KEY, open ? 'open' : 'closed')
   } catch {
     // Not remembered: the pane still opens and closes for this page.
   }
-}
-
-/** Each method of the flow below the root and the call that reaches it: the pane's "called from" line. */
-function parentsOf(root: FlowNode | null) {
-  const out = new Map<string, Arrival>()
-  const walk = (n: FlowNode) =>
-    n.children.forEach(c => {
-      out.set(c.node.key, { node: n, line: c.callLine, edgeKind: c.edgeKind })
-      walk(c.node)
-    })
-  if (root) walk(root)
-  return out
 }
 
 function find(n: FlowNode | null, key: string): FlowNode | null {
@@ -204,7 +192,10 @@ function Flow() {
   // The reading pane: open or not (remembered), its width, and the methods read in it, as a back/forward history.
   const [paneOpen, setPaneOpen] = useState(paneStored)
   const [paneW, setPaneW] = useState(560)
-  const [readHist, setReadHist] = useState<{ keys: string[]; i: number }>({ keys: [], i: -1 })
+  /** What the pane reads: by paths from the flow's entry, which outlive a re-trace (read/model.ts). */
+  const [reading, setReading] = useState<Reading | null>(null)
+  /** A tour plays: the pane steps aside and the cards show their code, for the tour talks about it. Mirrors the tour player's state, which is made below. */
+  const [touringNow, setTouringNow] = useState(false)
   const paneOpenRef = useRef(paneOpen)
   paneOpenRef.current = paneOpen
   const { fitView, setViewport, getNode, getNodes, getViewport } = useReactFlow()
@@ -464,16 +455,20 @@ function Flow() {
   }
   const chipsView = useMemo<ChipsView>(() => ({ byPlace: typeChips, open: chipOpen, details }), [typeChips, chipOpen, details])
 
+  // The flow indexed by path, and whether the reading pane is there: while it is, a card is a one-line signature and the pane has the code.
+  const idx = useMemo(() => indexFlow(down, showUp ? up : null), [down, up, showUp])
+  const showPane = paneShown(paneOpen, touringNow)
+  const outline = showPane && !!down
+
   const { nodes, edges } = useMemo(() => {
     if (!down) return { nodes: [], edges: [] }
     setEditMaxWidth(canvasW - 48)
-    setOutline(paneOpen)
-    const d = layout(down, hidden, full, selected, new Set(), editing, chipsView)
+    const d = layout(down, hidden, full, selected, new Set(), editing, chipsView, outline)
     if (!showUp || !up) return d
     const rootCard = d.nodes.find(n => n.id === down.key)
-    const u = layoutCallers(up, down.key, rootCard?.position.y ?? 0, hidden, full, selected, new Set(), editing, chipsView)
+    const u = layoutCallers(up, down.key, rootCard?.position.y ?? 0, hidden, full, selected, new Set(), editing, chipsView, outline)
     return { nodes: [...d.nodes, ...u.nodes], edges: [...d.edges, ...u.edges] }
-  }, [down, up, hidden, full, showUp, editing, selected, canvasW, chipsView, paneOpen])
+  }, [down, up, hidden, full, showUp, editing, selected, canvasW, chipsView, outline])
 
   // The fit button fits the whole flow, however small that makes it. Opening a flow does not: it lands at 100% on a card (below).
   const frame = useCallback(() => fitView({ padding: 0.1, maxZoom: 1, duration: 250 }), [fitView])
@@ -504,74 +499,57 @@ function Flow() {
     if (sx < 0 || sy < 0 || sx + Math.min(w * zoom, 200) > el.clientWidth || sy + 60 > el.clientHeight)
       setCenter(card.position.x + Math.min(w, el.clientWidth / zoom - 40) / 2, card.position.y + 120 / zoom, { zoom, duration: 250 })
   }
-  /** Reads a method in the pane: a new step in its history, the card selected, its call opened on the canvas if it was folded. */
-  const readRef = useRef<(key: string) => void>(() => {})
-  readRef.current = (key: string) => {
-    setReadFocus(undefined)
-    setReadHist(h => (h.keys[h.i] === key ? h : { keys: [...h.keys.slice(0, h.i + 1), key], i: h.i + 1 }))
-    setSelected(key)
-    currentRef.current?.(key)
+  /** Reads a method in the pane: a new step in its history; the card's call is opened on the canvas if it was folded. */
+  const readRef = useRef<(key: string, line?: number) => void>(() => {})
+  readRef.current = (key: string, line?: number) => {
+    const path = idx.pathOf(key)
+    if (path === undefined) return
+    setReading(r => readAt(r ?? startReading(idx), idx, path, line === undefined ? undefined : { line }))
     if (!paneOpenRef.current) setPane(true)
     setHidden(h => (h.has(key) ? new Set([...h].filter(k => k !== key)) : h))
-    setTimeout(() => panIfOff(key), 60)
   }
-  const stepRead = (d: number) => {
-    const h = readHistRef.current
-    const i = h.i + d
-    if (i < 0 || i >= h.keys.length) return
-    setReadHist({ ...h, i })
-    setSelected(h.keys[i])
-    setTimeout(() => panIfOff(h.keys[i]), 60)
-  }
-  const readHistRef = useRef(readHist)
-  readHistRef.current = readHist
-  const stepReadRef = useRef(stepRead)
-  stepReadRef.current = stepRead
   const setPane = (open: boolean) => {
     setPaneOpen(open)
     storePane(open)
   }
-  const parents = useMemo(() => parentsOf(down), [down])
-  const readKey = readHist.keys[readHist.i]
-  const readNode = readKey ? (find(down, readKey) ?? find(up, readKey)) : null
-  const inDown = !!readKey && !!find(down, readKey)
-  const arrival: Arrival | null = !readNode || !inDown ? null : (parents.get(readNode.key) ?? (readNode.key === down?.key && up?.children[0] ? { node: up.children[0].node, line: up.children[0].callLine, edgeKind: up.children[0].edgeKind } : null))
-  /** Where the pane's cursor starts in the method it reads: set by a step out of the top, onto the line that called it. */
-  const [readFocus, setReadFocus] = useState<number>()
+  const readNode = showPane && reading ? idx.node(topOf(reading)) : undefined
   const panTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  /** The pane's cursor moved: the canvas selects its card and lights the wire of the call it is on, opening that call if it was folded. */
-  // The path the pane's cursor stands on (top to here), and every card read on the way since the flow opened: the canvas draws the
-  // reading as a trace, the path solid, the read cards plain, the rest faded.
-  const [stack, setStack] = useState<string[]>([])
-  const [walked, setWalked] = useState<ReadonlySet<string>>(new Set())
-  useEffect(() => setWalked(new Set()), [down?.symbolId])
-  const ancestorsOf = (key: string) => {
-    const out: string[] = []
-    for (let p = parents.get(key); p; p = parents.get(p.node.key)) out.unshift(p.node.key)
-    return out
-  }
-  const onCursor = (key: string, callee: string | null, path: string[]) => {
-    const above = arrival ? [...ancestorsOf(arrival.node.key), arrival.node.key] : []
-    setStack([...above, ...path])
-    setWalked(w => (w.has(key) ? w : new Set(w).add(key)))
-    setSelected(key)
-    currentRef.current?.(key)
-    setTrace(callee ? { source: key, target: callee } : null)
-    setHidden(h => (h.has(key) || (callee && h.has(callee)) ? new Set([...h].filter(k => k !== key && k !== callee)) : h))
+  // The canvas shows where the pane's cursor is: its card selected, the wire of the call it is on lit (and that call opened if it was
+  // folded), the card brought into view. The trace itself (path, read, next, dim) is data on the cards and wires, below.
+  const cursorKey = reading ? idx.keyOf(reading.cursor.path) : undefined
+  const calleeKey = reading ? (calleeUnder(idx, reading)?.edge.node.key ?? null) : null
+  useEffect(() => {
+    if (!showPane || !cursorKey) return
+    setSelected(cursorKey)
+    currentRef.current?.(cursorKey)
+    setTrace(calleeKey ? { source: cursorKey, target: calleeKey } : null)
+    setHidden(h => (h.has(cursorKey) || (calleeKey && h.has(calleeKey)) ? new Set([...h].filter(k => k !== cursorKey && k !== calleeKey)) : h))
     clearTimeout(panTimer.current)
-    panTimer.current = setTimeout(() => panIfOff(key, callee ?? undefined), 80)
-  }
+    panTimer.current = setTimeout(() => panIfOff(cursorKey, calleeKey ?? undefined), 80)
+    return () => clearTimeout(panTimer.current)
+  }, [showPane, cursorKey, calleeKey]) // eslint-disable-line react-hooks/exhaustive-deps
+  /** The pane's width: dragged, or moved with the arrow keys while the splitter has the focus. */
+  const PANE_MIN = 340
+  const paneMax = () => (document.querySelector('.wv-body') as HTMLElement | null)?.clientWidth ?? 1200
+  const clampPane = (w: number) => Math.max(PANE_MIN, Math.min(Math.max(PANE_MIN, paneMax() - 320), w))
   const startResize = (e: ReactPointerEvent) => {
     const body = (e.currentTarget as HTMLElement).parentElement!
     const right = body.getBoundingClientRect().right
-    const max = body.clientWidth - 320
-    const move = (ev: PointerEvent) => setPaneW(Math.max(340, Math.min(max, right - ev.clientX)))
+    const move = (ev: PointerEvent) => setPaneW(clampPane(right - ev.clientX))
     const stop = () => {
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', stop)
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', stop)
+  }
+  const resizeKey = (e: ReactKeyboardEvent) => {
+    const step = e.shiftKey ? 80 : 24
+    // The pane is on the right: Left makes it wider, Right narrower.
+    const next = e.key === 'ArrowLeft' ? paneW + step : e.key === 'ArrowRight' ? paneW - step : e.key === 'Home' ? PANE_MIN : e.key === 'End' ? paneMax() : undefined
+    if (next === undefined) return
+    e.preventDefault()
+    setPaneW(clampPane(next))
   }
 
   // Callers turned on and there are none: say so, or the chip seems to do nothing.
@@ -765,6 +743,7 @@ function Flow() {
     changed,
   })
   // Where agents are reading and editing (src/gaze): painted on this canvas only, never moving it.
+  useEffect(() => setTouringNow(tour.state.tour !== null), [tour.state.tour])
   const gaze = useGaze({ down, up, showUp, nodes, quiet: !!tour.state.tour, post: msg => vscode.postMessage(msg) })
   const isReview = tour.state.tour?.source === 'review'
   const reviewNode = isReview && turn === undefined && tour.cardKey ? (find(down, tour.cardKey) ?? find(up, tour.cardKey)) : null
@@ -835,16 +814,22 @@ function Flow() {
   }, [cardNames])
   // Another flow has cards with the same keys: nothing in it is current until the keys or a click say so.
   useEffect(() => setNavCurrent(null), [down?.symbolId])
-  // A new flow starts its reading at its entry (or at the first change of a change set).
+  // A new flow starts its reading at its entry (or at the first change of a change set). The same flow traced again (a reload, a Keep, a
+  // change of callers) keeps the reading where its methods still are: it follows them by path, not by key or line (read/model.ts retrace).
+  const readOf = useRef<{ idx: typeof idx; symbol: string | null | undefined }>({ idx, symbol: undefined })
   useEffect(() => {
-    if (!down) return
-    setReadHist({ keys: [(target.target.kind === 'changes' ? changedRef.current[0]?.key : undefined) ?? down.key], i: 0 })
-  }, [down?.symbolId]) // eslint-disable-line react-hooks/exhaustive-deps
+    const before = readOf.current
+    readOf.current = { idx, symbol: down?.symbolId }
+    if (!down) return setReading(null)
+    const entry = (target.target.kind === 'changes' ? idx.pathOf(changedRef.current[0]?.key ?? '') : undefined) ?? ROOT
+    const same = before.symbol === down.symbolId
+    setReading(r => (r && same ? retrace(r, before.idx, idx, entry) : startReading(idx, entry)))
+  }, [idx]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!down) return
     const t = setTimeout(() => goTo((target.target.kind === 'changes' ? changedRef.current[0]?.key : undefined) ?? down.key, false), 150)
     return () => clearTimeout(t)
-  }, [down?.symbolId, showUp, paneOpen && !!readNode]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [down?.symbolId, showUp, showPane && !!readNode]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const s = navRef.current
@@ -934,7 +919,43 @@ function Flow() {
   // While one prompt is picked, cards show that prompt's change only; Keep/Undo act on everything, so they wait.
   // Cards are read-only while a tour plays (their code is what the tour talks about); editing is back when it ends.
   const touring = tour.state.tour !== null
-  const cardActions = useMemo(() => ({ ...(turn === undefined ? actions : { ...actions, keep: undefined, undo: undefined }), ...(touring ? { edit: undefined } : {}), editHooks }), [actions, turn, editHooks, touring])
+  // With the reading pane open, Keep and Undo are in the pane (a card keeps its +/- badge): two places for one decision would disagree.
+  const noReview = turn !== undefined || !!readNode
+  const cardActions = useMemo(() => ({ ...(noReview ? { ...actions, keep: undefined, undo: undefined } : actions), ...(touring ? { edit: undefined } : {}), editHooks }), [actions, noReview, editHooks, touring])
+  // The canvas as a trace of the reading, as classes on its cards and wires (webview.css): no generated stylesheet.
+  const marked = useMemo(() => {
+    if (!readNode || !reading) return { nodes, edges }
+    const t = traceOf(idx, reading)
+    return {
+      nodes: nodes.map(n => (n.type === 'card' ? { ...n, className: `tr-${t.node(n.id)}` } : n)),
+      edges: edges.map(e => ({ ...e, className: `tr-${t.edge(e.source, e.target)}` })),
+    }
+  }, [nodes, edges, readNode, reading, idx])
+  /** Every changed method the flow holds, drawn or not: Keep keeps the whole file only for a file's only change. */
+  const changedAll = useMemo(() => {
+    const out: FlowNode[] = []
+    const seen = new Set<string>()
+    const walk = (n: FlowNode | null) => {
+      if (!n || seen.has(n.key)) return
+      seen.add(n.key)
+      if (n.diff) out.push(n)
+      n.children.forEach(c => walk(c.node))
+    }
+    walk(down)
+    walk(up)
+    return out
+  }, [down, up])
+  /** "Keep" in the pane: the host keeps the whole file or the method's own lines, as the plan says; kept methods stay counted. */
+  const keepTargets = async (targets: KeepTarget[]) => {
+    try {
+      for (const t of targets) await (t.via === 'file' ? request('keep', { file: t.file }) : request('keepCard', { file: t.file, startLine: t.startLine, endLine: t.endLine }))
+    } catch (e) {
+      setStatus(String((e as Error).message ?? e))
+      return
+    }
+    setReading(r => r && markKept(r, targets.map(t => t.path)))
+    await load(target.target, true)
+  }
   const locked = !!editing
   const { owner, member } = (() => {
     const clean = target.label.replace(/\s*▸\s*/g, '.')
@@ -959,23 +980,17 @@ function Flow() {
     walk(up)
     return out
   }, [down, up])
+  const flowBase = useMemo(() => commonFolder(flowFiles), [flowFiles])
   /** What the Git changes on the canvas are measured against, when it is not HEAD ("main"). */
   const since = changed.find(n => n.diff?.base)?.diff?.base
   const flowTurns = useMemo(() => turns.filter(t => t.files.some(f => flowFiles.some(x => samePath(x, f.file)))), [turns, flowFiles])
-  // The reading as a trace on the canvas: the path from the entry to the cursor solid, cards already read plain, the rest faded.
-  const cssKey = (k: string) => k.replace(/["\\]/g, '\\$&')
-  const readingCss = `.wv-reading .react-flow__node-card .card { opacity: .42; transition: opacity .2s; }
-.wv-reading .react-flow__edge path { opacity: .28; }
-${[...walked].map(k => `.wv-reading .react-flow__node[data-id="${cssKey(k)}"] .card { opacity: .8; }`).join('\n')}
-${stack.map(k => `.wv-reading .react-flow__node[data-id="${cssKey(k)}"] .card { opacity: 1; }`).join('\n')}
-${stack.slice(1).map((k, i) => `.wv-reading [data-testid="rf__edge-e-${cssKey(stack[i])}-${cssKey(k)}"] path { opacity: 1; stroke-width: 2.2 !important; }`).join('\n')}`
   /** An impact row that names a place: the host shows the flow of the function there. */
   const openImpact = (item: ImpactItem) => {
     if (item.file && item.line > 0) vscode.postMessage({ type: 'showFlowAt', file: item.file, line: item.line })
   }
   return (
-    <div className={`wv${tour.touring ? ' wv-touring' : ''}${paneOpen && readNode ? ' wv-reading' : ''}`}>
-      <style>{traceCss + proposedCss + pointCss + flashCss + tour.css + (paneOpen && readNode ? readingCss : '')}</style>
+    <div className={`wv${tour.touring ? ' wv-touring' : ''}${readNode ? ' wv-reading' : ''}`}>
+      <style>{traceCss + proposedCss + pointCss + flashCss + tour.css}</style>
       <header className="wv-bar">
         <div className="wv-title" title={target.label}>
           <span className="owner">{owner}</span>
@@ -1077,8 +1092,8 @@ ${stack.slice(1).map((k, i) => `.wv-reading [data-testid="rf__edge-e-${cssKey(st
         )}
         <ActionsCtx.Provider value={cardActions}>
           <ReactFlow
-            nodes={nodes}
-            edges={edges}
+            nodes={marked.nodes}
+            edges={marked.edges}
             nodeTypes={nodeTypes}
             nodesDraggable={false}
             nodesConnectable={false}
@@ -1160,32 +1175,31 @@ ${stack.slice(1).map((k, i) => `.wv-reading [data-testid="rf__edge-e-${cssKey(st
           />
         )}
       </div>
-      {paneOpen && readNode && (
+      {readNode && reading && (
         <>
-          <div className="rp-split" role="separator" aria-orientation="vertical" aria-label="Resize the reading pane" onPointerDown={startResize} />
+          <div
+            className="rp-split"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize the reading pane (arrow keys)"
+            aria-valuenow={paneW}
+            aria-valuemin={PANE_MIN}
+            aria-valuemax={Math.max(PANE_MIN, paneMax() - 320)}
+            tabIndex={0}
+            onPointerDown={startResize}
+            onKeyDown={resizeKey}
+          />
           <div className="rp-wrap" style={{ width: paneW }}>
             <ReadPane
-              root={readNode}
-              downward={inDown}
-              arrival={arrival}
-              focusLine={readFocus}
-              canBack={readHist.i > 0}
-              canForward={readHist.i < readHist.keys.length - 1}
-              onBack={() => stepRead(-1)}
-              onForward={() => stepRead(1)}
-              onCursor={onCursor}
-              onOutOfRoot={() => {
-                if (!arrival) return
-                readRef.current(arrival.node.key)
-                setReadFocus(arrival.line)
-              }}
-              onCaller={() => arrival && readRef.current(arrival.node.key)}
-              onRead={(key, line) => {
-                readRef.current(key)
-                if (line !== undefined) setReadFocus(line)
-              }}
-              onKeep={cardActions.keep}
-              onUndo={cardActions.undo}
+              idx={idx}
+              base={flowBase}
+              reading={reading}
+              update={f => setReading(r => r && f(r, idx))}
+              changed={changedAll}
+              viewed={viewed}
+              onViewed={k => setViewed(v => toggled(v, k))}
+              onKeep={actions.keep ? keepTargets : undefined}
+              onUndo={actions.undo}
               onLeave={() => document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(readNode.key)}"] .card`)?.focus()}
               onOpen={(key, line) => {
                 const n = find(down, key) ?? find(up, key)

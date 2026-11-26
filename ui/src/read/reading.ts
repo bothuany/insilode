@@ -96,18 +96,48 @@ export function bindings(callLine: string, callee: FlowNode): Binding[] {
 
 const LANGS: Record<string, string> = { py: 'Python', java: 'Java', kt: 'Kotlin', cs: 'C#', ts: 'TypeScript', tsx: 'TypeScript', js: 'JavaScript', mjs: 'JavaScript', go: 'Go', rb: 'Ruby', php: 'PHP', rs: 'Rust' }
 const language = (file: string | null) => LANGS[file?.split('.').pop()?.toLowerCase() ?? ''] ?? ''
-/** The folder a service lives in: the one above `src`, `app` or `lib`, else the file's top folder. A guess from the path. */
-export function serviceOf(file: string | null) {
-  const parts = (file ?? '').split(/[\\/]/).filter(Boolean)
-  const i = parts.findIndex(p => p === 'src' || p === 'app' || p === 'lib')
-  return i > 0 ? parts[i - 1] : (parts.length > 1 ? parts[parts.length - 2] : '')
+/** A path as folders then file name, whatever its separators; a POSIX root is a leading empty name, a drive letter is the first name. */
+const split = (file: string) => file.split(/[\\/]/).filter((p, i) => p !== '' || i === 0)
+const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
+
+/** The folder every one of these files lies under (the names of its folders, in the first file's spelling); empty when they share none. Cards without a file are left out. */
+export function commonFolder(files: readonly (string | null)[]): string[] {
+  let common: string[] | undefined
+  for (const f of files) {
+    if (!f) continue
+    const dirs = split(f).slice(0, -1)
+    if (!common) common = dirs
+    else {
+      let n = 0
+      while (n < common.length && n < dirs.length && same(common[n], dirs[n])) n++
+      common = common.slice(0, n)
+    }
+  }
+  return common ?? []
+}
+
+/**
+ * The folder a service lives in: the one above `src`, `app` or `lib`; else the first folder below the flow's common folder `base`
+ * (`commonFolder` of its files); with no `base`, the file's own folder. A guess from the path, whatever its separators, drive letter or case.
+ */
+export function serviceOf(file: string | null, base: readonly string[] = []) {
+  if (!file) return ''
+  const parts = split(file)
+  const under = base.length > 0 && parts.length > base.length && base.every((b, i) => same(b, parts[i]))
+  const folders = (under ? parts.slice(base.length) : parts).slice(0, -1)
+  const at = folders.findIndex(p => /^(src|app|lib)$/i.test(p))
+  // The marker right under the common folder: the service is the common folder itself.
+  if (at === 0 && under) return base.at(-1)?.replace(/^[A-Za-z]:$/, '') ?? ''
+  if (at > 0) return folders[at - 1]
+  if (under) return folders[0] ?? ''
+  return parts.length > 1 ? parts[parts.length - 2] : ''
 }
 
 /** The border a call crosses, in words: an HTTP request or a message into another service, or a step into another language. */
-export function crossing(kind: EdgeKind, from: FlowNode, to: FlowNode) {
-  const svc = serviceOf(to.file)
+export function crossing(kind: EdgeKind, from: FlowNode, to: FlowNode, base: readonly string[] = []) {
+  const svc = serviceOf(to.file, base)
   const lang = language(to.file)
-  const where = [svc !== serviceOf(from.file) ? svc : '', lang !== language(from.file) ? lang : ''].filter(Boolean).join(' · ')
+  const where = [svc !== serviceOf(from.file, base) ? svc : '', lang !== language(from.file) ? lang : ''].filter(Boolean).join(' · ')
   if (kind === 'http') return `HTTP ${to.sub || ''}${where ? `  →  ${where}` : ''}`.trim()
   if (kind === 'message') return `Message ${to.sub.replace(/^MSG\s+/, '') || ''}${where ? `  →  ${where}` : ''}`.trim()
   return null

@@ -25,7 +25,7 @@ const demo = () =>
 // The live canvas: it loads once the page is idle on a wide screen, zoomed so the flow fills it; on a phone only when asked, full screen.
 const root = document.querySelector<HTMLElement>('[data-stage]')!
 const narrow = matchMedia('(max-width: 760px)')
-const stage = new Stage(root, { src: './canvas.html', wheel: 'page', tabbable: false, fill: true })
+const stage = new Stage(root, { src: './canvas.html?hero', wheel: 'page', tabbable: false, fill: true })
 if (!narrow.matches) stage.loadWhenIdle()
 
 root.querySelector('[data-play]')?.addEventListener('click', async e => {
