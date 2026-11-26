@@ -17,7 +17,7 @@ and the IDE. Linux only; built and run only in Docker. Plan: `docs/plans/agents-
   Polls the IDE bridge registry every second. `insilode-agentsd ctl list` is a one-shot client (sessions, pids, live cwd,
   the last 2 KB of output) that the probe uses for evidence.
 - `app/` — `insilode-agents`. A Tauri 2 client: it owns no ptys. If no daemon answers, it starts the one next to its own binary
-  in its own process group. The page (`ui/`, plain JS, xterm.js copied from node_modules by `ui/build.mjs`, no CDN, no bundler)
+  in its own process group (untested: the probe always starts the daemon itself). The page (`ui/`, plain JS, xterm.js copied from node_modules by `ui/build.mjs`, no CDN, no bundler)
   calls `attach` once its listener is up; the daemon then replays every ring buffer, which is how a reopened window shows the
   scrollback.
 - `shared/transport.rs` — the socket path (`$INSILODE_AGENTS_SOCK`, else `$XDG_RUNTIME_DIR/insilode-agentsd.sock`, else
@@ -40,7 +40,10 @@ and the IDE. Linux only; built and run only in Docker. Plan: `docs/plans/agents-
 
 Resolved by the probe build (`Cargo.lock`): tauri 2.12.7, tauri-build 2.7.6, wry 0.57.4, portable-pty 0.9.0,
 `@xterm/xterm` 5.5.0, Rust stable from `rust:1-bookworm`, webkit2gtk-4.1 from Debian bookworm. The probe sets
-`WEBKIT_DISABLE_DMABUF_RENDERER=1` up front (the usual fix for blank webviews under Xvfb); whether it is needed was not tested. APIs checked against the current Tauri 2 docs (prevent_close / destroy,
+`WEBKIT_DISABLE_DMABUF_RENDERER=1` up front (the usual fix for blank webviews under Xvfb); whether it is needed was not tested.
+xterm.js is pinned at 5.5.0; upstream master is 6.0.0. The calls used here (`new Terminal({cols, rows, theme})`, `open`,
+`write(Uint8Array)`, `reset`, `onData`) are unchanged in 6.0.0's public API; the UMD `lib/xterm.js` path was checked only
+for 5.5.0. APIs checked against the current Tauri 2 docs (prevent_close / destroy,
 `withGlobalTauri`, capabilities) and the portable-pty docs (openpty, spawn_command, try_clone_reader, take_writer).
 
 ## Running the probe
