@@ -111,7 +111,8 @@ const SKELETON = /^\s*(if|else|return|throw|foreach|for|while|switch|case|defaul
  */
 export function toRows(node: FlowNode, lines: CodeLine[], full: boolean, outline = false): Row[] {
   // With the reading pane open a card is a place on the map, a one-line label of its signature: the pane has the code, a change included.
-  if (outline && lines.length) return lines.slice(0, 1)
+  // The signature, not the annotation or attribute above it (`@PostMapping(...)`, `[HttpPost]`).
+  if (outline && lines.length) return [lines.find(l => !/^\s*(@|\[|#\[|\/\/|\/\*|\*)/.test(l.text)) ?? lines[0]]
   if (node.diff) {
     // An agent change is shown in full, with removed lines in place, so nothing is hidden in a gap.
     const rows: Row[] = []
@@ -165,20 +166,21 @@ function schemaSize(node: FlowNode) {
 }
 
 /** The column at a card's right edge where the call ports sit, so a port never covers the end of a line: as wide as the longest callee name. */
-export function portWidth(node: FlowNode | undefined) {
-  if (!node?.children.length) return 0
-  const longest = Math.max(...node.children.map(c => c.node.label.replace(/\s*▸\s*/g, '.').split('.').pop()!.length))
+export function portWidth(callees: readonly FlowNode[]) {
+  if (!callees.length) return 0
+  const longest = Math.max(...callees.map(c => c.label.replace(/\s*▸\s*/g, '.').split('.').pop()!.length))
   return Math.round(Math.min(170, 30 + longest * 6.6))
 }
 
-function cardSize(lines: CodeLine[], rows: Row[], editing = false, review = false, node?: FlowNode, chipsH = 0, outline = false) {
+/** `callees`: the calls the card draws ports for (a caller card draws the one call into the card it hangs off). */
+function cardSize(lines: CodeLine[], rows: Row[], editing = false, review = false, node?: FlowNode, chipsH = 0, outline = false, callees: readonly FlowNode[] = []) {
   if (node?.schema) return schemaSize(node)
   if (!lines.length) return node && isChangeRoot(node) ? { w: 340, h: headerH(node) } : { w: 260, h: HEADER_H }
   // Removed rows count too: a long one must not be cut at the card's edge. An outline is as wide as its own line, not the method's longest.
   const rowLen = (r: Row) => ('del' in r ? r.del.length : 'text' in r ? r.text.length : 0)
   const longest = Math.max(...(outline ? rows.map(rowLen) : [...lines.map(l => l.text.length), ...rows.map(r => ('del' in r ? r.del.length : 0))]))
   return {
-    w: editing ? Math.min(editMaxW, Math.max(560, longest * CHAR_W + CODE_EXTRA_W)) : Math.min(720, Math.max(320, longest * CHAR_W + CODE_EXTRA_W)) + portWidth(node),
+    w: editing ? Math.min(editMaxW, Math.max(560, longest * CHAR_W + CODE_EXTRA_W)) : Math.min(720, Math.max(320, longest * CHAR_W + CODE_EXTRA_W)) + portWidth(callees),
     h: HEADER_H + chipsH + (editing ? lines.length : rows.length) * LINE_H + CODE_PAD * 2 + (editing ? EDIT_EXTRA : review ? REVIEW_H : 0),
   }
 }
@@ -217,7 +219,7 @@ export function layout(root: FlowNode, hidden: Set<string>, full: Set<string>, s
     const flat = outline && !ed && !full.has(node.key)
     const rows = toRows(node, lines, full.has(node.key) || ed, flat)
     const tc = cardChips(node, lines, ed, chips)
-    const { w, h } = cardSize(lines, rows, ed, !!node.diff, node, tc?.h ?? 0, flat)
+    const { w, h } = cardSize(lines, rows, ed, !!node.diff, node, tc?.h ?? 0, flat, node.children.map(c => c.node))
     const visible = node.children.filter(c => !hidden.has(c.node.key))
     const hasFrame = visible.length > 0
     const cardX = hasFrame ? x + PAD : x
@@ -328,7 +330,7 @@ export function layoutCallers(up: FlowNode, rootKey: string, rootY: number, hidd
       const flat = outline && !ed && !full.has(caller.key)
       const rows = toRows(caller, lines, full.has(caller.key) || ed, flat)
       const tc = cardChips(caller, lines, ed, chips)
-      const { w, h } = cardSize(lines, rows, ed, !!caller.diff, caller, tc?.h ?? 0, flat)
+      const { w, h } = cardSize(lines, rows, ed, !!caller.diff, caller, tc?.h ?? 0, flat, [callee])
       const x = calleeX - GAP - w
       const visibleCallers = caller.children.filter(c => !hidden.has(c.node.key)).length
       cards.push({

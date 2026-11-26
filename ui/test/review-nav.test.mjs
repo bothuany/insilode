@@ -2,7 +2,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { cycle, findAfterReload, findCards, groupByFile, keepViewed, navKeyAction, nextUnviewed, pathTo, splitName, stepByArrow, stepKey, toggled } from '../src/review/nav.ts'
-import { CHAR_W, GUTTER_W, LINE_H, toLines, toRows, layout } from '../src/layout.ts'
+import { CHAR_W, GUTTER_W, LINE_H, toLines, toRows, layout, layoutCallers } from '../src/layout.ts'
 import { rangesOf, removedAt, tourFromChanges } from '../src/tour/review.ts'
 
 const card = (key, label, file, plus = 1, minus = 0) => ({ key, label, file, diff: { plus, minus } })
@@ -186,4 +186,22 @@ test('E is a navigation key too; a key with Ctrl is not', () => {
   assert.equal(press('e'), 'edit')
   assert.equal(press('E'), 'edit')
   assert.equal(press('e', { ctrlKey: true }), undefined)
+})
+
+test('the one-line outline of a card is its signature, not the annotation above it', () => {
+  const n = node('@PostMapping("/orders")\npublic Order place(Order o) {\n  svc.run();\n}', undefined)
+  assert.deepEqual(toRows(n, toLines(n), false, true).map(r => r.text), ['public Order place(Order o) {'])
+  const plain = node('def place(o):\n    run()', undefined)
+  assert.deepEqual(toRows(plain, toLines(plain), false, true).map(r => r.text), ['def place(o):'])
+  const attrs = node('[HttpPost]\n[Route("x")]\npublic Order Place() {\n}', undefined)
+  assert.deepEqual(toRows(attrs, toLines(attrs), false, true).map(r => r.text), ['public Order Place() {'])
+})
+
+test('a caller card makes room for the one call it draws, not for the callers it has itself', () => {
+  const caller = (children) => ({ key: 'c', label: 'Gateway.forward', kind: 'method', file: 'g.java', startLine: 10, endLine: 12, code: '  svc.place(x);', children, sub: '', symbolId: null })
+  const callee = { key: 'r', label: 'a', kind: 'method', file: 'a.java', startLine: 1, endLine: 2, code: 'x', children: [], sub: '', symbolId: null }
+  const above = (node) => ({ ...callee, children: [{ callLine: 10, edgeKind: 'call', node }] })
+  const width = node => Number(layoutCallers(above(node), 'r', 0, new Set(), new Set(), null).nodes[0].style.width)
+  const grand = { key: 'g', label: 'Someone.withAVeryLongMethodName', kind: 'method', file: 'x.java', startLine: 1, endLine: 2, code: 'y', children: [], sub: '', symbolId: null }
+  assert.equal(width(caller([{ callLine: 1, edgeKind: 'call', node: grand }])), width(caller([])))
 })

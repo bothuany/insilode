@@ -608,7 +608,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
       )}
 
       {!editing && rows.length > 0 && (
-        <div className="code nodrag nopan" style={{ paddingTop: CODE_PAD, paddingBottom: CODE_PAD, ['--port-w' as string]: `${editing ? 0 : portWidth(node)}px` }}>
+        <div className="code nodrag nopan" style={{ paddingTop: CODE_PAD, paddingBottom: CODE_PAD, ['--port-w' as string]: `${editing ? 0 : portWidth(calls.map(c => c.edge.node))}px` }}>
           {rows.map(r => {
             if ('del' in r) {
               // Coloured by the same colourizer as the lines around it, one batch for all of the card's removed rows.

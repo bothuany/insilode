@@ -8,6 +8,7 @@ import {
   chainOf,
   indexFlow,
   initialPane,
+  isEditorInput,
   into,
   keepPlan,
   lineTop,
@@ -224,6 +225,33 @@ test('flow-reading/RC05 a peek whose call was removed is gone and the cursor is 
   assert.equal(idxA.keyOf(topOf(r)), after.svc.key)
 })
 
+/** A caller whose code has these lines: `lines` maps a file line to its text. */
+const withLines = (m, lines) => {
+  const last = Math.max(m.endLine, ...Object.keys(lines).map(Number))
+  m.code = Array.from({ length: last - m.startLine + 1 }, (_, i) => lines[m.startLine + i] ?? '  x;').join('\n')
+  return m
+}
+
+test('flow-reading/RC05 a removed call peek does not move to the next call of the same method: the call text is part of the path', () => {
+  const log = () => method('Audit.log', 40)
+  const before = withLines(method('Ctl.place', 15, [edge(log(), 20), edge(log(), 22)]), { 20: '  audit.log(first);', 22: '  audit.log(second);' })
+  const ib = indexFlow(before, null)
+  let r = into(startReading(ib, ROOT), ib)
+  assert.equal(ib.parent(r.open[0]).edge.callLine, 20)
+  // The first call was removed; the second moved up a line and is the only one left.
+  const after = withLines(method('Ctl.place', 15, [edge(log(), 21)]), { 21: '  audit.log(second);' })
+  const ia = indexFlow(after, null)
+  r = retrace(r, ib, ia)
+  assert.deepEqual(r.open, [], 'the peek is gone: its call text no longer exists')
+  assert.equal(r.cursor.path, ROOT)
+  // A line that only moved is the same call, and an overload with another argument is another one.
+  const moved = withLines(method('Ctl.place', 15, [edge(log(), 25), edge(log(), 27)]), { 25: '  audit.log(first);', 27: '  audit.log(second);' })
+  const im = indexFlow(moved, null)
+  assert.notEqual(im.pathOf(moved.children[0].node.key), im.pathOf(moved.children[1].node.key))
+  const kept = retrace(into(startReading(ib, ROOT), ib), ib, im)
+  assert.deepEqual(kept.open.map(p => im.parent(p).edge.callLine), [25], 'the peek follows its call to the line it moved to')
+})
+
 test('flow-reading/RC05 the same method reached twice has a path for each occurrence', () => {
   const shared = (key) => method('Util.helper', 80, [], { key })
   const top = method('T.top', 10, [edge(shared('x1'), 12), edge(shared('x2'), 14)])
@@ -275,19 +303,19 @@ function review() {
   f.svc.children.unshift(edge(discount, 22))
   return { ...f, discount }
 }
-const summary = (f, r, idx, changed) => keepPlan(idx, r, changed ?? [f.svc, f.discount])
-const brief = p => ({ keys: p.targets.map(t => `${t.via}:${t.key}`), count: `${p.kept} of ${p.total}` })
+const summary = (f, r, idx) => keepPlan(idx, r)
+const brief = p => ({ keys: p.targets.map(t => `${t.via ?? 'keepCard'}:${t.key}`), count: `${p.kept} of ${p.total}` })
 
 test('flow-reading/RC02 with one of two changed methods of a file open, Keep this path keeps that method\'s own lines', () => {
   const f = review()
   const idx = indexFlow(f.ctl, null)
   const r = readAt(startReading(idx, ROOT), idx, at(idx, f.svc))
   const plan = summary(f, r, idx)
-  assert.deepEqual(brief(plan), { keys: [`card:${f.svc.key}`], count: '0 of 1' })
+  assert.deepEqual(brief(plan), { keys: [`keepCard:${f.svc.key}`], count: '0 of 1' })
   assert.deepEqual([plan.targets[0].file, plan.targets[0].startLine, plan.targets[0].endLine], [f.svc.file, f.svc.startLine, f.svc.endLine])
   // After it ran the host sends the flow again: place no longer carries a change, and it is counted as kept; applyDiscount is still pending.
   f.svc.diff = undefined
-  const done = summary(f, markKept(r, plan.targets.map(t => t.path)), idx, [f.discount])
+  const done = summary(f, markKept(r, plan.targets.map(t => t.path)), idx)
   assert.deepEqual(brief(done), { keys: [], count: '1 of 1' })
 })
 
@@ -298,10 +326,10 @@ test('flow-reading/RC02 with the method and a peek both open, both are kept by t
   r = into(r, idx)
   assert.deepEqual(r.open, [at(idx, f.discount)])
   const plan = summary(f, r, idx)
-  assert.deepEqual(brief(plan), { keys: [`card:${f.svc.key}`, `card:${f.discount.key}`], count: '0 of 2' })
+  assert.deepEqual(brief(plan), { keys: [`keepCard:${f.svc.key}`, `keepCard:${f.discount.key}`], count: '0 of 2' })
 })
 
-test('flow-reading/RC02 the only changed method of a file is kept as the whole file, and a changed method that is not open is never kept', () => {
+test('flow-reading/RC02 the only changed method of a file is still kept by its own lines (the host then forgets the file), and a changed method that is not open is never kept', () => {
   const f = demo()
   const other = method('Other.x', 5, [], { file: '/demo/B.java', diff: diff() })
   f.svc.children.push(edge(other, 30))
@@ -309,9 +337,10 @@ test('flow-reading/RC02 the only changed method of a file is kept as the whole f
   f.svc.diff = diff()
   const idx = indexFlow(f.ctl, null)
   const r = readAt(startReading(idx, ROOT), idx, at(idx, f.svc))
-  const plan = keepPlan(idx, r, [f.svc, other])
-  assert.deepEqual(brief(plan), { keys: [`file:${f.svc.key}`], count: '0 of 1' })
+  const plan = keepPlan(idx, r)
+  assert.deepEqual(brief(plan), { keys: [`keepCard:${f.svc.key}`], count: '0 of 1' })
   assert.ok(!plan.targets.some(t => t.key === other.key))
+  assert.ok(plan.targets.every(t => !('via' in t)), 'there is no whole-file keep in the pane')
 })
 
 test('flow-reading/RC02 another changed method of the same file that is not on the flow keeps Keep to the method\'s lines', () => {
@@ -320,7 +349,7 @@ test('flow-reading/RC02 another changed method of the same file that is not on t
   const z = method('OrderService.z', 90, [], { file: f.svc.file, diff: diff() })
   const idx = indexFlow(f.ctl, null)
   const r = readAt(startReading(idx, ROOT), idx, at(idx, f.svc))
-  assert.deepEqual(brief(keepPlan(idx, r, [f.svc, z])), { keys: [`card:${f.svc.key}`], count: '0 of 1' })
+  assert.deepEqual(brief(keepPlan(idx, r)), { keys: [`keepCard:${f.svc.key}`], count: '0 of 1' })
 })
 
 test('flow-reading/RC02 a method in the folded chain above the top is kept too', () => {
@@ -330,14 +359,14 @@ test('flow-reading/RC02 a method in the folded chain above the top is kept too',
   const r = readAt(startReading(idx, ROOT), idx, at(idx, f.createInvoiceHttp))
   assert.deepEqual(chainOf(idx, topOf(r)).map(c => c.name), ['place', 'place', 'createInvoice'])
   const plan = summary(f, r, idx)
-  assert.deepEqual(brief(plan), { keys: [`card:${f.svc.key}`], count: '0 of 1' })
+  assert.deepEqual(brief(plan), { keys: [`keepCard:${f.svc.key}`], count: '0 of 1' })
 })
 
 test('flow-reading/RC02 with nothing changed open there is nothing to keep and no count', () => {
   const f = demo()
   const idx = indexFlow(f.ctl, null)
   const r = into(startReading(idx, ROOT), idx)
-  assert.deepEqual(brief(keepPlan(idx, r, [])), { keys: [], count: '0 of 0' })
+  assert.deepEqual(brief(keepPlan(idx, r)), { keys: [], count: '0 of 0' })
 })
 
 // ---- RC03 keys ----------------------------------------------------------------------------------------------------------
@@ -376,6 +405,16 @@ test('flow-reading/RC03 Alt+F10, Alt+F11 and Alt+Shift+F11 step over, into and o
 
 test('flow-reading/RC03 any other key or modifier combination passes through untouched', () => {
   for (const [k, mods] of [['j', { ctrlKey: true }], ['j', { altKey: true }], ['j', { metaKey: true }], ['J', {}], ['l', { shiftKey: true }], ['Enter', { ctrlKey: true }], ['Enter', { shiftKey: true }], ['Escape', { altKey: true }], ['x', {}], ['k', {}], ['ArrowDown', {}], [' ', {}]]) assert.equal(key(k, mods), undefined, `${JSON.stringify([k, mods])}`)
+})
+
+test('flow-reading/RC03 only the editor own hidden input is the pane input; the find widget inputs keep their keys', () => {
+  assert.equal(isEditorInput('TEXTAREA', 'inputarea monaco-mouse-cursor-text'), true)
+  assert.equal(isEditorInput('TEXTAREA', 'input'), false, 'the find box (a textarea in the editor)')
+  assert.equal(isEditorInput('INPUT', 'input'), false)
+  assert.equal(isEditorInput('DIV', 'inputarea'), false)
+  // So j, l, h and Escape typed in the find box are not steps.
+  assert.equal(key('Escape', {}, { target: 'TEXTAREA', monaco: isEditorInput('TEXTAREA', 'input') }), undefined)
+  assert.equal(key('l', {}, { target: 'INPUT', monaco: isEditorInput('INPUT', 'input') }), undefined)
 })
 
 test('flow-reading/RC03 Enter and Space on a button and every key in a text field are the element\'s own', () => {

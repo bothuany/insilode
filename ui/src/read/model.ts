@@ -5,10 +5,9 @@
 // Everything is kept by path, not by card key: keys are positional (`p${n}` in the host's graph.ts), so a call added anywhere earlier
 // renumbers every card after it, and line numbers move when a change is undone. A path names a method by the calls that lead to it.
 import type { FlowEdge, FlowNode } from '../types'
-import { samePath } from '../tour/cards.ts'
 import { firstCall } from './reading.ts'
 
-/** A method by the calls from the flow's entry to it: each step is the callee's label and which of the caller's calls to that label it is. */
+/** A method by the calls from the flow's entry to it: each step is the callee's label, the text of the line that calls it and which of the calls that look the same it is. */
 export type Path = string
 /** The flow's entry method. */
 export const ROOT: Path = ''
@@ -16,6 +15,7 @@ export const ROOT: Path = ''
 const UP: Path = '↑'
 const STEP = '\u001f'
 const NTH = '\u001e'
+const TXT = '\u001d'
 
 /** Peeks go this deep; a step further puts the callee at the top of the pane, with the chain above it. */
 export const MAX_DEPTH = 2
@@ -46,57 +46,53 @@ export interface Index {
   caller: { path: Path; edge: FlowEdge } | undefined
 }
 
+/** The trimmed text of a line of a method's code: what a call looks like, which survives the line moving and tells overloads apart. */
+const textAt = (owner: FlowNode, line: number) => owner.code?.replace(/\r/g, '').split('\n')[line - owner.startLine]?.trim() ?? ''
+
 /** Indexes the tree below `down`, and the callers tree `up` (whose root is the entry again) when there is one. */
 export function indexFlow(down: FlowNode | null, up: FlowNode | null | undefined = null): Index {
   const nodes = new Map<Path, FlowNode>()
   const byKey = new Map<string, Path>()
   const parents = new Map<Path, { path: Path; edge: FlowEdge }>()
   const childPaths = new Map<FlowEdge, Path>()
-  const walk = (n: FlowNode, p: Path, tracked: boolean) => {
+  /** A call's step in a path: the callee's label, the text of the call line, and which of the calls that look the same this is. */
+  const stepOf = (seen: Map<string, number>, e: FlowEdge, owner: FlowNode) => {
+    const base = `${e.node.label}${TXT}${textAt(owner, e.callLine)}`
+    const nth = seen.get(base) ?? 0
+    seen.set(base, nth + 1)
+    return `${base}${NTH}${nth}`
+  }
+  const walk = (n: FlowNode, p: Path) => {
     const seen = new Map<string, number>()
     for (const e of n.children) {
-      const nth = seen.get(e.node.label) ?? 0
-      seen.set(e.node.label, nth + 1)
-      const cp = `${p === ROOT && !inCallers(p) ? '' : p + STEP}${e.node.label}${NTH}${nth}`
+      const cp = `${p === ROOT ? '' : p + STEP}${stepOf(seen, e, n)}`
       childPaths.set(e, cp)
       nodes.set(cp, e.node)
       byKey.set(e.node.key, cp)
-      if (tracked) parents.set(cp, { path: p, edge: e })
-      walk(e.node, cp, tracked)
+      parents.set(cp, { path: p, edge: e })
+      walk(e.node, cp)
     }
   }
   if (down) {
     nodes.set(ROOT, down)
     byKey.set(down.key, ROOT)
-    walk(down, ROOT, true)
+    walk(down, ROOT)
   }
   let caller: Index['caller']
-  if (up) {
-    // The callers' root is the entry itself: it takes no path of its own. Its children are the callers.
-    const seen = new Map<string, number>()
-    for (const e of up.children) {
-      const nth = seen.get(e.node.label) ?? 0
-      seen.set(e.node.label, nth + 1)
-      const cp = `${UP}${STEP}${e.node.label}${NTH}${nth}`
-      childPaths.set(e, cp)
-      nodes.set(cp, e.node)
-      if (!byKey.has(e.node.key)) byKey.set(e.node.key, cp)
-      caller ??= { path: cp, edge: e }
-      walkCallers(e.node, cp)
-    }
-  }
-  function walkCallers(n: FlowNode, p: Path) {
+  // A caller's call line is in the caller's own code.
+  const walkCallers = (n: FlowNode, p: Path) => {
     const seen = new Map<string, number>()
     for (const e of n.children) {
-      const nth = seen.get(e.node.label) ?? 0
-      seen.set(e.node.label, nth + 1)
-      const cp = `${p}${STEP}${e.node.label}${NTH}${nth}`
+      const cp = `${p}${STEP}${stepOf(seen, e, e.node)}`
       childPaths.set(e, cp)
       nodes.set(cp, e.node)
       if (!byKey.has(e.node.key)) byKey.set(e.node.key, cp)
+      if (p === UP) caller ??= { path: cp, edge: e }
       walkCallers(e.node, cp)
     }
   }
+  // The callers' root is the entry itself: it takes no path of its own. Its children are the callers.
+  if (up) walkCallers(up, UP)
   return {
     node: p => nodes.get(p),
     pathOf: key => byKey.get(key),
@@ -349,8 +345,6 @@ export function retrace(r: Reading, before: Index, after: Index, entry: Path = R
 export interface KeepTarget {
   path: Path
   key: string
-  /** 'file': the method is the only changed one of its file, so the host keeps the whole file; 'card': only the method's own lines. */
-  via: 'file' | 'card'
   file: string
   startLine: number
   endLine: number
@@ -364,11 +358,11 @@ export interface KeepPlan {
 }
 
 /**
- * What "Keep this path" keeps: each changed method open in the pane (the top, its open peeks and the folded chain above), by the
- * canvas's own rule for one card (ui/src/agentEdit/AgentEditActions.tsx): the whole file only when it is the file's only changed
- * method, else the method's own lines. A method that is not open is never kept. `changed` is every changed method known.
+ * What "Keep this path" keeps: each changed method open in the pane (the top, its open peeks and the folded chain above), always by its
+ * own lines (the host's `keepCard`), never the whole file: the canvas knows only the methods it draws, so a whole-file keep could keep
+ * a change nobody read. A method that is not open is never kept.
  */
-export function keepPlan(idx: Index, r: Reading, changed: readonly FlowNode[]): KeepPlan {
+export function keepPlan(idx: Index, r: Reading): KeepPlan {
   const targets: KeepTarget[] = []
   let kept = 0
   let total = 0
@@ -382,17 +376,16 @@ export function keepPlan(idx: Index, r: Reading, changed: readonly FlowNode[]): 
       continue
     }
     total++
-    const t = keepTarget(path, node, changed)
+    const t = keepTarget(path, node)
     if (t) targets.push(t)
   }
   return { targets, kept, total }
 }
 
 /** What Keep does for one changed method; nothing for a method that has no file. */
-export function keepTarget(path: Path, node: FlowNode, changed: readonly FlowNode[]): KeepTarget | undefined {
+export function keepTarget(path: Path, node: FlowNode): KeepTarget | undefined {
   if (!node.file) return undefined
-  const others = changed.filter(n => n.key !== node.key && n.diff && n.file && samePath(n.file, node.file!)).length
-  return { path, key: node.key, via: others === 0 ? 'file' : 'card', file: node.file, startLine: node.startLine, endLine: node.endLine }
+  return { path, key: node.key, file: node.file, startLine: node.startLine, endLine: node.endLine }
 }
 
 /** Remembers that these methods were kept: after the flow is traced again they carry no change, and still count. */
@@ -401,6 +394,9 @@ export function markKept(r: Reading, paths: readonly Path[]): Reading {
 }
 
 // ---- the pane's keys -------------------------------------------------------------------------------------------------------------
+/** The editor's own hidden input, how Monaco takes keys (read-only here, so the pane's keys still work). Its find widget's inputs are not it. */
+export const isEditorInput = (tag: string, className: string) => tag === 'TEXTAREA' && /\binputarea\b/.test(className)
+
 export type PaneAction = 'over' | 'into' | 'out' | 'peek' | 'escape' | 'back' | 'forward'
 
 export interface PaneKeyEvent {
@@ -415,7 +411,7 @@ export interface PaneKeyEvent {
   inPane: boolean
   /** The tag name of the element that has the focus. */
   target: string
-  /** The focus is in a Monaco editor's own input (read-only here, so the pane's keys still work). */
+  /** The focus is in a Monaco editor's own hidden input (`isEditorInput`). */
   monaco?: boolean
 }
 

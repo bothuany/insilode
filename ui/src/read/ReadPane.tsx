@@ -16,6 +16,7 @@ import {
   escapeStep,
   into,
   isCaller,
+  isEditorInput,
   keepPlan,
   keepTarget,
   moveTo,
@@ -41,8 +42,6 @@ interface Props {
   reading: Reading
   /** Changes the reading: every key and click of the pane is a move of the model. */
   update: (f: (r: Reading, idx: Index) => Reading) => void
-  /** Every changed method known, so "Keep" follows the canvas's rule (the whole file only for a file's only change). */
-  changed: readonly FlowNode[]
   /** The Changes rail's ticks, shared. */
   viewed: ReadonlySet<string>
   onViewed: (key: string) => void
@@ -66,7 +65,7 @@ const MOVES: Record<Exclude<PaneAction, 'escape'>, (r: Reading, idx: Index) => R
 }
 
 export function ReadPane(props: Props) {
-  const { idx, base, reading, update, changed, viewed, onClose } = props
+  const { idx, base, reading, update, viewed, onClose } = props
   const topPath = topOf(reading)
   const root = idx.node(topPath)!
   const downward = !isCaller(topPath)
@@ -93,7 +92,7 @@ export function ReadPane(props: Props) {
       read: p => cb.current.update((r, i) => readAt(r, i, p)),
       keep: p => {
         const node = idx.node(p)
-        const t = node && keepTarget(p, node, cb.current.changed)
+        const t = node && keepTarget(p, node)
         if (t) cb.current.onKeep?.([t])
       },
       undo: p => {
@@ -112,7 +111,7 @@ export function ReadPane(props: Props) {
       hooks,
       review: p => {
         const n = idx.node(p)
-        return { keepable: !!cb.current.onKeep && !!n && !!keepTarget(p, n, cb.current.changed), undoable: !!cb.current.onUndo && !n?.diff?.base, viewed: !!n && cb.current.viewed.has(n.key) }
+        return { keepable: !!cb.current.onKeep && !!n && !!keepTarget(p, n), undoable: !!cb.current.onUndo && !n?.diff?.base, viewed: !!n && cb.current.viewed.has(n.key) }
       },
     }
     const d = new ReadDoc(el, root, topPath, view)
@@ -131,7 +130,7 @@ export function ReadPane(props: Props) {
   }, [root, idx, base, topPath, downward]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => doc?.sync(reading.open), [doc, reading.open])
   useEffect(() => doc?.setCursor(reading.cursor), [doc, reading.cursor, reading.open])
-  useEffect(() => doc?.refreshHeads(), [doc, viewed, changed, reading.kept])
+  useEffect(() => doc?.refreshHeads(), [doc, viewed, reading.kept])
 
   // ---- keys ------------------------------------------------------------------------------------------------------------------
   const readingRef = useRef(reading)
@@ -156,7 +155,7 @@ export function ReadPane(props: Props) {
       altGraph: e.getModifierState('AltGraph'),
       inPane: true,
       target: t.tagName,
-      monaco: !!t.closest?.('.monaco-editor'),
+      monaco: isEditorInput(t.tagName, t.className),
     })
     if (!act) return
     e.preventDefault()
@@ -175,8 +174,8 @@ export function ReadPane(props: Props) {
   const hop = aboveNode && parent ? crossing(parent.edge.edgeKind, aboveNode, root, base) : null
   const bound = aboveNode && parent?.edge.edgeKind === 'call' ? bindings(aboveLine, root) : []
   const stepping = downward && root.code != null
-  const plan = useMemo(() => keepPlan(idx, reading, changed), [idx, reading, changed])
-  const topTarget = root.diff ? keepTarget(topPath, root, changed) : undefined
+  const plan = useMemo(() => keepPlan(idx, reading), [idx, reading])
+  const topTarget = root.diff ? keepTarget(topPath, root) : undefined
   const go = (l: Link) => update((r, i) => readAt(r, i, l.path, { line: l.line, k: l.k }))
 
   return (

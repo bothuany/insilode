@@ -52,7 +52,7 @@ Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call 
   | `place` | place, plus z in OrderService.java not on the flow | keepCard place | 1 of 1; z pending |
   | top `create_invoice`, chain `place › place › createInvoice`, place and applyDiscount changed | place (in the chain) | keepCard place | 1 of 1; applyDiscount pending |
   | nothing changed open | — | button hidden | — |
-- **Test:** ui/test/read-model.test.mjs, `flow-reading/RC02 …`: one of two changed methods open keeps its own lines; method and peek both open; the only changed method of a file keeps the whole file and an unopened one is never kept; a changed method of the file that is not on the flow; a method in the folded chain; nothing changed open
+- **Test:** ui/test/read-model.test.mjs, `flow-reading/RC02 …`: one of two changed methods open is kept by its own lines; method and peek both open; the only changed method of a file is still kept by its own lines (no whole-file keep) and an unopened one is never kept; a changed method of the file that is not on the flow stays pending; a method in the folded chain; nothing changed open
 
 ### RC03 Pane keys
 - **Priority:** P1
@@ -65,7 +65,7 @@ Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call 
   | [ | Ctrl+Alt with AltGraph / Ctrl only | pane | back / passes through |
   | F11 | Alt / none | pane | step into / passes through (VS Code full screen) |
   | Enter | none, on a button | pane | the button's own |
-- **Test:** ui/test/read-model.test.mjs, `flow-reading/RC03 …`: j/l/h/Enter/Escape only in the pane; brackets with AltGr and not with Ctrl or Alt alone; Alt+F10, Alt+F11, Alt+Shift+F11 and bare F10/F11; any other combination passes; buttons and text fields keep their own keys
+- **Test:** ui/test/read-model.test.mjs, `flow-reading/RC03 …`: j/l/h/Enter/Escape only in the pane; brackets with AltGr and not with Ctrl or Alt alone; Alt+F10, Alt+F11, Alt+Shift+F11 and bare F10/F11; any other combination passes; only the editor's own hidden input is the pane's (the find widget's inputs keep their keys); buttons and text fields keep their own keys
 
 ### RC04 Stepping
 - **Priority:** P1
@@ -86,7 +86,7 @@ Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call 
 
 ### RC05 Pane state survives a re-trace
 - **Priority:** P1
-- **Rule:** History, open peeks, cursor and the walked set follow a method by its path from the entry (each step: callee label and its call's position among the caller's calls), not by card key or line numbers; after a re-trace they stay on the methods whose path still exists, otherwise the pane reads the entry.
+- **Rule:** History, open peeks, cursor and the walked set follow a method by its path from the entry (each step: callee label, the trimmed text of its call line, and its occurrence among calls that read the same), not by card key or line numbers; after a re-trace they stay on the methods whose path still exists, otherwise the pane reads the entry.
 - **Source:** keys are positional `p${key++}` (editor/extensions/flow-view/src/poly/graph.ts:1293); line numbers move on Undo (site/demo changed OrderService.java: announce 54 → 45).
 - **Examples:**
   | before | re-trace | after |
@@ -96,7 +96,7 @@ Reading code on the Flow canvas is uncomfortable: lines clip at ~81 chars, call 
   | peek applyDiscount open | applyDiscount call removed | peek gone, cursor on place |
   | the same method reached twice | — | each occurrence its own path |
   | reading X | X no longer in the flow | the entry |
-- **Test:** ui/test/read-model.test.mjs, `flow-reading/RC05 …`: a call added earlier moves every key; line numbers move on Undo; a peek whose call was removed; the same method reached twice; a method that left the flow; history and walked paths pruned
+- **Test:** ui/test/read-model.test.mjs, `flow-reading/RC05 …`: a call added earlier moves every key; line numbers move on Undo; a peek whose call was removed; a removed call's peek does not move to the next call of the same method (the call text is part of the path); the same method reached twice; a method that left the flow; history and walked paths pruned
 
 ### RC06 The pane's open/closed choice
 - **Priority:** P2

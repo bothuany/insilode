@@ -196,8 +196,6 @@ function Flow() {
   const [reading, setReading] = useState<Reading | null>(null)
   /** A tour plays: the pane steps aside and the cards show their code, for the tour talks about it. Mirrors the tour player's state, which is made below. */
   const [touringNow, setTouringNow] = useState(false)
-  const paneOpenRef = useRef(paneOpen)
-  paneOpenRef.current = paneOpen
   const { fitView, setViewport, getNode, getNodes, getViewport } = useReactFlow()
   // Centres on a point of the flow inside the canvas as it is now: React Flow's own setCenter uses the size it last measured,
   // which lags when the reading pane opens beside it and the canvas narrows, so the card landed behind the pane.
@@ -458,6 +456,9 @@ function Flow() {
   // The flow indexed by path, and whether the reading pane is there: while it is, a card is a one-line signature and the pane has the code.
   const idx = useMemo(() => indexFlow(down, showUp ? up : null), [down, up, showUp])
   const showPane = paneShown(paneOpen, touringNow)
+  // The canvas acts on the pane only while it is there: a click or Enter during a tour, on the hero or with the pane closed is the card's own.
+  const paneShownRef = useRef(showPane)
+  paneShownRef.current = showPane
   const outline = showPane && !!down
 
   const { nodes, edges } = useMemo(() => {
@@ -505,7 +506,6 @@ function Flow() {
     const path = idx.pathOf(key)
     if (path === undefined) return
     setReading(r => readAt(r ?? startReading(idx), idx, path, line === undefined ? undefined : { line }))
-    if (!paneOpenRef.current) setPane(true)
     setHidden(h => (h.has(key) ? new Set([...h].filter(k => k !== key)) : h))
   }
   const setPane = (open: boolean) => {
@@ -532,6 +532,15 @@ function Flow() {
   const PANE_MIN = 340
   const paneMax = () => (document.querySelector('.wv-body') as HTMLElement | null)?.clientWidth ?? 1200
   const clampPane = (w: number) => Math.max(PANE_MIN, Math.min(Math.max(PANE_MIN, paneMax() - 320), w))
+  // A window that gets narrower leaves the canvas its room too, not only a drag of the splitter.
+  useEffect(() => {
+    const body = document.querySelector<HTMLElement>('.wv-body')
+    if (!body) return
+    const fit = () => setPaneW(w => Math.max(PANE_MIN, Math.min(w, body.clientWidth - 320)))
+    const seen = new ResizeObserver(fit)
+    seen.observe(body)
+    return () => seen.disconnect()
+  }, [])
   const startResize = (e: ReactPointerEvent) => {
     const body = (e.currentTarget as HTMLElement).parentElement!
     const right = body.getBoundingClientRect().right
@@ -594,7 +603,7 @@ function Flow() {
       reveal: key => {
         const n = find(down, key) ?? find(up, key)
         // With the reading pane open, a click reads the method there: the editor beside the canvas is left alone.
-        if (paneOpenRef.current) return readRef.current(key)
+        if (paneShownRef.current) return readRef.current(key)
         setSelected(key)
         // The card you clicked is where the arrow keys go on from.
         currentRef.current?.(key)
@@ -829,14 +838,14 @@ function Flow() {
     if (!down) return
     const t = setTimeout(() => goTo((target.target.kind === 'changes' ? changedRef.current[0]?.key : undefined) ?? down.key, false), 150)
     return () => clearTimeout(t)
-  }, [down?.symbolId, showUp, showPane && !!readNode]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [down?.symbolId, showUp]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const s = navRef.current
       const action = navKeyAction({ key: e.key, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey, altGraph: e.getModifierState('AltGraph') })
       if (!s.on || !action || editingRef.current) return
       const t = e.target
-      if (t instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable || t.closest('.monaco-editor'))) return
+      if (t instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable || t.closest('.monaco-editor, .rp, .rp-split'))) return
       // A key the focused element already used (Enter on a card), or one pressed inside a popover or a menu, is not the canvas's.
       if (e.defaultPrevented || (t instanceof HTMLElement && t.closest('[role=dialog], [role=menu], [role=listbox]'))) return
       if (action === 'find') {
@@ -858,7 +867,7 @@ function Flow() {
       } else if (action === 'open' || action === 'full' || action === 'edit') {
         // A button or link under the focus keeps its own Enter and Space.
         if (!s.current || (t instanceof HTMLElement && t.closest('button, a, [role=button], summary'))) return
-        if (action === 'open') (paneOpenRef.current ? readRef.current(s.current) : actionsRef.current.open(s.current))
+        if (action === 'open') (paneShownRef.current ? readRef.current(s.current) : actionsRef.current.open(s.current))
         // Space and E press the card's own buttons: a card that offers neither (a changed card, a table) is left as it is.
         else document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(s.current)}"] button[data-key="${action}"]`)?.click()
       } else if (action === 'viewed') {
@@ -921,7 +930,8 @@ function Flow() {
   const touring = tour.state.tour !== null
   // With the reading pane open, Keep and Undo are in the pane (a card keeps its +/- badge): two places for one decision would disagree.
   const noReview = turn !== undefined || !!readNode
-  const cardActions = useMemo(() => ({ ...(noReview ? { ...actions, keep: undefined, undo: undefined } : actions), ...(touring ? { edit: undefined } : {}), editHooks }), [actions, noReview, editHooks, touring])
+  // Enter on a card reads it in the pane only while the pane is there; otherwise it opens the file.
+  const cardActions = useMemo(() => ({ ...(noReview ? { ...actions, keep: undefined, undo: undefined } : actions), ...(showPane ? {} : { read: undefined }), ...(touring ? { edit: undefined } : {}), editHooks }), [actions, noReview, showPane, editHooks, touring])
   // The canvas as a trace of the reading, as classes on its cards and wires (webview.css): no generated stylesheet.
   const marked = useMemo(() => {
     if (!readNode || !reading) return { nodes, edges }
@@ -931,30 +941,35 @@ function Flow() {
       edges: edges.map(e => ({ ...e, className: `tr-${t.edge(e.source, e.target)}` })),
     }
   }, [nodes, edges, readNode, reading, idx])
-  /** Every changed method the flow holds, drawn or not: Keep keeps the whole file only for a file's only change. */
-  const changedAll = useMemo(() => {
-    const out: FlowNode[] = []
-    const seen = new Set<string>()
-    const walk = (n: FlowNode | null) => {
-      if (!n || seen.has(n.key)) return
-      seen.add(n.key)
-      if (n.diff) out.push(n)
-      n.children.forEach(c => walk(c.node))
-    }
-    walk(down)
-    walk(up)
-    return out
-  }, [down, up])
-  /** "Keep" in the pane: the host keeps the whole file or the method's own lines, as the plan says; kept methods stay counted. */
+  /**
+   * "Keep" in the pane keeps each method by its own lines (`keepCard`), never the whole file: the canvas sees only the methods it draws, so a
+   * whole-file keep could keep a change nobody read. One request at a time; if one fails, what was kept is still marked, the flow is traced
+   * again and the status says how far it got.
+   */
+  const keeping = useRef(false)
   const keepTargets = async (targets: KeepTarget[]) => {
+    if (keeping.current) return
+    keeping.current = true
+    const done: KeepTarget[] = []
+    let failure = ''
     try {
-      for (const t of targets) await (t.via === 'file' ? request('keep', { file: t.file }) : request('keepCard', { file: t.file, startLine: t.startLine, endLine: t.endLine }))
+      for (const t of targets) {
+        await request('keepCard', { file: t.file, startLine: t.startLine, endLine: t.endLine })
+        done.push(t)
+      }
     } catch (e) {
-      setStatus(String((e as Error).message ?? e))
-      return
+      failure = String((e as Error).message ?? e)
     }
-    setReading(r => r && markKept(r, targets.map(t => t.path)))
-    await load(target.target, true)
+    try {
+      if (done.length) {
+        setReading(r => r && markKept(r, done.map(t => t.path)))
+        await load(target.target, true)
+      }
+    } finally {
+      keeping.current = false
+    }
+    // After the load: a successful load clears the status line, and this must stay readable.
+    if (failure) setStatus(`Kept ${done.length} of ${targets.length} changes, then: ${failure}`)
   }
   const locked = !!editing
   const { owner, member } = (() => {
@@ -1195,11 +1210,10 @@ function Flow() {
               base={flowBase}
               reading={reading}
               update={f => setReading(r => r && f(r, idx))}
-              changed={changedAll}
               viewed={viewed}
               onViewed={k => setViewed(v => toggled(v, k))}
-              onKeep={actions.keep ? keepTargets : undefined}
-              onUndo={actions.undo}
+              onKeep={turn === undefined ? keepTargets : undefined}
+              onUndo={turn === undefined ? actions.undo : undefined}
               onLeave={() => document.querySelector<HTMLElement>(`.react-flow__node[data-id="${CSS.escape(readNode.key)}"] .card`)?.focus()}
               onOpen={(key, line) => {
                 const n = find(down, key) ?? find(up, key)
