@@ -1,8 +1,7 @@
 ---
 cycle: agents-standalone
 author: rbdikmen@gmail.com
-phase: plan-review
-waiting: user
+phase: build
 branch: cycle/agents-standalone
 ---
 
@@ -142,3 +141,4 @@ Docker only (PROBE.md): `npm run docker:e2e -- --probe test/e2e-desktop/probes/a
 - plan: the user picked (a), the core patch (2026-11-27); spike (b) stays on `spike/agents-native` for reference.
 - plan: rules RC01-RC05 and items 1-9 written; next plan-review.
 - plan-review: reviewer found 12 (hidden-window show paths and the source-build force-show, IPC hiding any window id, throttling restore, ended sessions counted, toasts on mainContainer, missing probe, grep-only checks, reload, Ctrl+W, Quit, macOS/multi-window rows); all settled in the cards and items, three by the user; spike probe committed on spike/agents-core 284263a.
+- build: the user approved the plan and rule cards RC01-RC05 (2026-11-27); writer started.
