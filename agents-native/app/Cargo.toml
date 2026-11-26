@@ -1,0 +1,13 @@
+[package]
+name = "insilode-agents"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# custom-protocol: serve frontendDist from the binary; tauri-cli would add it, a plain `cargo build` must ask.
+tauri = { version = "2", features = ["custom-protocol"] }
+serde_json = "1"
