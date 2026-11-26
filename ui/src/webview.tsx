@@ -538,13 +538,15 @@ function Flow() {
   /** The pane's width: dragged, or moved with the arrow keys while the splitter has the focus. */
   const clampPane = (w: number) => paneFit(bodyW, w).width
   // The body's width is watched: a window or editor group that gets narrower leaves the canvas its room, and one too narrow for both hides the pane.
+  // The body is found by a callback ref: it is measured whenever the node mounts, not at a moment the effect happens to run.
+  const [bodyEl, setBodyEl] = useState<HTMLElement | null>(null)
   useEffect(() => {
-    const body = document.querySelector<HTMLElement>('.wv-body')
-    if (!body) return
-    const seen = new ResizeObserver(() => setBodyW(body.clientWidth))
-    seen.observe(body)
+    if (!bodyEl) return
+    setBodyW(bodyEl.clientWidth)
+    const seen = new ResizeObserver(() => setBodyW(bodyEl.clientWidth))
+    seen.observe(bodyEl)
     return () => seen.disconnect()
-  }, [])
+  }, [bodyEl])
   const startResize = (e: ReactPointerEvent) => {
     const body = (e.currentTarget as HTMLElement).parentElement!
     const right = body.getBoundingClientRect().right
@@ -1045,7 +1047,7 @@ function Flow() {
           </button>
         )}
         <span className="wv-spacer" />
-        <button className="chip" aria-pressed={paneOpen} disabled={!down} onClick={() => setPane(!paneOpen)} title="Read the selected method beside the canvas">
+        <button className="chip" aria-pressed={paneOpen} disabled={!down || !fit.show} onClick={() => setPane(!paneOpen)} title={fit.show ? 'Read the selected method beside the canvas' : 'This window is too narrow for the reading pane'}>
           Read
         </button>
         {status && <span className="wv-status" title={status}>{status}</span>}
@@ -1057,7 +1059,7 @@ function Flow() {
           Ask about this flow
         </button>
       </header>
-      <div className="wv-body">
+      <div className="wv-body" ref={setBodyEl}>
       <div className={`wv-canvas${locked ? ' locked' : ''}`} onClickCapture={tour.onClickCapture}>
         {!down && (
           <div className="wv-empty">

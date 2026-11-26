@@ -1,7 +1,7 @@
 ---
 cycle: flow-reading
 author: rbdikmen@gmail.com
-phase: probe
+phase: done
 branch: cycle/flow-reading
 ---
 
@@ -156,3 +156,7 @@ Not covered live: AltGr (RC03 test), re-trace with moved keys (RC05 test; the fa
 - code-review round 2: 10 of 12 fixed; RC05 limits (identical call lines, an edited call line) written into the card as examples, pending the user's approval; narrow-width pane sent to the writer
 - code-review: closed after 2 rounds (narrow-width pane fixed in 7e5faa5); probe: started
 - probe (site build, 1440x900): pane on ctl :20 ok; l/j and Alt+F11/Alt+F10 step ok; (order ← saved) hint ok; past depth 2 re-roots with HTTP strip and chain place:20 › place:24 › createInvoice:20 ok; chain click back to ctl :20 ok; Esc closes peek ok; changes view 0 of 1 → peek → 0 of 2 kept, Keep this path → fake host 'no changes to show' ok; home hero no .rp (0) ok; console no errors. Deviations sent to writer: A card not a one-line label, B callee cut by pane edge, C focus lost after chain click, D '· changed' still at line end
+- probe re-run after 9e78298: A one-row cards (`def create_invoice(body: dict)`, `def issue(self, body)`) ok; B create_invoice and issue both fully in view ok; C chain click then l steps into ok; D call note without '· changed', gutter bar on :23 ok
+- code-review round 3: no important bugs, 2 nits (Read chip on narrow widths fixed; gutter bar vs cursor mark left, looked fine live)
+- probe: narrow first load reproduced (600px: canvas 39px) and fixed; re-checked live: 600px canvas 600 / no pane, 1440px pane 560; plan-check PASS 10/10 · rules 5/5
+- done: RC05's two limit examples await the user's approval
