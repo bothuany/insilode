@@ -105,13 +105,35 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .rp-editor { flex: 1; min-height: 0; }
 .rp-empty { margin: 16px; color: var(--fl-muted); }
 .rp-call-line { background: color-mix(in srgb, var(--fl-text) 4%, transparent); }
-.rp-call-note::after { margin-left: 2.5em; color: var(--fl-muted); font-style: italic; cursor: pointer; }
-.rp-call-note:hover::after { color: var(--fl-text); text-decoration: underline; }
-.rp-calls { flex: none; display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; border-top: 1px solid var(--fl-line); }
-.rp-call { display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border: 0; border-radius: 4px; background: none; color: var(--fl-text); font: 12px var(--fl-mono); cursor: pointer; }
-.rp-call::before { content: ''; width: 6px; height: 6px; border-radius: 3px; background: var(--c); }
-.rp-call:hover { background: var(--vscode-list-hoverBackground, var(--fl-line)); }
-.rp-call-line-no { color: var(--fl-muted); font-size: 11px; }
+.rp-call-note::after { margin-left: 2.5em; font-style: italic; cursor: pointer; opacity: .8; }
+.rp-call-note:hover::after { opacity: 1; text-decoration: underline; }
+/* The pane's cursor: the line a step stands on, marked the way an editor marks the current statement of a paused debugger. */
+.rp-cur { background: var(--vscode-editor-stackFrameHighlightBackground, color-mix(in srgb, #ffcc00 16%, transparent)); }
+.rp-cur-mark { border-left: 3px solid var(--vscode-debugIcon-stepOverForeground, #ffcc00); margin-left: 2px; }
+/* A peek: the callee's code right under the line that calls it, set in by a rule in the callee's colour. */
+.rp-peek { box-sizing: border-box; position: relative; }
+.rp-peek::before { content: ''; position: absolute; left: 9px; top: 4px; bottom: 6px; width: 2px; border-radius: 1px; background: var(--c); opacity: .7; }
+.rp-peek-head { display: flex; align-items: center; gap: 8px; height: 26px; font: 12px var(--fl-mono); color: var(--fl-text); white-space: nowrap; overflow: hidden; }
+.rp-peek-name { font-weight: 600; }
+.rp-peek-where { color: var(--fl-muted); font-family: var(--fl-ui); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
+.rp-peek-where.hop, .rp-hop { color: var(--c); }
+.rp-peek-head .tool:first-of-type { margin-left: auto; }
+.rp-peek .monaco-editor { border: 1px solid var(--fl-line); border-radius: 4px; }
+.rp-bound { color: var(--fl-muted); font-weight: 400; margin-left: 2px; }
+.rp-table { display: grid; grid-template-columns: max-content max-content; gap: 0 24px; padding: 4px 8px; font: 12px/18px var(--fl-mono); }
+.rp-table > div { display: contents; }
+.rp-table span:nth-child(2) { color: var(--fl-muted); }
+.rp-hop { flex: none; padding: 5px 12px; border-bottom: 1px solid var(--fl-line); font: 12px var(--fl-mono); }
+.rp-steps { display: flex; gap: 2px; padding: 0 6px; border-left: 1px solid var(--fl-line); border-right: 1px solid var(--fl-line); }
+.rp-steps .tool { display: flex; align-items: center; justify-content: center; color: var(--vscode-debugIcon-stepOverForeground, var(--fl-signal)); }
+.rp-stack { flex: none; display: flex; align-items: center; gap: 2px; min-height: 28px; padding: 0 8px; border-top: 1px solid var(--fl-line); font: 12px var(--fl-mono); overflow: hidden; }
+.rp-stack-label { color: var(--fl-muted); font: 11px var(--fl-ui); margin-right: 6px; }
+.rp-frame { display: flex; align-items: center; white-space: nowrap; }
+.rp-frame button { border: 0; background: none; padding: 2px 5px; border-radius: 4px; color: var(--fl-muted); font: inherit; cursor: pointer; }
+.rp-frame button:hover { background: var(--vscode-list-hoverBackground, var(--fl-line)); color: var(--fl-text); }
+.rp-frame button.here { color: var(--fl-text); font-weight: 600; }
+.rp-frame-sep { color: var(--fl-faint); }
+.rp-keys { color: var(--fl-muted); font: 11px var(--fl-ui); white-space: nowrap; }
 .react-flow__background { background: var(--fl-canvas); }
 .react-flow__background circle { fill: var(--fl-line-strong); }
 .wv-empty { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; pointer-events: none; text-align: center; padding: 0 24px; }
@@ -179,7 +201,9 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .ln.call { background: color-mix(in srgb, var(--c) 6%, transparent); }
 
 /* The port: the end of a call line, where its wire leaves the card. Click it to show or hide the callee. */
-.port { position: absolute; right: 6px; top: 2px; height: 14px; max-width: 45%; padding: 0 6px; display: flex; align-items: center; gap: 4px; border-radius: 4px; border: 1px solid color-mix(in srgb, var(--c) 40%, transparent); background: var(--fl-card); color: var(--c); font: 10.5px/12px var(--fl-mono); cursor: pointer; overflow: hidden; text-overflow: ellipsis; box-shadow: -14px 0 10px -2px var(--fl-card); }
+/* The ports have a column of their own at the card's right edge (--port-w, layout.ts portWidth): the code never runs under them. */
+.code .ln { padding-right: calc(10px + var(--port-w, 0px)); }
+.port { position: absolute; right: 6px; top: 2px; height: 14px; max-width: calc(var(--port-w, 120px) - 10px); padding: 0 6px; display: flex; align-items: center; gap: 4px; border-radius: 4px; border: 1px solid color-mix(in srgb, var(--c) 40%, transparent); background: var(--fl-card); color: var(--c); font: 10.5px/12px var(--fl-mono); cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
 .port:hover { background: color-mix(in srgb, var(--c) 14%, var(--fl-card)); }
 .port.folded { border-style: dashed; color: color-mix(in srgb, var(--c) 75%, var(--fl-muted)); }
 .port.folded::before { content: '+'; font-weight: 700; }

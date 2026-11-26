@@ -169,13 +169,20 @@ function schemaSize(node: FlowNode) {
   return { w: 360, h: HEADER_H + SCHEMA_OPS_H + cols * SCHEMA_ROW + (s.relations.length ? 26 : 0) + 8 }
 }
 
+/** The column at a card's right edge where the call ports sit, so a port never covers the end of a line: as wide as the longest callee name. */
+export function portWidth(node: FlowNode | undefined) {
+  if (!node?.children.length) return 0
+  const longest = Math.max(...node.children.map(c => c.node.label.replace(/\s*▸\s*/g, '.').split('.').pop()!.length))
+  return Math.round(Math.min(170, 30 + longest * 6.6))
+}
+
 function cardSize(lines: CodeLine[], rows: Row[], editing = false, review = false, node?: FlowNode, chipsH = 0) {
   if (node?.schema) return schemaSize(node)
   if (!lines.length) return node && isChangeRoot(node) ? { w: 340, h: headerH(node) } : { w: 260, h: HEADER_H }
   // Removed rows count too: a long one must not be cut at the card's edge.
   const longest = Math.max(...lines.map(l => l.text.length), ...rows.map(r => ('del' in r ? r.del.length : 0)))
   return {
-    w: editing ? Math.min(editMaxW, Math.max(560, longest * CHAR_W + CODE_EXTRA_W)) : Math.min(720, Math.max(320, longest * CHAR_W + CODE_EXTRA_W)),
+    w: editing ? Math.min(editMaxW, Math.max(560, longest * CHAR_W + CODE_EXTRA_W)) : Math.min(720, Math.max(320, longest * CHAR_W + CODE_EXTRA_W)) + portWidth(node),
     h: HEADER_H + chipsH + (editing ? lines.length : rows.length) * LINE_H + CODE_PAD * 2 + (editing ? EDIT_EXTRA : review ? REVIEW_H : 0),
   }
 }

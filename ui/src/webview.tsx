@@ -11,7 +11,7 @@ import './styles.css'
 import './webview.css'
 import { placeOf, type CardChips, type ChipsView, type Detail, type TypeTree } from './chips'
 import { CODE_PAD, HEADER_H, LINE_H, initialHidden, layout, layoutCallers, setEditMaxWidth, setOutline, type CardData, type EditTarget } from './layout'
-import { ReadPane, type PaneCall } from './read/ReadPane'
+import { ReadPane, type Arrival } from './read/ReadPane'
 import { definitionInFile, notify, registerIde } from './ide'
 import { ActionsCtx, LANG_BY_EXT, nodeTypes, recolor, type CanvasActions, type Caret } from './nodes'
 import { cardAt, samePath } from './tour/cards'
@@ -104,10 +104,10 @@ function storePane(open: boolean) {
 
 /** Each method of the flow below the root and the call that reaches it: the pane's "called from" line. */
 function parentsOf(root: FlowNode | null) {
-  const out = new Map<string, { node: FlowNode; line: number }>()
+  const out = new Map<string, Arrival>()
   const walk = (n: FlowNode) =>
     n.children.forEach(c => {
-      out.set(c.node.key, { node: n, line: c.callLine })
+      out.set(c.node.key, { node: n, line: c.callLine, edgeKind: c.edgeKind })
       walk(c.node)
     })
   if (root) walk(root)
@@ -207,7 +207,17 @@ function Flow() {
   const [readHist, setReadHist] = useState<{ keys: string[]; i: number }>({ keys: [], i: -1 })
   const paneOpenRef = useRef(paneOpen)
   paneOpenRef.current = paneOpen
-  const { fitView, setCenter, getNode, getNodes, getViewport } = useReactFlow()
+  const { fitView, setViewport, getNode, getNodes, getViewport } = useReactFlow()
+  // Centres on a point of the flow inside the canvas as it is now: React Flow's own setCenter uses the size it last measured,
+  // which lags when the reading pane opens beside it and the canvas narrows, so the card landed behind the pane.
+  const setCenter = useCallback(
+    (x: number, y: number, o: { zoom: number; duration?: number }) => {
+      const el = document.querySelector('.wv-canvas') as HTMLElement | null
+      if (!el) return
+      void setViewport({ x: el.clientWidth / 2 - x * o.zoom, y: el.clientHeight / 2 - y * o.zoom, zoom: o.zoom }, { duration: o.duration })
+    },
+    [setViewport],
+  )
   const editingRef = useRef(editing)
   const actionsRef = useRef<CanvasActions>({ toggle() {}, toggleAll() {}, open() {}, toggleFull() {} })
   const currentRef = useRef<(key: string) => void>(undefined)
@@ -483,6 +493,7 @@ function Flow() {
   /** Reads a method in the pane: a new step in its history, the card selected, its call opened on the canvas if it was folded. */
   const readRef = useRef<(key: string) => void>(() => {})
   readRef.current = (key: string) => {
+    setReadFocus(undefined)
     setReadHist(h => (h.keys[h.i] === key ? h : { keys: [...h.keys.slice(0, h.i + 1), key], i: h.i + 1 }))
     setSelected(key)
     currentRef.current?.(key)
@@ -519,8 +530,19 @@ function Flow() {
   const readKey = readHist.keys[readHist.i]
   const readNode = readKey ? (find(down, readKey) ?? find(up, readKey)) : null
   const inDown = !!readKey && !!find(down, readKey)
-  const readCaller = !readNode || !inDown ? null : (parents.get(readNode.key) ?? (readNode.key === down?.key && up?.children[0] ? { node: up.children[0].node, line: up.children[0].callLine } : null))
-  const readCalls = useMemo<PaneCall[]>(() => (readNode && inDown ? readNode.children.map(c => ({ key: c.node.key, line: c.callLine, node: c.node })) : []), [readNode, inDown])
+  const arrival: Arrival | null = !readNode || !inDown ? null : (parents.get(readNode.key) ?? (readNode.key === down?.key && up?.children[0] ? { node: up.children[0].node, line: up.children[0].callLine, edgeKind: up.children[0].edgeKind } : null))
+  /** Where the pane's cursor starts in the method it reads: set by a step out of the top, onto the line that called it. */
+  const [readFocus, setReadFocus] = useState<number>()
+  const panTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  /** The pane's cursor moved: the canvas selects its card and lights the wire of the call it is on, opening that call if it was folded. */
+  const onCursor = (key: string, callee: string | null) => {
+    setSelected(key)
+    currentRef.current?.(key)
+    setTrace(callee ? { source: key, target: callee } : null)
+    setHidden(h => (h.has(key) || (callee && h.has(callee)) ? new Set([...h].filter(k => k !== key && k !== callee)) : h))
+    clearTimeout(panTimer.current)
+    panTimer.current = setTimeout(() => panIfOff(callee ?? key), 80)
+  }
   const startResize = (e: ReactPointerEvent) => {
     const body = (e.currentTarget as HTMLElement).parentElement!
     const right = body.getBoundingClientRect().right
@@ -1114,16 +1136,26 @@ function Flow() {
           <div className="rp-split" role="separator" aria-orientation="vertical" aria-label="Resize the reading pane" onPointerDown={startResize} />
           <div className="rp-wrap" style={{ width: paneW }}>
             <ReadPane
-              node={readNode}
-              caller={readCaller}
-              calls={readCalls}
+              root={readNode}
+              downward={inDown}
+              arrival={arrival}
+              focusLine={readFocus}
               canBack={readHist.i > 0}
               canForward={readHist.i < readHist.keys.length - 1}
               onBack={() => stepRead(-1)}
               onForward={() => stepRead(1)}
-              onEnter={key => readRef.current(key)}
-              onCaller={() => readCaller && readRef.current(readCaller.node.key)}
-              onOpen={() => actions.open(readNode.key)}
+              onCursor={onCursor}
+              onOutOfRoot={() => {
+                if (!arrival) return
+                readRef.current(arrival.node.key)
+                setReadFocus(arrival.line)
+              }}
+              onCaller={() => arrival && readRef.current(arrival.node.key)}
+              onRead={key => readRef.current(key)}
+              onOpen={(key, line) => {
+                const n = find(down, key) ?? find(up, key)
+                if (n?.file) vscode.postMessage({ type: 'open', file: n.file, line: line ?? n.startLine })
+              }}
               onClose={() => setPane(false)}
             />
           </div>
