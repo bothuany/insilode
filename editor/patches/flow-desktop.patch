@@ -1,19 +1,36 @@
 diff --git a/src/vs/code/electron-main/app.ts b/src/vs/code/electron-main/app.ts
-index d0e7e0f7..acc69c85 100644
+index d0e7e0f7..37d6b77a 100644
 --- a/src/vs/code/electron-main/app.ts
 +++ b/src/vs/code/electron-main/app.ts
-@@ -60,6 +60,10 @@ import { IInstantiationService, ServicesAccessor } from '../../platform/instanti
+@@ -60,6 +60,11 @@ import { IInstantiationService, ServicesAccessor } from '../../platform/instanti
  import { ServiceCollection } from '../../platform/instantiation/common/serviceCollection.js';
  import { ProcessMainService } from '../../platform/process/electron-main/processMainService.js';
  import { IKeyboardLayoutMainService, KeyboardLayoutMainService } from '../../platform/keyboardLayout/electron-main/keyboardLayoutMainService.js';
 +import { INSILODE_OVERLAY_CHANNEL, IInsilodeOverlayService } from '../../platform/insilodeDesktop/common/insilodeDesktop.js';
 +import { InsilodeOverlayMainService } from '../../platform/insilodeDesktop/electron-main/insilodeOverlayMainService.js';
++import { CodeWindow } from '../../platform/windows/electron-main/windowImpl.js';
 +import { INSILODE_AGENTS_ALONE_CHANNEL } from '../../platform/insilodeAgentsAlone/common/insilodeAgentsAlone.js';
 +import { InsilodeAgentsAloneMainService } from '../../platform/insilodeAgentsAlone/electron-main/insilodeAgentsAloneMainService.js';
  import { ILaunchMainService, LaunchMainService } from '../../platform/launch/electron-main/launchMainService.js';
  import { ILifecycleMainService, LifecycleMainPhase, ShutdownReason } from '../../platform/lifecycle/electron-main/lifecycleMainService.js';
  import { ILoggerService, ILogService } from '../../platform/log/common/log.js';
-@@ -1264,6 +1268,9 @@ export class CodeApplication extends Disposable {
+@@ -560,8 +565,14 @@ export class CodeApplication extends Disposable {
+ 		app.on('activate', async (event, hasVisibleWindows) => {
+ 			this.logService.trace('app#activate');
+ 
++			// Insilode: the Dock icon brings back a hidden editor window; the Agents window is visible, so hasVisibleWindows says nothing about it
++			const hiddenWindows = (this.windowsMainService?.getWindows() ?? []).filter((window): window is CodeWindow => window instanceof CodeWindow && window.hidden);
++			if (hiddenWindows.length) {
++				hiddenWindows.forEach(window => window.setHidden(false));
++			}
++
+ 			// Mac only event: open new window when we get activated
+-			if (!hasVisibleWindows) {
++			else if (!hasVisibleWindows) {
+ 				await this.windowsMainService?.openEmptyWindow({ context: OpenContext.DOCK });
+ 			}
+ 		});
+@@ -1264,6 +1275,9 @@ export class CodeApplication extends Disposable {
  		// Keyboard Layout
  		services.set(IKeyboardLayoutMainService, new SyncDescriptor(KeyboardLayoutMainService));
  
@@ -23,7 +40,7 @@ index d0e7e0f7..acc69c85 100644
  		// Native Host
  		services.set(INativeHostMainService, new SyncDescriptor(NativeHostMainService, undefined, false /* proxied to other processes */));
  
-@@ -1449,6 +1456,14 @@ export class CodeApplication extends Disposable {
+@@ -1449,6 +1463,14 @@ export class CodeApplication extends Disposable {
  		const keyboardLayoutChannel = ProxyChannel.fromService(accessor.get(IKeyboardLayoutMainService), disposables);
  		mainProcessElectronServer.registerChannel('keyboardLayout', keyboardLayoutChannel);
  
@@ -1439,10 +1456,10 @@ index 0000000..9717b56
 +</script></body></html>`;
 diff --git a/src/vs/workbench/contrib/insilodeDesktop/electron-browser/insilodeDesktop.contribution.ts b/src/vs/workbench/contrib/insilodeDesktop/electron-browser/insilodeDesktop.contribution.ts
 new file mode 100644
-index 0000000..3f658c4
+index 0000000..54f94bf
 --- /dev/null
 +++ b/src/vs/workbench/contrib/insilodeDesktop/electron-browser/insilodeDesktop.contribution.ts
-@@ -0,0 +1,181 @@
+@@ -0,0 +1,186 @@
 +/*---------------------------------------------------------------------------------------------
 + *  Insilode: agent status outside the window, for Insilode's Agents extension (flow-agent, src/desktop.ts).
 + *
@@ -1464,6 +1481,7 @@ index 0000000..3f658c4
 +import { isWindows } from '../../../../base/common/platform.js';
 +import { localize } from '../../../../nls.js';
 +import { CommandsRegistry, ICommandService } from '../../../../platform/commands/common/commands.js';
++import { IContextKeyService } from '../../../../platform/contextkey/common/contextkey.js';
 +import { registerMainProcessRemoteService } from '../../../../platform/ipc/electron-browser/services.js';
 +import { ILogService } from '../../../../platform/log/common/log.js';
 +import { FocusMode, IApplicationBadge, INativeHostService } from '../../../../platform/native/common/native.js';
@@ -1496,6 +1514,7 @@ index 0000000..3f658c4
 +		@IThemeService private readonly themeService: IThemeService,
 +		@IInsilodeOverlayService private readonly overlayService: IInsilodeOverlayService,
 +		@ICommandService commandService: ICommandService,
++		@IContextKeyService private readonly contextKeyService: IContextKeyService,
 +		@ILogService private readonly logService: ILogService,
 +	) {
 +		super();
@@ -1523,7 +1542,10 @@ index 0000000..3f658c4
 +				return;
 +			}
 +			commandService.executeCommand(REVEAL_AGENT, e.id).catch(err => this.logService.warn(`[insilode desktop] ${REVEAL_AGENT} failed: ${err}`));
-+			this.nativeHostService.focusWindow({ mode: FocusMode.Force });
++			// While the editor window is hidden the agent opens in the Agents window, which flow-agent brings forward: focusing this window would only be ignored
++			if (!this.contextKeyService.getContextKeyValue<boolean>('insilode.ideHidden')) {
++				this.nativeHostService.focusWindow({ mode: FocusMode.Force });
++			}
 +		}));
 +
 +		// The close button is a gesture too, and it never focuses: only the window that pushed last answers it.
@@ -1947,10 +1969,10 @@ index 0000000..2daf74a
 +}
 diff --git a/src/vs/platform/insilodeAgentsAlone/electron-main/insilodeAgentsAloneMainService.ts b/src/vs/platform/insilodeAgentsAlone/electron-main/insilodeAgentsAloneMainService.ts
 new file mode 100644
-index 0000000..3cc7df5
+index 0000000..59928f0
 --- /dev/null
 +++ b/src/vs/platform/insilodeAgentsAlone/electron-main/insilodeAgentsAloneMainService.ts
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,74 @@
 +/*---------------------------------------------------------------------------------------------
 + *  Insilode: hides and shows the editor window for the Agents window (see ../common/insilodeAgentsAlone.ts). The window
 + *  does it itself (CodeWindow.setHidden); this is the way the workbench asks, over a channel that knows who is asking.
@@ -1992,7 +2014,10 @@ index 0000000..3cc7df5
 +		return this.window(windowId)?.hidden ?? false;
 +	}
 +
-+	/** The IPC context of a window's renderer is `window:<id>` (mainProcessService.ts): a renderer cannot name another window. */
++	/**
++	 * The IPC context of a window's renderer is `window:<id>` (mainProcessService.ts). The renderer sends it itself, so it is the same trust as the
++	 * window id nativeHost takes: it keeps a call from naming a window by mistake, it does not stop a compromised renderer from naming another.
++	 */
 +	channel(): IServerChannel<string> {
 +		const idOf = (ctx: string): number | undefined => {
 +			const match = /^window:(\d+)$/.exec(ctx);
@@ -2024,10 +2049,10 @@ index 0000000..3cc7df5
 +}
 diff --git a/src/vs/workbench/contrib/insilodeAgentsAlone/electron-browser/insilodeAgentsAlone.contribution.ts b/src/vs/workbench/contrib/insilodeAgentsAlone/electron-browser/insilodeAgentsAlone.contribution.ts
 new file mode 100644
-index 0000000..e33f225
+index 0000000..2c5bb67
 --- /dev/null
 +++ b/src/vs/workbench/contrib/insilodeAgentsAlone/electron-browser/insilodeAgentsAlone.contribution.ts
-@@ -0,0 +1,267 @@
+@@ -0,0 +1,270 @@
 +/*---------------------------------------------------------------------------------------------
 + *  Insilode: the Agents window on its own. The Agents window is an auxiliary window of this window's page (one renderer, one
 + *  extension host, every agent's terminal), so the editor window cannot really go while it runs. Instead:
@@ -2128,6 +2153,9 @@ index 0000000..e33f225
 +			}
 +		}));
 +		this._register(this.lifecycleService.onWillShutdown(() => this.closing = true));
++
++		// A close that was vetoed after all (the save question was cancelled, another window of the app stays): the window is not going away
++		this._register(this.lifecycleService.onShutdownVeto(() => this.closing = false));
 +
 +		// An editor opens in this window (Open in IDE, quick open, Show in Flow): the window shows
 +		this._register(editorService.onDidEditorsChange(e => {

@@ -1645,7 +1645,7 @@ index 5077e95f..c51206fd 100644
  	'wait': { type: 'boolean', cat: 'o', alias: 'w', description: localize('wait', "Wait for the files to be closed before returning.") },
  	'waitMarkerFilePath': { type: 'string' },
 diff --git a/src/vs/platform/windows/electron-main/windowImpl.ts b/src/vs/platform/windows/electron-main/windowImpl.ts
-index 307ac9e9..188f12be 100644
+index 307ac9e9..a754569d 100644
 --- a/src/vs/platform/windows/electron-main/windowImpl.ts
 +++ b/src/vs/platform/windows/electron-main/windowImpl.ts
 @@ -54,6 +54,9 @@ export interface IWindowCreationOptions {
@@ -1738,9 +1738,9 @@ index 307ac9e9..188f12be 100644
 +	}
 +
  	private doFocusWindow() {
-+		// Insilode: a hidden window comes back when it is asked for (Insilode started again, the Dock icon): focus() alone would leave it hidden
++		// Insilode: a hidden window is not focused (that would not show it, and focus is not a reason to show it): what brings it back is
++		// setHidden(false), from the places the plan lists (an editor opening in it, Show IDE Window, Insilode started again, the Dock, a reload, a crash)
 +		if (this._hidden) {
-+			this.setHidden(false);
 +			return;
 +		}
 +
@@ -1774,17 +1774,18 @@ index 307ac9e9..188f12be 100644
  			const iconPath = config.isSessionsWindow && isWindows ? join(this.environmentMainService.appRoot, 'resources/win32/sessions.ico') : undefined;
  			if (iconPath) {
  				options.icon = iconPath;
-@@ -1005,6 +1074,9 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
- 			case WindowError.UNRESPONSIVE:
- 			case WindowError.PROCESS_GONE:
+@@ -1065,6 +1134,10 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
  
-+				// Insilode: the dialog below, and a window that reopens, need a window the user can see
-+				this.setHidden(false);
+ 				// Process gone
+ 				else if (type === WindowError.PROCESS_GONE) {
 +
- 				// If we run extension tests from CLI, we want to signal
- 				// back this state to the test runner by exiting with a
- 				// non-zero exit code.
-@@ -1294,11 +1366,16 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
++					// Insilode: the dialog below, and a window that reopens, need a window the user can see (an unresponsive window stays hidden)
++					this.setHidden(false);
++
+ 					let message: string;
+ 					if (!details) {
+ 						message = localize('appGone', "The window terminated unexpectedly");
+@@ -1294,11 +1367,16 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
  		const wasLoaded = this.wasLoaded;
  		this.wasLoaded = true;
  
@@ -1803,22 +1804,23 @@ index 307ac9e9..188f12be 100644
  					this.focus({ mode: FocusMode.Force });
  					this._win.webContents.openDevTools();
 diff --git a/src/vs/platform/windows/electron-main/windowsMainService.ts b/src/vs/platform/windows/electron-main/windowsMainService.ts
-index 22bcd111..3e914a77 100644
+index 22bcd111..2935bf4b 100644
 --- a/src/vs/platform/windows/electron-main/windowsMainService.ts
 +++ b/src/vs/platform/windows/electron-main/windowsMainService.ts
-@@ -1610,7 +1610,9 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
+@@ -1610,7 +1610,10 @@ export class WindowsMainService extends Disposable implements IWindowsMainServic
  				state,
  				extensionDevelopmentPath: configuration.extensionDevelopmentPath,
  				isExtensionTestHost: !!configuration.extensionTestsPath,
 -				isSessionsWindow: configuration.isSessionsWindow
 +				isSessionsWindow: configuration.isSessionsWindow,
-+				// Insilode: only the app's first window starts hidden: windows restored after it, and any opened later, are normal ones
-+				agentsOnly: !!options.cli?.['agents-only'] && this.getWindowCount() === 0
++				// Insilode: every window of an `--agents-only` start opens hidden, the restored ones too (the first one, or any made during the initial
++				// startup); a window made later (New Window, which carries the flag in the app's own arguments) is a normal one
++				agentsOnly: !!options.cli?.['agents-only'] && (!!options.initialStartup || this.getWindowCount() === 0)
  			});
  			mark('code/didCreateCodeWindow');
  
 diff --git a/src/vs/platform/launch/electron-main/launchMainService.ts b/src/vs/platform/launch/electron-main/launchMainService.ts
-index 1984c46f..b1718b8c 100644
+index 1984c46f..1d6685d6 100644
 --- a/src/vs/platform/launch/electron-main/launchMainService.ts
 +++ b/src/vs/platform/launch/electron-main/launchMainService.ts
 @@ -5,6 +5,7 @@
@@ -1837,7 +1839,7 @@ index 1984c46f..b1718b8c 100644
  import { IWindowSettings } from '../../window/common/window.js';
  import { IOpenConfiguration, IWindowsMainService, OpenContext } from '../../windows/electron-main/windows.js';
  import { IProtocolUrl } from '../../url/electron-main/url.js';
-@@ -148,6 +150,24 @@ export class LaunchMainService implements ILaunchMainService {
+@@ -148,6 +150,25 @@ export class LaunchMainService implements ILaunchMainService {
  			usedWindows = await this.windowsMainService.openAgentsWindow(baseConfig);
  		}
  
@@ -1850,20 +1852,21 @@ index 1984c46f..b1718b8c 100644
 +			usedWindows = [lastActive];
 +		}
 +
-+		// Insilode: started again with nothing to open while the editor window is hidden: it comes back (focus shows it). The default below
++		// Insilode: started again with nothing to open while an editor window is hidden: it comes back (every hidden one does). The default below
 +		// would open a second, empty window on Windows and Linux and leave the hidden one hidden.
 +		else if (!args._.length && !args['folder-uri'] && !args['file-uri'] && !args['new-window'] && this.windowsMainService.getWindows().some(window => window instanceof CodeWindow && window.hidden)) {
-+			const hidden = this.windowsMainService.getWindows().find(window => window instanceof CodeWindow && window.hidden)!;
-+			this.windowsMainService.openExistingWindow(hidden, baseConfig);
++			const hidden = this.windowsMainService.getWindows().filter(window => window instanceof CodeWindow && window.hidden);
++			hidden.forEach(window => (window as CodeWindow).setHidden(false));
++			this.windowsMainService.openExistingWindow(hidden[hidden.length - 1], baseConfig);
 +
-+			usedWindows = [hidden];
++			usedWindows = hidden;
 +		}
 +
  		// Start without file/folder arguments
  		else if (!args._.length && !args['folder-uri'] && !args['file-uri']) {
  			let openNewWindow = false;
 diff --git a/src/vs/workbench/browser/parts/notifications/notificationsToasts.ts b/src/vs/workbench/browser/parts/notifications/notificationsToasts.ts
-index 9b2f8c79..216b28a7 100644
+index 9b2f8c79..8761b7c8 100644
 --- a/src/vs/workbench/browser/parts/notifications/notificationsToasts.ts
 +++ b/src/vs/workbench/browser/parts/notifications/notificationsToasts.ts
 @@ -7,7 +7,7 @@ import './media/notificationsToasts.css';
@@ -1903,7 +1906,7 @@ index 9b2f8c79..216b28a7 100644
  		@ILifecycleService private readonly lifecycleService: ILifecycleService,
  		@IHostService private readonly hostService: IHostService,
  		@IWorkbenchEnvironmentService private readonly environmentService: IWorkbenchEnvironmentService,
-@@ -96,7 +101,7 @@ export class NotificationsToasts extends Themable implements INotificationsToast
+@@ -96,11 +101,11 @@ export class NotificationsToasts extends Themable implements INotificationsToast
  	) {
  		super(themeService);
  
@@ -1912,6 +1915,11 @@ index 9b2f8c79..216b28a7 100644
  		this.pendingToasts = this._register(new PendingNotificationToasts(
  			item => this.model.notifications.includes(item),
  			(item, other) => item.equals(other),
+-			callback => scheduleAtNextAnimationFrame(getWindow(this.container), callback)
++			callback => scheduleAtNextAnimationFrame(getWindow(this.hostContainer()), callback) // Insilode: the window the toasts are shown in, not the hidden main one
+ 		));
+ 		this._register(toDisposable(() => this.removeToasts()));
+ 		this._register(onDidChangeNotificationRowHeight(() => this.updateNotificationHeights()));
 @@ -122,6 +127,9 @@ export class NotificationsToasts extends Themable implements INotificationsToast
  		// Layout
  		this._register(this.layoutService.onDidLayoutMainContainer(dimension => this.layout(Dimension.lift(dimension))));

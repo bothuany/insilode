@@ -148,7 +148,10 @@ export async function activate(context: vscode.ExtensionContext) {
 		vscode.commands.registerCommand('flow.agents.reveal', (id: unknown) => {
 			const s = typeof id === 'string' ? agents.sessions.get(id) : undefined;
 			if (s && s.state !== 'ended') {
-				agents.show(s.id);
+				// In the Agents window when it is open (it is what the editor window being hidden leaves), else the terminal.
+				if (!page.focusSession(s.id)) {
+					agents.show(s.id);
+				}
 			}
 		}),
 		// Called by flow-view's Home: this window's agents that wait for the user (an approval, a question, an error), the one that needs

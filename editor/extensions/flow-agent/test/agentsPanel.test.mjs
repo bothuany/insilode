@@ -617,3 +617,27 @@ test('one folder dialog at a time: a second pickFolder while one is open is answ
 	assert.equal(t.calls.pick, 2, 'and another one once the first was answered')
 	t.dispose()
 })
+
+test('agents-standalone/RC03 a click on an agent in the status island shows it in the open page, which comes forward', TT, async () => {
+	let revealed = 0
+	const listeners = {}
+	const posted = []
+	const none = () => ({ dispose() {} })
+	globalThis.__panel = () => ({ visible: false, active: true, webview: { html: '', postMessage: async m => { posted.push(JSON.parse(JSON.stringify(m))); return true }, onDidReceiveMessage: f => { listeners.message = f; return none() } }, onDidChangeViewState: none, onDidDispose: none, reveal() { revealed++ }, dispose() {} })
+	const panel = new AgentsPanel({ onDidChange: none, sessions: new Map() })
+	const focuses = () => posted.filter(m => m.type === 'focusSession').map(m => m.id)
+	assert.equal(panel.focusSession('a'), false, 'no page open: the caller shows the terminal instead')
+	assert.equal(revealed, 0)
+	panel.open()
+	// The page has not said ready: it comes forward now and gets the agent with its first data.
+	assert.equal(panel.focusSession('a'), true)
+	assert.equal(revealed, 1)
+	assert.deepEqual(focuses(), [])
+	listeners.message({ type: 'ready' })
+	await sleep(10)
+	assert.deepEqual(focuses(), ['a'])
+	// A page that is ready gets it at once, and comes forward again.
+	assert.equal(panel.focusSession('b'), true)
+	assert.equal(revealed, 2)
+	assert.deepEqual(focuses(), ['a', 'b'])
+})

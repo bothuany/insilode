@@ -167,6 +167,25 @@ export class AgentsPanel implements vscode.Disposable {
 		this.listeners = [];
 	}
 
+	/**
+	 * Shows a live agent in the page and brings the page's window forward (a click on the agent in the desktop status island). False when the
+	 * page is not open, so the caller shows the agent's terminal instead. A page that has not said ready yet gets it with its first data.
+	 */
+	focusSession(id: string): boolean {
+		if (!this.panel) {
+			return false;
+		}
+		this.panel.reveal();
+		if (this.ready) {
+			this.send({ type: 'focusSession', id });
+		} else {
+			this.pendingFocus = id;
+		}
+		return true;
+	}
+
+	private pendingFocus: string | undefined;
+
 	private send(m: AgentsPageMessage | AgentsPageFolderPicked) {
 		void this.panel?.webview.postMessage(m);
 	}
@@ -187,7 +206,12 @@ export class AgentsPanel implements vscode.Disposable {
 				this.post();
 				// A page that (re)loads gets the list of earlier sessions and the layout it had.
 				void this.sendIndex();
-				return this.sendLayouts(true);
+				this.sendLayouts(true);
+				if (this.pendingFocus !== undefined) {
+					this.send({ type: 'focusSession', id: this.pendingFocus });
+					this.pendingFocus = undefined;
+				}
+				return;
 			case 'new': return void vscode.commands.executeCommand('flow.agents.start', m.cli);
 			case 'show': return this.agents.show(m.id);
 			case 'flow': return this.agents.openImpactFlow(m.id, m.index);
