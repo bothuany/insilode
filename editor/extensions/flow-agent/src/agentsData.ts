@@ -248,4 +248,10 @@ export interface AgentsPageLayoutSaved {
 	reason?: 'limit' | 'invalid';
 }
 
-export type AgentsPageMessage = AgentsPageData | AgentsPageTail | AgentsPageHarnessData | AgentsPageHarnessFailed | AgentsPageChatIndex | AgentsPageChatFound | AgentsPageLayouts | AgentsPageLayoutSaved | AgentsPageTermData | AgentsPageTermGone | AgentsPageTermOpened | AgentsPageTermFailed;
+/** Host → page: opens this session in a pane (or focuses the pane it is in): what a click on an agent in the desktop status island asks for while the editor window is hidden. An id the page has no row for does nothing. */
+export interface AgentsPageFocusSession {
+	type: 'focusSession';
+	id: string;
+}
+
+export type AgentsPageMessage = AgentsPageFocusSession | AgentsPageData | AgentsPageTail | AgentsPageHarnessData | AgentsPageHarnessFailed | AgentsPageChatIndex | AgentsPageChatFound | AgentsPageLayouts | AgentsPageLayoutSaved | AgentsPageTermData | AgentsPageTermGone | AgentsPageTermOpened | AgentsPageTermFailed;

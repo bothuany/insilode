@@ -4,7 +4,7 @@
 import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, createWriteStream } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { refusal } from './isolation.mjs'
 
 export const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -64,6 +64,7 @@ export const isOverlay = url => url.startsWith('data:text/html')
  * @param {string} o.out          where logs go
  * @param {string} [o.folder]     workspace to open
  * @param {object} [o.settings]   written to the profile's settings.json
+ * @param {Record<string, string | object>} [o.files]  more files for the profile, by path under its user data folder (e.g. `User/globalStorage/storage.json`, the main process's window state); objects are written as JSON
  * @param {object} [o.env]
  * @param {boolean} [o.updates]    leave the update service on (default: off)
  * @param {boolean} [o.updates]    leave the update service on (default: off)
@@ -81,6 +82,10 @@ export async function launchInsilode(o) {
 	mkdirSync(join(userData, 'User'), { recursive: true })
 	const settings = { 'security.workspace.trust.enabled': false, 'telemetry.telemetryLevel': 'off', 'window.restoreWindows': 'none', 'window.confirmBeforeClose': 'never', ...o.settings }
 	writeFileSync(join(userData, 'User', 'settings.json'), JSON.stringify(settings, null, 2))
+	for (const [file, content] of Object.entries(o.files ?? {})) {
+		mkdirSync(dirname(join(userData, file)), { recursive: true })
+		writeFileSync(join(userData, file), typeof content === 'string' ? content : JSON.stringify(content))
+	}
 	const args = [
 		...(o.args ?? []),
 		'--user-data-dir', userData,

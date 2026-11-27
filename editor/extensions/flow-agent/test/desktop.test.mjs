@@ -168,3 +168,13 @@ test('overlay options carry only where and how to draw', () => {
 	assert.equal(d.readAvatar('robot'), 'gyro')
 	assert.equal(d.readAvatar(undefined), 'gyro')
 })
+
+test('agents-standalone/RC02 counts live agents', () => {
+	assert.equal(d.liveAgents([]), 0)
+	assert.equal(d.liveAgents([agent('a')]), 1)
+	assert.equal(d.liveAgents([agent('a'), agent('b', { state: 'idle' })]), 2)
+	// An ended session stays in agents.sessions until it is removed: it is not a live agent.
+	assert.equal(d.liveAgents([agent('a'), agent('b', { state: 'ended' })]), 1)
+	assert.equal(d.liveAgents([agent('a', { state: 'ended' })]), 0)
+	assert.equal(d.liveAgents(new Map([['a', agent('a')], ['b', agent('b', { state: 'needs-you' })]]).values()), 2)
+})

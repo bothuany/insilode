@@ -81,7 +81,82 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .btn.ghost:hover { color: var(--fl-text); background: var(--fl-line); }
 
 /* ---- canvas -------------------------------------------------------------------------------- */
-.wv-canvas { flex: 1; min-height: 0; position: relative; }
+.wv-body { flex: 1; min-height: 0; display: flex; }
+.wv-canvas { flex: 1; min-width: 0; min-height: 0; position: relative; }
+
+/* ---- the reading pane: the selected method in an editor, beside the canvas (read/ReadPane.tsx) ------------------------- */
+/* It is part of the editor, not a card on the canvas: the editor's own background and widget borders, no shadow, no tint. */
+.rp-split { flex: none; width: 5px; margin: 0 -2px; z-index: 5; cursor: col-resize; position: relative; }
+.rp-split::after { content: ''; position: absolute; inset: 0 2px; background: var(--fl-line); }
+.rp-split:hover::after, .rp-split:active::after { background: var(--vscode-sash-hoverBorder, var(--fl-signal)); }
+/* The splitter takes the focus and the arrow keys: a ring, so a keyboard user sees where it is. */
+.rp-split:focus { outline: none; }
+.rp-split:focus-visible::after { background: var(--vscode-focusBorder, var(--fl-signal)); inset: 0 1px; }
+.rp-wrap { flex: none; min-width: 0; display: flex; }
+.rp { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--vscode-editor-background, var(--fl-canvas)); }
+.rp-head { flex: none; display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 8px; border-bottom: 1px solid var(--fl-line); }
+.rp-nav { display: flex; gap: 2px; }
+.rp-nav .tool:disabled { opacity: .35; cursor: default; background: none; }
+.rp-title { font: 12.5px var(--fl-mono); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.rp-title .owner { color: var(--fl-muted); }
+.rp-title .member { font-weight: 600; }
+.rp-file { color: var(--fl-muted); font-size: 11.5px; white-space: nowrap; }
+.rp-caller { flex: none; display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 6px 12px; border: 0; border-bottom: 1px solid var(--fl-line); background: none; color: var(--fl-text); text-align: left; cursor: pointer; font: 12px var(--fl-mono); }
+.rp-caller:hover { background: var(--vscode-list-hoverBackground, var(--fl-line)); }
+.rp-caller-name { flex: none; color: var(--fl-muted); }
+.rp-caller-src { min-width: 0; white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.rp-editor { flex: 1; min-height: 0; }
+.rp-empty { margin: 16px; color: var(--fl-muted); }
+.rp-call-line { background: color-mix(in srgb, var(--fl-text) 4%, transparent); }
+/* A call's note hangs off the end of its line: a mark by whether its peek is open (a class, so opening one changes no stylesheet), then its name. */
+.rp-call-note::before, .rp-call-note::after { font-style: italic; cursor: pointer; opacity: .8; }
+.rp-call-note::before { margin-left: 2.5em; }
+.rp-call-note.rp-closed::before { content: '▸ '; }
+.rp-call-note.rp-open::before { content: '▾ '; }
+.rp-call-note:hover::before, .rp-call-note:hover::after { opacity: 1; }
+.rp-call-note:hover::after { text-decoration: underline; }
+/* A call line whose callee changed says so in the gutter, so a closed peek still shows where the change is. */
+.rp-chg-sign::before { content: ''; position: absolute; left: 4px; top: 3px; bottom: 3px; width: 3px; border-radius: 1px; background: var(--fl-signal); }
+/* The pane's cursor: the line a step stands on, marked the way an editor marks the current statement of a paused debugger. */
+.rp-cur { box-sizing: border-box; border: 1px solid var(--vscode-debugIcon-stepOverForeground, #ffcc00); background: var(--vscode-editor-stackFrameHighlightBackground, color-mix(in srgb, #ffcc00 10%, transparent)); }
+.rp-cur-mark { border-left: 3px solid var(--vscode-debugIcon-stepOverForeground, #ffcc00); margin-left: 2px; }
+/* A peek: the callee's code right under the line that calls it, set in by a rule in the callee's colour. */
+/* A peek looks like VS Code's own peek view: its border, title and editor colours, a rule in the callee's kind colour. */
+.rp:focus { outline: 1px solid var(--vscode-focusBorder, var(--fl-signal)); outline-offset: -1px; }
+.rp:focus-within .rp-head { box-shadow: inset 0 -1px 0 var(--vscode-focusBorder, var(--fl-signal)); }
+body.vscode-high-contrast .rp:focus, body.vscode-high-contrast .rp:focus-within { outline: 1px solid var(--vscode-contrastActiveBorder, var(--vscode-focusBorder)); outline-offset: -1px; }
+.rp-peek { box-sizing: border-box; position: relative; border-top: 1px solid var(--vscode-peekView-border, var(--fl-line-strong)); border-bottom: 1px solid var(--vscode-peekView-border, var(--fl-line-strong)); background: var(--vscode-peekViewEditor-background, transparent); }
+.rp-peek::before { content: ''; position: absolute; left: 8px; top: 6px; bottom: 6px; width: 2px; border-radius: 1px; background: var(--c); }
+.rp-peek-head { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; min-height: 28px; box-sizing: border-box; padding: 2px 6px 2px 0; background: var(--vscode-peekViewTitle-background, transparent); font: 12px var(--fl-mono); color: var(--vscode-peekViewTitleLabel-foreground, var(--fl-text)); white-space: nowrap; overflow: hidden; }
+.rp-peek-name { font-weight: 600; flex: none; }
+.rp-peek-where { min-width: 0; color: var(--vscode-peekViewTitleDescription-foreground, var(--fl-muted)); font-family: var(--fl-ui); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; }
+.rp-peek-where.hop, .rp-hop { color: var(--c); }
+/* The peek's tools stay out of the way until the peek is pointed at or focused. */
+.rp-peek-tools { margin-left: auto; flex: none; display: flex; align-items: center; gap: 4px; opacity: .45; transition: opacity .15s; }
+.rp-peek:hover .rp-peek-tools, .rp-peek-tools:focus-within, .rp-peek.changed .rp-peek-tools { opacity: 1; }
+.rp-peek-tools .btn, .rp-change .btn { height: 20px; padding: 0 8px; font-size: 11.5px; }
+.rp-stat { font: 11.5px var(--fl-mono); }
+.rp-stat .plus { color: var(--fl-add); font-weight: 600; } .rp-stat .minus { color: var(--fl-del); font-weight: 600; }
+.rp-change { display: flex; align-items: center; gap: 6px; padding-right: 6px; }
+/* A change in place, the way the diff editor draws it: added lines tinted with a +, removed lines struck out under the line they followed. */
+.rp-add { background: var(--vscode-diffEditor-insertedLineBackground, color-mix(in srgb, var(--fl-add) 14%, transparent)); }
+.rp-add-sign::before { content: '+'; color: var(--fl-add); font-weight: 700; padding-left: 4px; }
+.rp-del { box-sizing: border-box; padding-left: 62px; background: var(--vscode-diffEditor-removedLineBackground, color-mix(in srgb, var(--fl-del) 14%, transparent)); font-family: var(--fl-mono); font-size: var(--vscode-editor-font-size, 13px); color: var(--fl-text); white-space: pre; overflow: hidden; position: relative; }
+.rp-del::before { content: '−'; position: absolute; left: 50px; color: var(--fl-del); font-weight: 700; }
+.rp-del > div { line-height: inherit; }
+.rp-bound { color: var(--fl-muted); font-weight: 400; margin-left: 2px; }
+.rp-table { display: grid; grid-template-columns: max-content max-content; gap: 0 24px; padding: 4px 8px; font: 12px/18px var(--fl-mono); }
+.rp-table > div { display: contents; }
+.rp-table span:nth-child(2) { color: var(--fl-muted); }
+.rp-hop { flex: none; padding: 5px 12px; border-bottom: 1px solid var(--fl-line); font: 12px var(--fl-mono); }
+.rp-review { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 4px 10px; border-bottom: 1px solid var(--fl-line); }
+.rp-path { display: flex; align-items: center; gap: 6px; padding-right: 6px; }
+.rp-count { font: 11.5px var(--fl-mono); color: var(--fl-muted); white-space: nowrap; }
+.rp-path .btn { height: 20px; }
+.btn.on { box-shadow: inset 0 0 0 1px var(--vscode-focusBorder, var(--fl-signal)); }
+.rp-chain { flex: none; display: flex; flex-direction: column; }
+.rp-steps { display: flex; gap: 2px; padding: 0 6px; border-left: 1px solid var(--fl-line); border-right: 1px solid var(--fl-line); }
+.rp-steps .tool { display: flex; align-items: center; justify-content: center; color: var(--vscode-debugIcon-stepOverForeground, var(--fl-signal)); }
 .react-flow__background { background: var(--fl-canvas); }
 .react-flow__background circle { fill: var(--fl-line-strong); }
 .wv-empty { position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; pointer-events: none; text-align: center; padding: 0 24px; }
@@ -149,7 +224,9 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .ln.call { background: color-mix(in srgb, var(--c) 6%, transparent); }
 
 /* The port: the end of a call line, where its wire leaves the card. Click it to show or hide the callee. */
-.port { position: absolute; right: 6px; top: 2px; height: 14px; max-width: 45%; padding: 0 6px; display: flex; align-items: center; gap: 4px; border-radius: 4px; border: 1px solid color-mix(in srgb, var(--c) 40%, transparent); background: var(--fl-card); color: var(--c); font: 10.5px/12px var(--fl-mono); cursor: pointer; overflow: hidden; text-overflow: ellipsis; box-shadow: -14px 0 10px -2px var(--fl-card); }
+/* The ports have a column of their own at the card's right edge (--port-w, layout.ts portWidth): the code never runs under them. */
+.code .ln { padding-right: calc(10px + var(--port-w, 0px)); }
+.port { position: absolute; right: 6px; top: 2px; height: 14px; max-width: calc(var(--port-w, 120px) - 10px); padding: 0 6px; display: flex; align-items: center; gap: 4px; border-radius: 4px; border: 1px solid color-mix(in srgb, var(--c) 40%, transparent); background: var(--fl-card); color: var(--c); font: 10.5px/12px var(--fl-mono); cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
 .port:hover { background: color-mix(in srgb, var(--c) 14%, var(--fl-card)); }
 .port.folded { border-style: dashed; color: color-mix(in srgb, var(--c) 75%, var(--fl-muted)); }
 .port.folded::before { content: '+'; font-weight: 700; }
@@ -427,3 +504,23 @@ kbd { font: 10.5px var(--fl-mono); padding: 0 4px; border: 1px solid var(--fl-li
 .react-flow__minimap-node.mm-here { fill: var(--fl-signal); }
 .react-flow__minimap-node.mm-frame { fill: none; }
 .react-flow__minimap-mask { fill: var(--fl-canvas); fill-opacity: 0.55; }
+
+/* ---- the canvas as a trace of the reading: classes on the cards and wires, set from data (read/model.ts traceOf) ------------- */
+/* The path from the entry to the cursor and the callee under it are solid, the cards the cursor has been in are plain, the rest is faded. */
+.wv-reading .react-flow__node.tr-dim .card { opacity: .42; transition: opacity .2s; }
+.wv-reading .react-flow__node.tr-read .card { opacity: .8; transition: opacity .2s; }
+.wv-reading .react-flow__edge.tr-dim path { opacity: .28; }
+.wv-reading .react-flow__edge.tr-path path, .wv-reading .react-flow__edge.tr-next path { opacity: 1; stroke-width: 2.2px !important; }
+/* In a high-contrast theme nothing fades: the state is in the border instead. */
+body.vscode-high-contrast .wv-reading .react-flow__node.tr-dim .card, body.vscode-high-contrast .wv-reading .react-flow__node.tr-read .card { opacity: 1; }
+body.vscode-high-contrast .wv-reading .react-flow__node.tr-dim .card { border: 1px dashed var(--vscode-contrastBorder, currentColor); }
+body.vscode-high-contrast .wv-reading .react-flow__node.tr-read .card { border: 1px solid var(--vscode-contrastBorder, currentColor); }
+body.vscode-high-contrast .wv-reading .react-flow__node.tr-path .card { border: 2px solid var(--vscode-contrastActiveBorder, var(--vscode-focusBorder, currentColor)); }
+body.vscode-high-contrast .wv-reading .react-flow__node.tr-next .card { border: 2px dotted var(--vscode-contrastActiveBorder, var(--vscode-focusBorder, currentColor)); }
+body.vscode-high-contrast .wv-reading .react-flow__edge.tr-dim path { opacity: 1; stroke-dasharray: 2 4; }
+
+/* A card while the reading pane is open (CardData.outline): one row, the glyph and the signature; its buttons show on hover over the text. */
+.card-head.outline { position: relative; border-bottom: 0; border-radius: 8px; }
+.card-head .sig { flex: 1; min-width: 0; font: 12.5px var(--fl-mono); color: var(--fl-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card-head.outline .tools { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); padding-left: 6px; border-radius: 5px; background: var(--fl-card); opacity: 0; }
+.card:hover .card-head.outline .tools, .card.selected .card-head.outline .tools, .card:focus-within .card-head.outline .tools { opacity: 1; }

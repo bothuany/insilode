@@ -617,3 +617,47 @@ test('one folder dialog at a time: a second pickFolder while one is open is answ
 	assert.equal(t.calls.pick, 2, 'and another one once the first was answered')
 	t.dispose()
 })
+
+/** A visible page that gets its rows, with a count of how often it was brought forward. */
+function focusSetup() {
+	const listeners = {}
+	const posted = []
+	let revealed = 0
+	const none = () => ({ dispose() {} })
+	globalThis.__panel = () => ({ visible: true, active: true, webview: { html: '', postMessage: async m => { posted.push(JSON.parse(JSON.stringify(m))); return true }, onDidReceiveMessage: f => { listeners.message = f; return none() } }, onDidChangeViewState: none, onDidDispose: none, reveal() { revealed++ }, dispose() {} })
+	const panel = new AgentsPanel({ onDidChange: none, sessions: new Map(), conflicts: () => [], askSessions: () => [], keptWorktrees: [], latestLimits: undefined })
+	return { panel, posted, page: m => listeners.message(m), revealed: () => revealed, focuses: () => posted.filter(m => m.type === 'focusSession').map(m => m.id) }
+}
+
+test('agents-standalone/RC03 a click on an agent in the status island shows it in the open page, which comes forward, after the page has its rows', TT, async () => {
+	const t = focusSetup()
+	assert.equal(t.panel.focusSession('a'), false, 'no page open: the caller shows the terminal instead')
+	assert.equal(t.revealed(), 0)
+	t.panel.open()
+	// The page has not said ready: it comes forward now, and gets the agent only after its rows (a row it does not know yet is dropped).
+	assert.equal(t.panel.focusSession('a'), true)
+	assert.equal(t.revealed(), 1)
+	assert.deepEqual(t.focuses(), [])
+	t.page({ type: 'ready' })
+	await sleep(400)
+	const types = t.posted.map(m => m.type)
+	assert.ok(types.includes('data'), 'the rows were sent')
+	assert.deepEqual(t.focuses(), ['a'])
+	assert.ok(types.indexOf('data') < types.indexOf('focusSession'), 'the agent follows the rows: ' + types.join(','))
+	// A page that has its rows gets it at once, and comes forward again.
+	assert.equal(t.panel.focusSession('b'), true)
+	assert.equal(t.revealed(), 2)
+	assert.deepEqual(t.focuses(), ['a', 'b'])
+})
+
+test('agents-standalone/RC03 an agent waiting for a page that is closed is not shown in the next page', TT, async () => {
+	const t = focusSetup()
+	t.panel.open()
+	assert.equal(t.panel.focusSession('a'), true)
+	t.panel.dispose()
+	t.panel.open()
+	t.page({ type: 'ready' })
+	await sleep(400)
+	assert.ok(t.posted.some(m => m.type === 'data'), 'the new page got its rows')
+	assert.deepEqual(t.focuses(), [])
+})

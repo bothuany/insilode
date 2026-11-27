@@ -1,7 +1,7 @@
 import { memo, useContext, useEffect, useRef, useState, createContext, type CSSProperties, type MouseEvent, type PointerEvent } from 'react'
 import { Handle, Position, useStore, type NodeProps, type Node } from '@xyflow/react'
 import * as monaco from 'monaco-editor'
-import { CODE_PAD, HEADER_H, headerH, isChangeRoot, KIND_COLOR, subLines, LINE_H, SCHEMA_MAX, SCHEMA_OPS_H, SCHEMA_ROW, type CardData, type FrameData } from './layout'
+import { CODE_PAD, HEADER_H, OUTLINE_H, headerH, isChangeRoot, KIND_COLOR, portWidth, subLines, LINE_H, SCHEMA_MAX, SCHEMA_OPS_H, SCHEMA_ROW, type CardData, type FrameData } from './layout'
 import { chipList, linkOf, ROW_H, STRIP_H, type CardChips, type ChipRow, type TypeLink } from './chips'
 import { bindEditor, hoverCode, leaveCode, wordAtPoint } from './ide'
 import { cardLabel, cutNote } from './impact/cardLabel'
@@ -26,6 +26,8 @@ export interface CanvasActions {
   cancelEdit?: () => void
   /** Show the method in the editor without leaving the canvas. */
   reveal?: (nodeKey: string) => void
+  /** Read the method in the reading pane beside the canvas. Absent in hosts without one: Enter then opens the file. */
+  read?: (nodeKey: string) => void
   keep?: (nodeKey: string) => void
   undo?: (nodeKey: string) => void
   /** A call line is hovered: light the wire from `source` to `target` (null clears). */
@@ -69,7 +71,7 @@ const KIND_NAME: Record<Kind, string> = {
 }
 
 /** One shape per kind, so kinds stay readable without colour: ▶ entry, ◆ handler, ● method, cylinder db. */
-function KindGlyph({ kind }: { kind: Kind }) {
+export function KindGlyph({ kind }: { kind: Kind }) {
   const c = KIND_COLOR[kind]
   const shape = {
     controller: <path d="M3 1.5 L10 6 L3 10.5 Z" fill={c} />,
@@ -99,7 +101,7 @@ function changeNote(change: NonNullable<FlowNode['tableChange']> | undefined) {
   return `${change.entity ? ' · entity changed' : ''}${(change.migration ?? []).map(m => ` · migration ${m.name}: ${m.summary}`).join('')}`
 }
 
-function splitLabel(label: string) {
+export function splitLabel(label: string) {
   const clean = label.replace(/\s*▸\s*/g, '.')
   const at = clean.lastIndexOf('.')
   return at > 0 ? { owner: clean.slice(0, at), member: clean.slice(at + 1) } : { owner: '', member: clean }
@@ -470,6 +472,8 @@ function TypeChips({ nodeKey, chips, rows, open, height, zoomedOut, still }: { n
 
 export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
   const { node, lines, rows, full, compactable, calls, selected, touched, editing, chips, chipRows, chipsOpen, chipsH } = data
+  // While the reading pane is open a card is one row: the glyph and the signature. The pane has the code.
+  const flat = !!data.outline && !editing
   const actions = useContext(ActionsCtx)
   const color = KIND_COLOR[node.kind]
   const lang = langOf(node.file)
@@ -531,7 +535,8 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
         // Enter opens the card in the editor: the arrow keys bring the focus here, and a reveal would do nothing when the canvas is the only editor group.
         if (e.key === 'Enter' && e.target === e.currentTarget && (node.code || schema?.file)) {
           e.preventDefault()
-          actions.open(node.key)
+          if (actions.read) actions.read(node.key)
+          else actions.open(node.key)
         }
       }}
       onPointerDown={onDown}
@@ -544,15 +549,18 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
         }
       }}
     >
-      <Handle type="target" position={Position.Left} id="in" style={{ top: HEADER_H / 2 }} />
+      <Handle type="target" position={Position.Left} id="in" style={{ top: (flat ? OUTLINE_H : HEADER_H) / 2 }} />
       <div
-        className="card-head"
-        style={{ height: headerH(node) }}
+        className={`card-head${flat ? ' outline' : ''}`}
+        style={{ height: flat ? OUTLINE_H : headerH(node) }}
         onClick={e => still(e) && (node.code || schema?.file) && actions.reveal?.(node.key)}
         onDoubleClick={() => (node.code || schema?.file) && actions.open(node.key)}
-        title={node.code ? 'Click to select (an editor beside the canvas shows it), double-click to open it' : schema?.file ? 'Click to select the entity, double-click to open it' : undefined}
+        title={node.code ? (actions.read ? 'Click to read it beside the canvas, double-click to open it' : 'Click to select (an editor beside the canvas shows it), double-click to open it') : schema?.file ? 'Click to select the entity, double-click to open it' : undefined}
       >
         <KindGlyph kind={node.kind} />
+        {flat ? (
+          <span className="sig" title={`${node.label}${file ? `  ${file}:${node.startLine}` : ''}`}>{rows.find(r => 'text' in r)?.text ?? member}</span>
+        ) : (
         <div className="titles" title={node.tableChange ? [node.label, node.sub, changeNote(node.tableChange).replace(/^ · /, '')].filter(Boolean).join('\n') : undefined}>
           <div className="title">
             {owner && <span className="owner">{owner}.</span>}
@@ -564,6 +572,7 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
             <span className="sub-text">{schema ? `${schema.entity} in ${schema.context}${changeNote(node.tableChange)}` : node.kind === 'db' && /SaveChanges/.test(node.label) ? 'Saves tracked changes' : file ? `${file}:${node.startLine}` : node.sub}</span>
           </div>
         </div>
+        )}
         <div className="tools nodrag">
           {calls.length > 0 && (
             <button className="tool" title={hiddenCount ? `Show ${hiddenCount} hidden calls` : 'Hide all calls'} aria-label={hiddenCount ? `Show ${hiddenCount} hidden calls` : 'Hide all calls'} onClick={() => actions.toggleAll(node.key)}>
@@ -604,8 +613,8 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
         <CardEditor nodeKey={node.key} code={node.code} file={node.file} startLine={node.startLine} endLine={node.endLine} caret={actions.caret} onSave={(t, session) => actions.save!(node.key, t, session)} onCancel={() => actions.cancelEdit?.()} />
       )}
 
-      {!editing && rows.length > 0 && (
-        <div className="code nodrag nopan" style={{ paddingTop: CODE_PAD, paddingBottom: CODE_PAD }}>
+      {!editing && !flat && rows.length > 0 && (
+        <div className="code nodrag nopan" style={{ paddingTop: CODE_PAD, paddingBottom: CODE_PAD, ['--port-w' as string]: `${editing ? 0 : portWidth(calls.map(c => c.edge.node))}px` }}>
           {rows.map(r => {
             if ('del' in r) {
               // Coloured by the same colourizer as the lines around it, one batch for all of the card's removed rows.

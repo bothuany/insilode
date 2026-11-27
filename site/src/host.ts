@@ -18,6 +18,8 @@ const data: DemoData = await fetch('./data/demo.json').then(r => r.json())
 const say = (m: ToShell) => window.parent !== window && window.parent.postMessage(m, location.origin)
 
 const params = new URLSearchParams(location.search)
+// `?hero`: this canvas is the picture on the home page, which scrolls: the reading pane stays closed there (ui/src/webview.tsx).
+const hero = params.has('hero')
 let edited = params.get('mode') === 'changed'
 let kept = false
 const state = () => ({ edited, kept })
@@ -166,5 +168,5 @@ const wanted = params.get('t')
 const entries = (edited ? data.after : data.before).entries
 const entry = entries.find(e => e.id === wanted) ?? entries.find(e => e.http === 'POST /orders') ?? entries[0]
 const first: { target: Target; label: string } = wanted === 'changes' ? { target: { kind: 'changes', id: '1' }, label: data.changes.label } : { target: { kind: 'poly', id: entry.id }, label: entryLabel(entry) }
-;(window as unknown as { __FLOW__: unknown }).__FLOW__ = { ...first, dark: true }
+;(window as unknown as { __FLOW__: unknown }).__FLOW__ = { ...first, dark: true, hero }
 say({ source: 'insilode-canvas', type: 'ready' })

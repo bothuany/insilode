@@ -988,6 +988,13 @@ window.addEventListener('message', e => {
 		adoptNew();
 	} else if (m.type === 'folderPicked') {
 		folderPicked(m);
+	} else if (m.type === 'focusSession') {
+		const s = typeof m.id === 'string' && data.rows.find(r => r.id === m.id);
+		if (s) {
+			const c = ownContent(s);
+			const pv = findPane(c);
+			if (pv) { setView('work'); setFocus(pv.id, true); } else { selKey = 'row:' + s.id; selContent = () => ownContent(s); openInPane(c); }
+		}
 	} else if (wsMessage(m)) {
 		return;
 	} else if (m.type === 'chatIndex') {

@@ -11,10 +11,12 @@
 
 import * as vscode from 'vscode';
 import type { Agents } from './agents';
-import { overlayModel, overlayOptions, overlayWanted, readAvatar, readSettings, writtenValue } from './desktopModel';
+import { liveAgents, overlayModel, overlayOptions, overlayWanted, readAvatar, readSettings, writtenValue } from './desktopModel';
 
 const SET_BADGE = 'flow.desktop.setBadge';
 const SET_OVERLAY = 'flow.desktop.setOverlay';
+/** How many agents are live (state not ended); core reads it to ask before the Agents window closes while the IDE window is hidden (editor/patches/flow-desktop.patch). */
+const AGENTS_RUNNING = 'insilode.agentsRunning';
 /** Set while the desktop commands exist (not in the browser): the menu entries and commands that bring the island back need it. */
 const AVAILABLE = 'flow.agents.desktop.available';
 /** Set while the island is on screen for this window, which the settings alone cannot tell (core settles an unset setting by the screen): the menu entries use it. */
@@ -34,6 +36,7 @@ export class DesktopStatus implements vscode.Disposable {
 	private disposed = false;
 	/** What was sent last, so a hook that changes nothing shown sends nothing. */
 	private badge = 0;
+	private live: number | undefined;
 	private overlay: string | undefined;
 	/** Whether core says the island is on screen for this window; unknown until it answered. */
 	private on: boolean | undefined;
@@ -83,11 +86,21 @@ export class DesktopStatus implements vscode.Disposable {
 		this.available = true;
 		void vscode.commands.executeCommand('setContext', AVAILABLE, true);
 		this.subs.push(
-			this.agents.onDidChange(() => this.schedule()),
+			// The live count is not coalesced: the window may be closed right after an agent starts.
+			this.agents.onDidChange(() => { this.setLive(); this.schedule(); }),
 			// A setting turned off clears its surface at once, not after the next hook.
 			vscode.workspace.onDidChangeConfiguration(e => (e.affectsConfiguration('flow.agents.desktop') || e.affectsConfiguration('flow.agents.avatar')) && this.push()),
 		);
+		this.setLive();
 		this.push();
+	}
+
+	private setLive() {
+		const live = liveAgents(this.agents.sessions.values());
+		if (live !== this.live) {
+			this.live = live;
+			void vscode.commands.executeCommand('setContext', AGENTS_RUNNING, live);
+		}
 	}
 
 	private schedule() {
