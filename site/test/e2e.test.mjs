@@ -307,6 +307,15 @@ test('try: the order tour, the agent\'s change with its review and Keep, and the
 		return !!keep
 	}), 'a Keep button')
 	await until(async () => /^Kept\./.test(await page.$eval('[data-decision]', p => p.textContent)), 'the page to say it was kept')
+	// The canvas traces the change set again after Keep: its cards go back to plain (no Keep left), and nothing says the refresh failed.
+	const kept = await until(() => changes.evaluate(() => {
+		const text = document.body.innerText
+		return /Could not refresh/.test(text) || ![...document.querySelectorAll('button')].some(b => b.textContent.trim() === 'Keep') ? text : ''
+	}), 'the change set to be traced again after Keep')
+	assert.doesNotMatch(kept, /Could not refresh/)
+	// The canvas loads again after Keep and the host asks it to refresh a moment later: the second load must not fail either.
+	await wait(500)
+	assert.doesNotMatch(await textOf(changes), /Could not refresh/)
 
 	await page.click('[data-story="invoice"]')
 	await until(async () => (await caption(await inside(page, '.stage-frame')))?.title === 'A Java endpoint', 'the invoice tour')
