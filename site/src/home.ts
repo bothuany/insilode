@@ -151,3 +151,12 @@ document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach(button =>
     setTimeout(() => (button.textContent = 'Copy'), 2000)
   }),
 )
+
+// A card lights up under the pointer, the way a card on the canvas lights when the trace reaches it.
+document.querySelectorAll<HTMLElement>('.facts li, .tiles li').forEach(card =>
+  card.addEventListener('pointermove', e => {
+    const r = card.getBoundingClientRect()
+    card.style.setProperty('--mx', `${e.clientX - r.left}px`)
+    card.style.setProperty('--my', `${e.clientY - r.top}px`)
+  }),
+)

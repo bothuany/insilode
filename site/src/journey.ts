@@ -72,10 +72,10 @@ export function mountJourney(track: HTMLElement, list: HTMLOListElement, stage: 
   const playing = () => !!stage.window?.document.querySelector('.tour')
 
   const go = async (i: number) => {
-    if (i === current || !tour) return
+    // While the visitor drives the canvas the list stays where the canvas is, not where the scroll is.
+    if (i === current || !tour || manual) return
     current = i
     mark(i)
-    if (manual) return
     // The tour starts when the track first pins; if the visitor closed it since, the next step starts it again.
     if (!started || !playing()) {
       started = stage.play(tour, label).then(() => watch(stage.window))
