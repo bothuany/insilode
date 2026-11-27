@@ -47,13 +47,17 @@
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 .8l2.2 4.6 5 .7-3.6 3.5.9 5L8 12.2 3.5 14.6l.9-5L.8 6.1l5-.7z" /></svg>
         GitHub <span data-stars hidden></span>
       </a>
+      <a class="nav-get" href="#download">Download</a>
     </header>
 
-    <main id="main" class="page">
-      <div class="trace" aria-hidden="true"></div>
+    <!-- The page's one moving thread: a trace down the left edge that fills as you read, the way the canvas marks the path to the
+         card you are on. Drawn by CSS from the scroll position; still under reduced motion. -->
+    <div class="readtrace" aria-hidden="true"><i></i></div>
 
+    <main id="main" class="home">
       <section class="hero" aria-labelledby="hero-title">
-        <h1 id="hero-title"><span>Every code editor shows your&nbsp;files.</span> <span><b class="accent">{{name}}</b> shows how your code&nbsp;runs.</span></h1>
+        <a class="hero-tag" href="https://github.com/{{repo}}/releases"><span class="tag-new">New in 0.18</span> The Agents page opens in a window of its own <span class="arrow" aria-hidden="true">&rarr;</span></a>
+        <h1 id="hero-title"><span class="h-files">Every code editor shows your&nbsp;files.</span> <span class="h-runs"><b class="accent">{{name}}</b> shows how your code&nbsp;<em>runs.</em></span></h1>
         <p class="lede">Built on VS Code. Your extensions, themes and keybindings work.</p>
         <div class="ctas">
           <a class="btn btn-primary" data-download href="https://github.com/{{repo}}/releases/latest">Download {{name}}</a>
@@ -63,6 +67,28 @@
         <p class="quiet" data-platforms>Free and open source, for Windows, macOS and Linux.</p>
 
         <figure class="shot">
+          <!-- The request the editor window is in the middle of: the real POST /orders flow of the demo project (its entry point on
+               the left; the HTTP call into billing, the message to shipping and the tables they write on the right), with pulses
+               running along it. The labels are the demo index's own. -->
+          <svg class="wires wires-in" viewBox="0 0 210 650" aria-hidden="true">
+            <path class="wire faint" d="M0 312H16M0 470H16M176 470H210" />
+            <path class="wire lit" d="M176 312H210" />
+            <g class="chip entry" transform="translate(16 290)"><rect width="160" height="44" rx="8" /><circle cx="17" cy="22" r="4" /><text x="30" y="26.5">POST /orders</text></g>
+            <g class="chip faded" transform="translate(16 448)"><rect width="160" height="44" rx="8" /><circle cx="17" cy="22" r="4" /><text x="30" y="26.5">GET /orders/{id}</text></g>
+            <circle class="pulse" r="3.5" opacity="0"><animateMotion id="p0" dur="1.6s" begin="0.4s;p0.end+1s" path="M0 312H210" /><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.8;1" dur="1.6s" begin="p0.begin" /></circle>
+          </svg>
+          <svg class="wires wires-out" viewBox="0 0 230 650" aria-hidden="true">
+            <path class="wire dashed" d="M0 196H12V150H24M0 430H12V476H24" />
+            <path class="wire lit" d="M119 180V230M119 506V556" />
+            <g class="chip http" transform="translate(24 120)"><rect width="190" height="60" rx="8" /><circle cx="17" cy="22" r="4" /><text x="30" y="26">POST /api/invoices</text><text class="sub" x="30" y="45">billing · Python</text></g>
+            <g class="chip db" transform="translate(59 230)"><rect width="120" height="40" rx="8" /><circle cx="17" cy="20" r="4" /><text x="30" y="24.5">invoices</text></g>
+            <g class="chip msg" transform="translate(24 446)"><rect width="190" height="60" rx="8" /><circle cx="17" cy="22" r="4" /><text x="30" y="26">MSG order.placed</text><text class="sub" x="30" y="45">shipping · Java</text></g>
+            <g class="chip db" transform="translate(59 556)"><rect width="120" height="40" rx="8" /><circle cx="17" cy="20" r="4" /><text x="30" y="24.5">shipments</text></g>
+            <circle class="pulse" r="3.5" opacity="0"><animateMotion id="p1" dur="1.4s" begin="p0.end" path="M0 196H12V150H24" /><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.8;1" dur="1.4s" begin="p1.begin" /></circle>
+            <circle class="pulse" r="3.5" opacity="0"><animateMotion id="p2" dur="1.4s" begin="p0.end+0.5s" path="M0 430H12V476H24" /><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.8;1" dur="1.4s" begin="p2.begin" /></circle>
+            <circle class="pulse db" r="3" opacity="0"><animateMotion id="p3" dur="0.9s" begin="p1.end" path="M119 180V230" /><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.8;1" dur="0.9s" begin="p3.begin" /></circle>
+            <circle class="pulse db" r="3" opacity="0"><animateMotion id="p4" dur="0.9s" begin="p2.end" path="M119 506V556" /><animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.8;1" dur="0.9s" begin="p4.begin" /></circle>
+          </svg>
           <a class="shot-window" href="./try/" aria-label="Try the live demo of {{name}} in your browser">
             <video class="shot-video" data-loop muted playsinline loop preload="none" poster="./media/hero-loop-poster.webp" width="1920" height="1200" aria-label="The {{name}} editor on a demo shop: OrderController.java is open; POST /orders is picked in the Insilode Endpoints view, the canvas opens on its flow and moves from the controller to the order service, its discount and the orders table, then the editor is back where it started. Claude Code runs in the terminal below, the Agents dock is on the right.">
               <source src="./media/hero-loop-narrow.webm" type="video/webm" media="(max-width: 760px)" />
@@ -82,27 +108,31 @@
         </ul>
       </section>
 
-      <section class="vscode" id="vscode" aria-labelledby="vscode-title">
-        <div class="vscode-head">
-          <h2 class="branch" id="vscode-title">Built on VS Code. Your setup comes with you.</h2>
-          <p class="lede">{{name}} is a fork of VS Code (Code - OSS). The editor you know is all there.</p>
+      <section class="band vscode" id="vscode" aria-labelledby="vscode-title">
+        <div class="wrap">
+          <p class="eyebrow"><i class="k-method"></i>Built on VS Code</p>
+          <div class="vscode-grid">
+            <div>
+              <h2 id="vscode-title">Your setup comes with&nbsp;you.</h2>
+              <p class="lede">{{name}} is a fork of VS Code (Code - OSS). The editor you know is all there, and {{name}} adds to it.</p>
+            </div>
+            <ol class="carry">
+              <li class="rise">
+                <h3>Your extensions</h3>
+                <p>From <a href="https://open-vsx.org/">Open VSX</a>, the open registry VS Code forks use.</p>
+              </li>
+              <li class="rise">
+                <h3>Your themes, keybindings and settings</h3>
+                <p>The same commands, shortcuts and <code>settings.json</code>.</p>
+              </li>
+              <li class="rise">
+                <h3>Import from VS Code</h3>
+                <p>One click on first launch, or <b>Insilode: Import from VS Code…</b>. Settings, keybindings, snippets and theme come from VS Code or Cursor; extensions on Open VSX are installed, the rest are listed.</p>
+              </li>
+            </ol>
+          </div>
         </div>
-        <ol class="carry">
-          <li>
-            <h3>Your extensions</h3>
-            <p>From <a href="https://open-vsx.org/">Open VSX</a>, the open registry VS Code forks use.</p>
-          </li>
-          <li>
-            <h3>Your themes, keybindings and settings</h3>
-            <p>The same commands, shortcuts and <code>settings.json</code>.</p>
-          </li>
-          <li>
-            <h3>Import from VS Code</h3>
-            <p>One click on first launch, or <b>Insilode: Import from VS Code…</b>. Settings, keybindings, snippets and theme come from VS Code or Cursor; extensions on Open VSX are installed, the rest are listed.</p>
-          </li>
-        </ol>
-        <div class="everything">
-          <p class="everything-title">Everything VS Code does is there</p>
+        <div class="marquee" aria-label="Everything VS Code does is there">
           <ul class="chips">
             <li>Git and source control</li>
             <li>Integrated terminal</li>
@@ -116,152 +146,262 @@
             <li>Snippets</li>
             <li>Command Palette</li>
           </ul>
-          <p class="quiet">Some of Microsoft's own extensions (Pylance, C# Dev Kit, the Remote family, GitHub Copilot) are licensed for Microsoft's builds only and are not on Open VSX; open alternatives are.</p>
         </div>
+        <p class="wrap quiet fine">Some of Microsoft's own extensions (Pylance, C# Dev Kit, the Remote family, GitHub Copilot) are licensed for Microsoft's builds only and are not on Open VSX; open alternatives are.</p>
       </section>
 
-      <section class="adds" aria-labelledby="adds-title">
-        <h2 class="branch" id="adds-title">What {{name}} adds to VS&nbsp;Code.</h2>
-        <p class="lede">A live call-flow canvas of how your code runs, from the request to the table it writes. This one is real: try it.</p>
-
-        <div class="stage-wrap">
-          <div class="stage" data-stage>
-            <picture><source media="(max-width: 760px)" srcset="./media/hero-narrow.webp" width="840" height="1120" /><img class="stage-poster" src="./media/hero.webp" width="1600" height="940" loading="lazy" alt="The {{name}} canvas on POST /orders: the controller calls the order service, which saves to the orders table, asks billing for an invoice over HTTP and announces the order on Kafka." /></picture>
-            <p class="stage-note" role="status" hidden></p>
-            <div class="stage-actions">
-              <button class="btn btn-light stage-play" type="button" data-play="order"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 0l9 5-9 5z" /></svg>Play the tour</button>
-              <button class="btn btn-primary stage-explore" type="button" data-explore>Explore the flow</button>
+      <!-- The centre of the page: the real canvas, pinned while the visitor scrolls through the eight steps of the POST /orders tour.
+           Each step of the scroll is a step of the canvas's own tour player (src/journey.ts); a phone gets the poster and the canvas
+           full screen when asked. -->
+      <section class="journey" id="flow" aria-labelledby="flow-title" data-journey>
+        <div class="wrap journey-head">
+          <p class="eyebrow"><i class="k-entry"></i>POST /orders</p>
+          <h2 id="flow-title">Follow one request through three&nbsp;services.</h2>
+          <p class="lede">A live call-flow canvas of how your code runs, from the request to the table it writes. This one is real: scroll, and it walks you through.</p>
+        </div>
+        <div class="journey-track" data-track>
+          <div class="journey-pin">
+            <ol class="steps" data-steps aria-label="The steps of the tour"></ol>
+            <div class="stage-wrap">
+              <div class="stage" data-stage>
+                <picture><source media="(max-width: 760px)" srcset="./media/hero-narrow.webp" width="840" height="1120" /><img class="stage-poster" src="./media/hero.webp" width="1600" height="940" loading="lazy" alt="The {{name}} canvas on POST /orders: the controller calls the order service, which saves to the orders table, asks billing for an invoice over HTTP and announces the order on Kafka." /></picture>
+                <p class="stage-note" role="status" hidden></p>
+                <div class="stage-actions">
+                  <button class="btn btn-light stage-play" type="button" data-play="order"><svg viewBox="0 0 10 10" aria-hidden="true"><path d="M1 0l9 5-9 5z" /></svg>Play the tour</button>
+                  <button class="btn btn-primary stage-explore" type="button" data-explore>Explore the flow</button>
+                </div>
+                <button class="btn btn-light stage-close" type="button" data-close>Close</button>
+              </div>
+              <p class="quiet stage-hint">
+                The real canvas, on a small demo shop.
+                <span class="hint-wheel">Drag to move around; hold Ctrl and scroll to zoom.</span>
+                <span class="hint-touch">It opens full screen.</span>
+                <a href="./try/">More to try</a>.
+              </p>
             </div>
-            <button class="btn btn-light stage-close" type="button" data-close>Close</button>
           </div>
-          <p class="quiet stage-hint">
-            The real canvas, on a small demo shop.
-            <span class="hint-wheel">Drag to move around; hold Ctrl and scroll to zoom.</span>
-            <span class="hint-touch">It opens full screen.</span>
-            <a href="./try/">More to try</a>.
-          </p>
         </div>
       </section>
 
-      <section class="problem" aria-labelledby="p-changes">
-        <div class="prose">
-          <h2 class="branch" id="p-changes">Your agent changed 2 files. Which endpoints did it reach?</h2>
-          <p>One canvas holds the whole change: every endpoint it reaches, added lines in green, removed in red.</p>
-          <p>Keep or undo each change where you see it.</p>
-          <p><a href="./try/#changes">Review the change in the demo</a></p>
-        </div>
-        <figure>
-          <div class="clip" data-clip="changes"></div>
-          <figcaption>Claude Code added discount codes to orders. The change reaches four endpoints.</figcaption>
-        </figure>
-      </section>
-
-      <section class="problem" aria-labelledby="p-services">
-        <div class="prose">
-          <h2 class="branch" id="p-services">A request leaves your service. Where does it go next?</h2>
-          <p>Follow an endpoint card by card, over HTTP and message queues, into the next service, in any of its languages.</p>
-          <p>Links found by matching a name or a path are dashed.</p>
-          <p><a href="./try/#invoice">Follow an invoice across two services</a></p>
-        </div>
-        <figure>
-          <div class="clip" data-clip="services"></div>
-          <figcaption>An invoice request goes from Java over HTTP into Python, then to the table it reads.</figcaption>
-        </figure>
-      </section>
-
-      <section class="problem" aria-labelledby="p-agents">
-        <div class="prose">
-          <h2 class="branch" id="p-agents">Three agents are running. Which one is waiting for you?</h2>
-          <p>Claude Code, Codex and any CLI run as their real tools; the Agents dock ranks what needs you first.</p>
-          <p>Each row shows the model, its context and its cost.</p>
-          <p><a href="./try/#agents">Answer a waiting agent</a></p>
-        </div>
-        <figure>
-          <div class="clip" data-clip="agents"></div>
-          <figcaption>The Agents dock and the status island, with three agents on the demo project.</figcaption>
-        </figure>
-      </section>
-
-      <section class="problem" aria-labelledby="p-harness">
-        <div class="prose">
-          <h2 class="branch" id="p-harness">Your agent reads a dozen files before you type. Is any of them wrong?</h2>
-          <p><code>CLAUDE.md</code>, <code>AGENTS.md</code>, rules, skills, hooks, MCP servers and permissions on one map, with a health score.</p>
-          <p>Broken rules and hooks that never fire are found without an LLM.</p>
-        </div>
-        <figure>
-          <div class="harness" data-harness aria-live="polite"><p class="quiet">The scan of the demo project loads here.</p></div>
-          <figcaption>The harness scan of the demo project, as {{name}} reads it.</figcaption>
-        </figure>
-      </section>
-
-      <section class="stack" aria-labelledby="stack-title">
-        <h2 class="branch" id="stack-title">Call flows in the stack you use.</h2>
-        <p class="lede">The canvas reads your project with a build-free index: from an endpoint to the table it writes, across services.</p>
-        <ul class="stack-list">
-          <li><b>C# / .NET</b> ASP.NET, EF Core</li>
-          <li><b>Java</b> Spring, JAX-RS, JPA</li>
-          <li><b>Python</b> FastAPI, Flask, Django</li>
-          <li><b>TypeScript / JavaScript</b> Express, NestJS, Next.js</li>
-          <li><b>Go</b> Gin, Echo, Fiber, chi</li>
-          <li><b>Rust</b> axum, actix-web, Rocket</li>
-          <li><b>PHP</b> Laravel, Symfony</li>
-          <li><b>Ruby</b> Rails, Sinatra</li>
-        </ul>
-        <p><a href="./docs/languages/">Supported languages and frameworks</a></p>
-      </section>
-
-      <section class="with" aria-labelledby="with-title">
-        <div class="mcp">
+      <section class="feature reading" aria-labelledby="reading-title">
+        <div class="wrap feature-grid">
           <div class="prose">
-            <h2 class="branch" id="with-title">Your agent can use the canvas too.</h2>
-            <p>{{name}}'s MCP server lets the agent find entry points, read a flow and play it to you as a tour.</p>
-            <p><a href="./docs/agent-tools/">The agent tools</a></p>
+            <p class="eyebrow"><i class="k-method"></i>Reading pane</p>
+            <h2 id="reading-title">Read it like a debugger that runs&nbsp;nothing.</h2>
+            <p>The code opens beside the canvas. Step into a call, over it and back out; the canvas keeps the trace: the path to your cursor solid, what you have read plain.</p>
+            <ul class="keys" aria-label="Keys of the reading pane">
+              <li><kbd>l</kbd> step into</li>
+              <li><kbd>j</kbd> step over</li>
+              <li><kbd>h</kbd> step out</li>
+              <li><kbd>Enter</kbd> open a peek</li>
+              <li><kbd>[</kbd><kbd>]</kbd> back, forward</li>
+            </ul>
           </div>
-          <pre class="terminal" aria-label="An agent answering a question with the canvas tools"><span class="you">you    how does an order get placed?</span>
+          <figure class="frame rise">
+            <div class="clip" data-clip="reading"></div>
+          </figure>
+        </div>
+      </section>
+
+      <section class="feature review" id="review" aria-labelledby="review-title">
+        <div class="wrap feature-grid flip">
+          <div class="prose">
+            <p class="eyebrow"><i class="k-added"></i>Change review</p>
+            <h2 id="review-title">Your agent changed 2 files. Which endpoints did it&nbsp;reach?</h2>
+            <p>One canvas holds the whole change: every endpoint it reaches, added lines in green, removed in red. Keep or undo each change where you see it.</p>
+            <ol class="fan" data-fan aria-label="What the demo change reaches">
+              <li><b>2</b> files</li>
+              <li><b>4</b> endpoints</li>
+              <li><b>1</b> table</li>
+            </ol>
+            <ul class="ticks">
+              <li>Against your uncommitted work, the branch, the last commit, or where the agent's session began.</li>
+              <li>Test files and whitespace-only edits are left out, and so are comment-only edits in most languages.</li>
+            </ul>
+            <p><a class="go" href="./try/#changes">Review the change in the demo</a></p>
+          </div>
+          <figure class="frame rise">
+            <div class="clip" data-clip="changes"></div>
+          </figure>
+        </div>
+      </section>
+
+      <section class="feature services" aria-labelledby="services-title">
+        <div class="wrap feature-grid">
+          <div class="prose">
+            <p class="eyebrow"><i class="k-http"></i>Across services</p>
+            <h2 id="services-title">A request leaves your service. Where does it go&nbsp;next?</h2>
+            <p>The flow follows HTTP calls and messages into the next service, in its own language. Links found by matching a name or a path are dashed, so you always know what is certain.</p>
+            <ul class="pills" aria-label="What the flow follows">
+              <li>HTTP</li><li>Kafka</li><li>RabbitMQ</li><li>JMS</li><li>SQS</li><li>Celery</li><li>NestJS</li>
+            </ul>
+            <p><a class="go" href="./try/#invoice">Follow an invoice across two services</a></p>
+          </div>
+          <figure class="frame rise">
+            <div class="clip" data-clip="services"></div>
+          </figure>
+        </div>
+      </section>
+
+      <section class="agents-home" id="agents" aria-labelledby="agents-title" data-agents>
+        <div class="wrap">
+          <div class="agents-head">
+            <p class="eyebrow"><i class="k-agent"></i>Agents</p>
+            <h2 id="agents-title">Three agents are running. Which one needs&nbsp;you?</h2>
+            <p class="lede">Claude Code, Codex and any CLI run as their real tools, in terminals. The Agents dock ranks what needs you first; the status island at the top of this page is the one the app can put at the top of your screen.</p>
+          </div>
+          <div class="agents-grid">
+            <div class="dock-col">
+              <div class="dock-frame">
+                <iframe class="dock" title="Agents dock" data-src="./pages/dock.html" tabindex="-1"></iframe>
+              </div>
+              <div class="dock-actions">
+                <button class="btn btn-primary" type="button" data-allow>Allow the test run</button>
+                <p class="quiet" data-agents-note role="status">Codex waits to run the billing tests.</p>
+              </div>
+            </div>
+            <figure class="frame rise">
+              <div class="clip" data-clip="agents"></div>
+              <figcaption>The Agents page: live terminals in splits, and the agents that need you in a strip above them.</figcaption>
+            </figure>
+          </div>
+          <ul class="facts">
+            <li class="rise"><h3>A window of its own</h3><p>Keep the Agents page open on its own, with <code>insilode --agents-only</code>; the editor is one click away.</p></li>
+            <li class="rise"><h3>Worktrees</h3><p>Start an agent in its own git worktree and merge it back with one click. You are warned when two agents edit the same file, method or flow.</p></li>
+            <li class="rise"><h3>Context, cost and limits</h3><p>Each row shows the model, how full its context window is, tokens and cost; the status bar shows what is left of your 5-hour and weekly limits.</p></li>
+            <li class="rise"><h3>Pull requests and CI</h3><p>The state of each agent's branch, its pull request and its checks, on its row.</p></li>
+            <li class="rise"><h3>Every window</h3><p>Sessions of your other {{name}} windows, grouped by project, and the ones other programs run, read-only.</p></li>
+            <li class="rise"><h3>The next one that needs you</h3><p>On the Agents page every session that waits for you sits in a strip above the panes; <kbd>Alt</kbd><kbd>Shift</kbd><kbd>N</kbd> jumps to the next.</p></li>
+          </ul>
+        </div>
+        <iframe class="island island-top" title="Status island" data-src="./pages/island.html" tabindex="-1"></iframe>
+      </section>
+
+      <section class="harness-home" id="harness" aria-labelledby="harness-title">
+        <div class="wrap feature-grid">
+          <div class="prose">
+            <p class="eyebrow"><i class="k-warn"></i>Harness</p>
+            <h2 id="harness-title">Your agent reads a dozen files before you type. Is any of them&nbsp;wrong?</h2>
+            <p><code>CLAUDE.md</code>, <code>AGENTS.md</code>, rules, skills, hooks, MCP servers and permissions on one map, with a health score. Broken rules and hooks that never fire are found without an LLM.</p>
+            <ul class="ticks">
+              <li><b>Why?</b> The instructions, rules and permissions that apply to a file.</li>
+              <li><b>Simulate a permission.</b> Would <code>Bash(git push --force)</code> be allowed, asked or denied, and by which rule?</li>
+              <li><b>Friction inbox.</b> Permissions you keep granting and corrections you keep repeating become proposed rules.</li>
+              <li><b>MCP servers.</b> See, check, add and edit the servers of Claude Code and Codex.</li>
+            </ul>
+          </div>
+          <figure class="frame harness-frame rise">
+            <div class="harness" data-harness aria-live="polite"><p class="quiet">The scan of the demo project loads here.</p></div>
+            <figcaption>The harness scan of the demo project, as {{name}} reads it.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="more" aria-labelledby="more-title">
+        <div class="wrap">
+          <p class="eyebrow"><i class="k-method"></i>On the canvas</p>
+          <h2 id="more-title">Boards, tours and diagrams, from your&nbsp;code.</h2>
+          <ul class="tiles">
+            <li class="rise"><h3>Boards</h3><p>Agents draw flow, plan, class, ER, sequence, architecture and state boards on the canvas, or sketch freely.</p></li>
+            <li class="rise"><h3>DTO and architecture diagrams</h3><p>Drawn from your types. Copy a diagram as Mermaid, or export a board as Markdown.</p></li>
+            <li class="rise"><h3>Tours</h3><p>Ask how something works and the agent plays a tour of the flow, step by step, with pen marks.</p></li>
+            <li class="rise"><h3>Point and ask</h3><p>The <kbd>?</kbd> on a card asks your agent about exactly that card.</p></li>
+            <li class="rise"><h3>Migrations</h3><p>An edited migration lists the endpoints that touch each table it alters.</p></li>
+            <li class="rise"><h3>Updates</h3><p>A running {{name}} checks for the next release; on Windows it installs it in place.</p></li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="mcp-home" aria-labelledby="with-title">
+        <div class="wrap feature-grid">
+          <div class="prose">
+            <p class="eyebrow"><i class="k-agent"></i>MCP</p>
+            <h2 id="with-title">Your agent can use the editor&nbsp;too.</h2>
+            <p>{{name}}'s MCP server gives your agent 19 tools: find the entry points, read a flow, check what a change reaches, draw a board, play a tour.</p>
+            <p><a class="go" href="./docs/agent-tools/">The agent tools</a></p>
+          </div>
+          <div class="term-wrap rise">
+            <pre class="terminal" data-terminal aria-label="An agent answering a question with the canvas tools"><span class="you">you    how does an order get placed?</span>
 <span class="tool">agent  find_entry_points</span>  <span class="out">9 endpoints</span>
 <span class="tool">       flow_text "POST /orders"</span>  <span class="out">12 cards, 3 services</span>
 <span class="tool">       tour</span>  <span class="out">8 steps, playing on the canvas</span></pre>
+            <ul class="toolset" aria-label="The tools of the insilode MCP server">
+              <li>open</li><li>open_diff</li><li>get_diagnostics</li><li>find_symbol</li><li>go_to_definition</li><li>find_references</li><li>find_entry_points</li><li>show_flow</li><li>flow_text</li><li>impact</li><li>get_context</li><li>draw_board</li><li>update_board</li><li>read_board</li><li>board_from_code</li><li>tour</li><li>tour_control</li><li>check_skeleton</li><li>search_sessions</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="stack" aria-labelledby="stack-title">
+        <div class="wrap">
+          <p class="eyebrow"><i class="k-db"></i>Index</p>
+          <h2 id="stack-title">Call flows in the stack you&nbsp;use.</h2>
+          <p class="lede">The canvas reads your project with a build-free index: from an endpoint to the table it writes, across services.</p>
+          <ul class="stack-list">
+            <li class="rise"><b>C# / .NET</b> ASP.NET, EF Core</li>
+            <li class="rise"><b>Java</b> Spring, JAX-RS, JPA</li>
+            <li class="rise"><b>Python</b> FastAPI, Flask, Django</li>
+            <li class="rise"><b>TypeScript / JavaScript</b> Express, NestJS, Next.js</li>
+            <li class="rise"><b>Go</b> Gin, Echo, Fiber, chi</li>
+            <li class="rise"><b>Rust</b> axum, actix-web, Rocket</li>
+            <li class="rise"><b>PHP</b> Laravel, Symfony</li>
+            <li class="rise"><b>Ruby</b> Rails, Sinatra</li>
+          </ul>
+          <p><a class="go" href="./docs/languages/">Supported languages and frameworks</a></p>
         </div>
       </section>
 
       <section class="proof" aria-labelledby="proof-title">
-        <h2 class="branch" id="proof-title">Check it yourself.</h2>
-        <dl class="proof-list">
-          <div>
-            <dt>Open source, AGPL v3</dt>
-            <dd>The whole editor is open source under the GNU AGPL v3, built on VS Code's open-source core (Code - OSS, MIT). <a href="https://github.com/{{repo}}/blob/main/LICENSE">Read the licence</a>.</dd>
-          </div>
-          <div>
-            <dt>Released often, updated in place</dt>
-            <dd><span data-release>Every release has its notes.</span> A running {{name}} checks for the next one and, on Windows, installs it. <a href="https://github.com/{{repo}}/releases">Changelog</a>.</dd>
-          </div>
-          <div>
-            <dt>Tested on every change</dt>
-            <dd>The code index is checked against the expected flows of sample projects, and this page's demo is played in a browser, on every pull request. <a href="https://github.com/{{repo}}/actions/workflows/ci.yml">See the runs</a>.</dd>
-          </div>
-          <div>
-            <dt>What you see here is the real editor</dt>
-            <dd>The video at the top is a capture of the editor itself, and the canvas is the editor's own canvas code, fed by its own index of a demo project. <a href="https://github.com/{{repo}}/tree/main/site">How this page is built</a>.</dd>
-          </div>
-        </dl>
+        <div class="wrap">
+          <h2 id="proof-title">Check it yourself.</h2>
+          <dl class="proof-list">
+            <div>
+              <dt>Open source, AGPL v3</dt>
+              <dd>The whole editor is open source under the GNU AGPL v3, built on VS Code's open-source core (Code - OSS, MIT). <a href="https://github.com/{{repo}}/blob/main/LICENSE">Read the licence</a>.</dd>
+            </div>
+            <div>
+              <dt>Released often, updated in place</dt>
+              <dd><span data-release>Every release has its notes.</span> A running {{name}} checks for the next one and, on Windows, installs it. <a href="https://github.com/{{repo}}/releases">Changelog</a>.</dd>
+            </div>
+            <div>
+              <dt>Tested on every change</dt>
+              <dd>The code index is checked against the expected flows of sample projects, and this page's demo is played in a browser, on every pull request. <a href="https://github.com/{{repo}}/actions/workflows/ci.yml">See the runs</a>.</dd>
+            </div>
+            <div>
+              <dt>What you see here is the real editor</dt>
+              <dd>The videos are captures of the editor and of its own canvas and pages, and the canvas is the editor's own code, fed by its own index of a demo project. <a href="https://github.com/{{repo}}/tree/main/site">How this page is built</a>.</dd>
+            </div>
+          </dl>
+        </div>
       </section>
 
       <section class="download" id="download" aria-labelledby="download-title">
-        <h2 class="branch" id="download-title">Download {{name}}.</h2>
-        <div class="ctas">
-          <a class="btn btn-primary" data-download href="https://github.com/{{repo}}/releases/latest">Download {{name}}</a>
-          <a class="btn btn-secondary" href="https://github.com/{{repo}}">Star on GitHub</a>
-        </div>
-        <div class="dl-list" data-download-list></div>
-        <!-- The builds are not code-signed yet, so a file downloaded in a browser meets Gatekeeper or SmartScreen on first launch.
-             These commands download without the quarantine mark those prompts look for (site/public/install.sh, install.ps1). -->
-        <div class="dl-terminal">
-          <h3>Or install from a terminal, without the security prompt</h3>
-          <p>macOS, in Terminal (run it again to update):</p>
-          <pre><code>curl -fsSL {{site}}/install.sh | sh</code></pre>
-          <p>Windows, in PowerShell:</p>
-          <pre><code>irm {{site}}/install.ps1 | iex</code></pre>
-          <p>Each checks the download against the release's <code>SHA256SUMS.txt</code> before it installs anything. <a href="./docs/install/">Install notes</a>.</p>
+        <div class="wrap">
+          <p class="end-card" aria-hidden="true"><span>Every code editor shows your files.</span> <span><b>{{name}}</b> shows how your code runs.</span></p>
+          <h2 id="download-title">Download {{name}}.</h2>
+          <div class="ctas">
+            <a class="btn btn-primary" data-download href="https://github.com/{{repo}}/releases/latest">Download {{name}}</a>
+            <a class="btn btn-secondary" href="https://github.com/{{repo}}">Star on GitHub</a>
+          </div>
+          <div class="dl-list" data-download-list></div>
+          <!-- The builds are not code-signed yet, so a file downloaded in a browser meets Gatekeeper or SmartScreen on first launch.
+               These commands download without the quarantine mark those prompts look for (site/public/install.sh, install.ps1). -->
+          <div class="dl-terminal">
+            <h3>Or install from a terminal, without the security prompt</h3>
+            <div class="cmds">
+              <div class="cmd">
+                <p>macOS, in Terminal (run it again to update)</p>
+                <pre><code>curl -fsSL {{site}}/install.sh | sh</code></pre>
+                <button class="copy" type="button" data-copy>Copy</button>
+              </div>
+              <div class="cmd">
+                <p>Windows, in PowerShell</p>
+                <pre><code>irm {{site}}/install.ps1 | iex</code></pre>
+                <button class="copy" type="button" data-copy>Copy</button>
+              </div>
+            </div>
+            <p class="quiet">Each checks the download against the release's <code>SHA256SUMS.txt</code> before it installs anything. <a href="./docs/install/">Install notes</a>.</p>
+          </div>
         </div>
       </section>
     </main>

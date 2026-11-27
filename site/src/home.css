@@ -1,0 +1,1858 @@
+/* The home page. One idea runs through it: the page is a request in flight. The editor window in the hero sits in the middle of the
+   demo's real POST /orders flow, with pulses running along its wires; the trace on the left fills as you read, the way the canvas
+   marks the path to the card you are on; and the centre of the page is the real canvas, pinned, walking that same request step by
+   step as you scroll. Section labels are drawn like the canvas's card kinds (an amber entry point, a teal table, green and red for a
+   change). Motion is progressive: CSS scroll timelines where the browser has them, plain and still under reduced motion. */
+
+.home {
+  --wide: 1240px;
+  --k-entry: var(--entry);
+  --k-method: #9aa8ff;
+  --k-http: #7cc4ff;
+  --k-msg: #c69cff;
+  --k-db: #4fd1b5;
+  --k-added: #57d38c;
+  --k-removed: #f07178;
+  --k-agent: #f2b65c;
+  --glow: rgba(111, 134, 255, 0.28);
+  --card: #10162b;
+  --card-edge: rgba(154, 168, 255, 0.14);
+  --faded: #8790ad;
+  overflow-x: clip;
+}
+
+.wrap {
+  max-width: var(--wide);
+  margin: 0 auto;
+  padding: 0 var(--pad);
+}
+
+.home section {
+  position: relative;
+}
+
+.home h2 {
+  font: 650 clamp(32px, 3.6vw, 54px) / 1.06 var(--sans);
+  letter-spacing: -0.03em;
+  margin: 0;
+  max-width: 20ch;
+  text-wrap: balance;
+}
+
+.home h3 {
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.home .lede {
+  font-size: clamp(18px, 1.5vw, 21px);
+  color: var(--ink-2);
+  max-width: 58ch;
+}
+
+.home .prose p {
+  color: var(--ink-2);
+  max-width: 52ch;
+}
+
+.home .prose p a {
+  color: var(--link);
+}
+
+.home kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 7px;
+  margin-right: 4px;
+  border-radius: 6px;
+  background: linear-gradient(#1c2440, #141a31);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.45), 0 0 0 1px var(--card-edge);
+  color: var(--ink);
+  font: 600 13px/1 var(--mono);
+}
+
+/* The label over each section, drawn like a card kind on the canvas: a coloured dot and a monospaced name. */
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 22px;
+  padding: 6px 12px 6px 10px;
+  border-radius: 999px;
+  background: rgba(154, 168, 255, 0.07);
+  box-shadow: inset 0 0 0 1px var(--card-edge);
+  color: var(--ink-2);
+  font: 500 13px/1 var(--mono);
+  letter-spacing: 0.02em;
+}
+
+.eyebrow i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--k-method);
+  box-shadow: 0 0 12px currentColor;
+}
+
+.eyebrow .k-entry { background: var(--k-entry); color: var(--k-entry); }
+.eyebrow .k-method { background: var(--k-method); color: var(--k-method); }
+.eyebrow .k-http { background: var(--k-http); color: var(--k-http); }
+.eyebrow .k-db { background: var(--k-db); color: var(--k-db); }
+.eyebrow .k-added { background: var(--k-added); color: var(--k-added); }
+.eyebrow .k-agent { background: var(--k-agent); color: var(--k-agent); }
+.eyebrow .k-warn { background: var(--warn); color: var(--warn); }
+
+a.go {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  font-weight: 600;
+  text-decoration: none;
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 2px;
+}
+
+a.go::after {
+  content: '→';
+  color: var(--link);
+  transition: transform 200ms;
+}
+
+a.go:hover::after {
+  transform: translateX(4px);
+}
+
+/* ---- navigation: the Download button beside GitHub ------------------------------------------------------------------------------------ */
+
+.nav-get {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 10px;
+  background: var(--signal);
+  color: #fff;
+  font-weight: 600;
+  font-size: 15px;
+  text-decoration: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.nav-get:hover {
+  background: var(--signal-hover);
+}
+
+@media (max-width: 760px) {
+  .nav-get {
+    display: none;
+  }
+}
+
+/* ---- the trace down the left edge ------------------------------------------------------------------------------------------ */
+
+.readtrace {
+  display: none;
+}
+
+/* Drawn only where the browser can fill it from the scroll: without scroll timelines it would be a stub stuck at the top. The
+   animations are longhands: a minifier folds a shorthand and animation-timeline into one shorthand, which browsers reject. */
+@supports (animation-timeline: scroll()) {
+  @media (min-width: 1100px) {
+    .readtrace {
+      display: block;
+      position: fixed;
+      left: 22px;
+      top: 96px;
+      bottom: 32px;
+      width: 2px;
+      border-radius: 2px;
+      background: rgba(154, 168, 255, 0.1);
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    .readtrace i {
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      background: linear-gradient(var(--entry), #9aa8ff 18%, #6f86ff);
+      transform-origin: top;
+      animation-name: trace-fill;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(root);
+    }
+
+    /* The head of the trace: a handle dot that rides the end of the filled part. */
+    .readtrace::after {
+      content: '';
+      position: absolute;
+      left: -4px;
+      top: 0;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0 0 3px rgba(111, 134, 255, 0.35), 0 0 18px 4px rgba(111, 134, 255, 0.55);
+      animation-name: trace-head;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(root);
+    }
+  }
+}
+
+@keyframes trace-fill {
+  from { transform: scaleY(0.02); }
+  to { transform: scaleY(1); }
+}
+
+@keyframes trace-head {
+  from { top: 0; }
+  to { top: calc(100% - 10px); }
+}
+
+/* ---- hero ------------------------------------------------------------------------------------------------------------------ */
+
+.hero {
+  padding: 64px var(--pad) 0;
+  text-align: center;
+  isolation: isolate;
+}
+
+/* The light behind the window: the one lit thing on the table. */
+.hero::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 360px;
+  width: min(1500px, 140vw);
+  height: 900px;
+  transform: translateX(-50%);
+  background:
+    radial-gradient(closest-side, rgba(63, 82, 201, 0.42), transparent 70%),
+    radial-gradient(40% 30% at 30% 40%, rgba(227, 162, 59, 0.1), transparent 70%);
+  filter: blur(20px);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* A faint dot grid, the canvas's own background, fading out below the headline. */
+.hero::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 30% 0;
+  background-image: radial-gradient(rgba(154, 168, 255, 0.16) 1px, transparent 1.4px);
+  background-size: 26px 26px;
+  mask-image: radial-gradient(70% 60% at 50% 30%, #000 20%, transparent 75%);
+  z-index: -2;
+  pointer-events: none;
+}
+
+.hero-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px 6px 6px;
+  border-radius: 999px;
+  background: rgba(16, 22, 43, 0.8);
+  box-shadow: inset 0 0 0 1px var(--card-edge);
+  color: var(--ink-2);
+  font-size: 14.5px;
+  text-decoration: none;
+  backdrop-filter: blur(8px);
+}
+
+.hero-tag:hover {
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px rgba(154, 168, 255, 0.35);
+}
+
+.tag-new {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--signal);
+  color: #fff;
+  font: 600 12px/1.2 var(--mono);
+}
+
+.hero-tag .arrow {
+  color: var(--link);
+}
+
+.hero h1 {
+  margin: 28px auto 0;
+  max-width: none;
+  font: 650 clamp(36px, 4.75vw, 84px) / 1.04 var(--sans);
+  letter-spacing: -0.04em;
+}
+
+.hero h1 > span {
+  display: block;
+}
+
+/* "Files" is what every editor shows: the line reads faded, like a card the trace has not reached. "Runs" is lit. */
+.h-files {
+  color: var(--faded);
+}
+
+.hero h1 .accent {
+  color: var(--link);
+}
+
+.h-runs em {
+  position: relative;
+  font-style: normal;
+  background: linear-gradient(100deg, #fff 30%, #b9c4ff 50%, #fff 70%);
+  background-size: 300% 100%;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* A trace drawn under "runs": an orthogonal line that ends in a handle dot, the way the canvas draws an edge. */
+.h-runs em::after {
+  content: '';
+  position: absolute;
+  left: 0.04em;
+  right: 0.3em;
+  bottom: -0.02em;
+  height: 0.055em;
+  min-height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--entry), #6f86ff);
+  transform-origin: left;
+}
+
+.h-runs em::before {
+  content: '';
+  position: absolute;
+  right: 0.18em;
+  bottom: -0.065em;
+  width: 0.14em;
+  height: 0.14em;
+  min-width: 9px;
+  min-height: 9px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 14px 3px rgba(111, 134, 255, 0.7);
+}
+
+.hero .lede {
+  margin: 22px auto 0;
+  max-width: none;
+  color: var(--ink-2);
+}
+
+.hero .ctas {
+  justify-content: center;
+  margin-top: 34px;
+}
+
+.hero .btn-primary {
+  box-shadow: 0 10px 40px -8px rgba(63, 82, 201, 0.9), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.hero [data-platforms] {
+  margin: 16px 0 0;
+  color: var(--ink-2);
+  font-size: 15px;
+}
+
+/* The editor window: tilted back like a screen on a desk, and laid flat as the page scrolls. */
+.shot {
+  position: relative;
+  width: min(1120px, 100%);
+  margin: 64px auto 0;
+  perspective: 1800px;
+}
+
+.shot-window {
+  position: relative;
+  display: block;
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--window);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.1),
+    0 2px 0 rgba(255, 255, 255, 0.06) inset,
+    0 50px 120px -30px rgba(0, 0, 0, 0.85),
+    0 0 90px -10px var(--glow);
+  transform-origin: 50% 0;
+  transition: box-shadow 300ms;
+}
+
+.shot-window:hover {
+  box-shadow: 0 0 0 1px rgba(154, 168, 255, 0.4), 0 50px 120px -30px rgba(0, 0, 0, 0.85), 0 0 120px -10px rgba(111, 134, 255, 0.45);
+}
+
+.shot-video {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1920 / 1200;
+}
+
+.shot-cta {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #151b3b;
+  font-weight: 650;
+  font-size: 15px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 250ms, transform 250ms;
+}
+
+.shot-window:hover .shot-cta,
+.shot-window:focus-visible .shot-cta {
+  opacity: 1;
+  transform: none;
+}
+
+/* The wires: hidden until there is room for them beside the window. */
+.wires {
+  display: none;
+}
+
+@media (min-width: 1400px) {
+  .shot {
+    width: min(1060px, calc(100vw - 440px));
+  }
+
+  .wires {
+    display: block;
+    position: absolute;
+    top: 0;
+    height: 100%;
+    width: auto;
+    overflow: visible;
+    z-index: -1;
+  }
+
+  .wires-in {
+    right: 100%;
+    aspect-ratio: 210 / 650;
+  }
+
+  .wires-out {
+    left: 100%;
+    aspect-ratio: 230 / 650;
+  }
+}
+
+.wire {
+  fill: none;
+  stroke: rgba(154, 168, 255, 0.35);
+  stroke-width: 1.5;
+}
+
+.wire.lit {
+  stroke: rgba(154, 168, 255, 0.7);
+}
+
+.wire.faint {
+  stroke: rgba(154, 168, 255, 0.16);
+}
+
+.wire.dashed {
+  stroke: rgba(154, 168, 255, 0.6);
+  stroke-dasharray: 5 5;
+}
+
+.chip rect {
+  fill: var(--card);
+  stroke: var(--card-edge);
+}
+
+.chip text {
+  fill: var(--ink);
+  font: 500 12.5px var(--mono);
+}
+
+.chip text.sub {
+  fill: var(--ink-2);
+  font-size: 11px;
+}
+
+.chip circle {
+  fill: var(--k-method);
+}
+
+.chip.entry rect {
+  stroke: rgba(227, 162, 59, 0.55);
+}
+
+.chip.entry circle {
+  fill: var(--entry);
+}
+
+.chip.faded {
+  opacity: 0.45;
+}
+
+.chip.http circle {
+  fill: var(--k-http);
+}
+
+.chip.msg circle {
+  fill: var(--k-msg);
+}
+
+.chip.db circle {
+  fill: var(--k-db);
+}
+
+.chip.db rect {
+  stroke: rgba(79, 209, 181, 0.35);
+}
+
+.pulse {
+  fill: #fff;
+  filter: drop-shadow(0 0 5px #9aa8ff) drop-shadow(0 0 2px #fff);
+}
+
+.pulse.db {
+  filter: drop-shadow(0 0 5px var(--k-db));
+}
+
+.works {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 30px;
+  margin: 44px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink);
+  font: 500 16px/1.4 var(--mono);
+}
+
+.works .works-label {
+  color: var(--ink-2);
+  font-family: var(--sans);
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  align-self: center;
+}
+
+/* ---- built on VS Code ------------------------------------------------------------------------------------------------------ */
+
+.band {
+  padding: 150px 0 0;
+}
+
+.vscode-grid {
+  display: grid;
+  grid-template-columns: 5fr 7fr;
+  gap: 64px;
+  align-items: start;
+}
+
+.vscode .lede {
+  margin-top: 20px;
+}
+
+.carry {
+  display: grid;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: carry;
+}
+
+.carry li {
+  counter-increment: carry;
+  position: relative;
+  padding: 22px 24px 22px 64px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(20, 27, 52, 0.9), rgba(14, 19, 38, 0.9));
+  box-shadow: inset 0 0 0 1px var(--card-edge);
+}
+
+/* Each claim is numbered like a line in the canvas's code cards. */
+.carry li::before {
+  content: counter(carry, decimal-leading-zero);
+  position: absolute;
+  left: 22px;
+  top: 25px;
+  color: var(--faded);
+  font: 500 14px/1 var(--mono);
+}
+
+.carry h3 {
+  margin: 0;
+}
+
+.carry p {
+  margin: 6px 0 0;
+  color: var(--ink-2);
+  font-size: 16px;
+}
+
+.carry b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+/* Everything VS Code does, drifting past in a band. Still, and wrapping, under reduced motion. */
+.marquee {
+  position: relative;
+  margin: 56px 0 0;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 10%, #000 90%, transparent);
+}
+
+.marquee .chips {
+  display: flex;
+  gap: 12px;
+  width: max-content;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.marquee .chips li {
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: rgba(154, 168, 255, 0.06);
+  box-shadow: inset 0 0 0 1px var(--card-edge);
+  color: var(--ink);
+  font: 500 14px/1 var(--mono);
+  white-space: nowrap;
+}
+
+.vscode .fine {
+  margin-top: 24px;
+  font-size: 14px;
+  color: var(--ink-2);
+}
+
+/* ---- the journey: the real canvas, pinned, stepping with the scroll --------------------------------------------------------- */
+
+.journey {
+  padding: 170px 0 0;
+}
+
+.journey-head {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.journey-head h2 {
+  max-width: 18ch;
+}
+
+.journey-head .lede {
+  margin-top: 20px;
+}
+
+.journey-pin {
+  max-width: 1480px;
+  margin: 0 auto;
+  padding: 0 var(--pad);
+}
+
+.journey .stage-wrap {
+  margin: 56px 0 0;
+}
+
+.journey .stage-wrap::before {
+  display: none;
+}
+
+/* Not when it is full screen on a phone: then it is the whole screen (site.css). */
+.journey .stage:not(.is-full) {
+  aspect-ratio: 16 / 7.4;
+  border-radius: 16px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 40px 100px -40px rgba(0, 0, 0, 0.9), 0 0 100px -20px var(--glow);
+}
+
+.steps {
+  display: none;
+}
+
+@media (min-width: 1100px) {
+  /* The track is as tall as the steps need; the pin stays on screen while it scrolls by. */
+  .journey-track {
+    height: calc(var(--steps, 8) * 46vh + 100vh);
+    margin-top: 40px;
+  }
+
+  .journey-pin {
+    position: sticky;
+    top: 76px;
+    height: calc(100vh - 92px);
+    display: grid;
+    grid-template-columns: 290px minmax(0, 1fr);
+    gap: 36px;
+    align-items: center;
+  }
+
+  .journey .stage-wrap {
+    margin: 0;
+  }
+
+  .journey .stage:not(.is-full) {
+    aspect-ratio: auto;
+    height: min(calc(100vh - 150px), 820px);
+  }
+
+  .steps {
+    display: block;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    position: relative;
+  }
+
+  /* The steps' own trace: a line down their left with the walked part lit. */
+  .steps::before {
+    content: '';
+    position: absolute;
+    left: 13px;
+    top: 14px;
+    bottom: 14px;
+    width: 2px;
+    background: rgba(154, 168, 255, 0.12);
+  }
+
+  .steps::after {
+    content: '';
+    position: absolute;
+    left: 13px;
+    top: 14px;
+    width: 2px;
+    height: calc((100% - 28px) * var(--walked, 0));
+    background: linear-gradient(var(--entry), #6f86ff);
+    transition: height 450ms cubic-bezier(0.3, 0.7, 0.2, 1);
+  }
+
+  .steps li {
+    position: relative;
+  }
+
+  .steps button {
+    display: grid;
+    grid-template-columns: 28px 1fr;
+    gap: 14px;
+    width: 100%;
+    padding: 9px 0;
+    border: 0;
+    background: none;
+    color: var(--faded);
+    font: 500 16px/1.3 var(--sans);
+    text-align: left;
+    cursor: pointer;
+    opacity: 0.55;
+    transition: opacity 300ms, color 300ms;
+  }
+
+  .steps button:hover {
+    opacity: 1;
+  }
+
+  .steps .n {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--film);
+    box-shadow: inset 0 0 0 1.5px rgba(154, 168, 255, 0.25);
+    font: 600 12px/1 var(--mono);
+    transition: background 300ms, box-shadow 300ms, color 300ms;
+  }
+
+  .steps .is-past button {
+    opacity: 0.9;
+    color: var(--ink-2);
+  }
+
+  .steps .is-past .n {
+    box-shadow: inset 0 0 0 1.5px #6f86ff;
+    color: var(--ink);
+  }
+
+  .steps .is-now button {
+    opacity: 1;
+    color: #fff;
+    font-weight: 650;
+  }
+
+  .steps .is-now .n {
+    background: var(--entry);
+    color: #1b1203;
+    box-shadow: 0 0 0 4px rgba(227, 162, 59, 0.2), 0 0 24px rgba(227, 162, 59, 0.6);
+  }
+
+  .journey .hint-wheel::before {
+    content: 'Scroll to walk the tour. ';
+  }
+}
+
+/* ---- feature sections ------------------------------------------------------------------------------------------------------ */
+
+.feature,
+.harness-home,
+.mcp-home {
+  padding: 170px 0 0;
+}
+
+.feature-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  gap: 72px;
+  align-items: center;
+}
+
+.feature-grid.flip {
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+}
+
+.feature-grid.flip > :first-child {
+  order: 2;
+}
+
+.feature-grid h2 {
+  margin-bottom: 22px;
+  font-size: clamp(30px, 3vw, 44px);
+}
+
+.frame {
+  position: relative;
+  margin: 0;
+}
+
+/* A clip sits in a window of its own, lit from behind. */
+.frame .clip {
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--window);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 40px 90px -40px rgba(0, 0, 0, 0.9), 0 0 80px -20px var(--glow);
+}
+
+.frame .clip img,
+.frame .clip video {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.frame figcaption {
+  margin: 14px 0 0;
+  color: var(--ink-2);
+  font-size: 15px;
+}
+
+.keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  margin: 28px 0 0;
+  padding: 0;
+  list-style: none;
+  color: var(--ink-2);
+  font-size: 15px;
+}
+
+.keys li {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* The change, as the canvas counts it: files, then the endpoints they reach, then the table. */
+.fan {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 22px;
+  margin: 28px 0 8px;
+  padding: 0;
+  list-style: none;
+  font: 500 14px/1.2 var(--mono);
+  color: var(--ink-2);
+}
+
+.fan li {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--card-edge);
+}
+
+/* The edge between two counts, with its handle dot, as the canvas draws one. */
+.fan li + li::before {
+  content: '';
+  position: absolute;
+  right: 100%;
+  top: 50%;
+  width: 22px;
+  height: 1.5px;
+  background: rgba(154, 168, 255, 0.55);
+}
+
+.fan li + li::after {
+  content: '';
+  position: absolute;
+  left: -4px;
+  top: calc(50% - 3px);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #9aa8ff;
+}
+
+.fan b {
+  color: #fff;
+  font: 650 22px/1 var(--sans);
+}
+
+.fan li:first-child b {
+  color: var(--k-added);
+}
+
+.fan li:last-child b {
+  color: var(--k-db);
+}
+
+.ticks {
+  margin: 22px 0 26px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+  color: var(--ink-2);
+  font-size: 16px;
+}
+
+.ticks li {
+  position: relative;
+  padding-left: 26px;
+}
+
+.ticks li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.55em;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 2px var(--k-method);
+}
+
+.ticks b {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 26px 0 28px;
+  padding: 0;
+  list-style: none;
+}
+
+.pills li {
+  padding: 7px 13px;
+  border-radius: 999px;
+  background: rgba(124, 196, 255, 0.07);
+  box-shadow: inset 0 0 0 1px rgba(124, 196, 255, 0.22);
+  color: var(--ink);
+  font: 500 13.5px/1 var(--mono);
+}
+
+/* ---- agents ---------------------------------------------------------------------------------------------------------------- */
+
+.agents-home {
+  padding: 170px 0 0;
+}
+
+.agents-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.agents-head h2 {
+  max-width: 17ch;
+}
+
+.agents-head .lede {
+  margin-top: 20px;
+}
+
+.agents-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+  gap: 32px;
+  margin-top: 64px;
+  align-items: start;
+}
+
+.dock-frame {
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--window);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 40px 90px -40px rgba(0, 0, 0, 0.9);
+}
+
+.dock-frame .dock {
+  display: block;
+  width: 100%;
+  height: 540px;
+  border: 0;
+}
+
+.dock-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-top: 16px;
+}
+
+.dock-actions .quiet {
+  margin: 0;
+  font-size: 14.5px;
+}
+
+/* The status island docks at the top of the window while the agents are on screen, as the app's does at the top of the screen. */
+.island-top {
+  position: fixed;
+  top: 76px;
+  left: 50%;
+  z-index: 60;
+  width: 300px;
+  height: 60px;
+  border: 0;
+  background: transparent;
+  color-scheme: normal;
+  transform: translate(-50%, -140%);
+  opacity: 0;
+  transition: transform 600ms cubic-bezier(0.2, 0.9, 0.2, 1.15), opacity 300ms;
+  pointer-events: none;
+}
+
+.island-top.is-down {
+  transform: translate(-50%, 0);
+  opacity: 1;
+}
+
+.facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 56px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.facts li,
+.tiles li {
+  padding: 24px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(20, 27, 52, 0.85), rgba(14, 19, 38, 0.85));
+  box-shadow: inset 0 0 0 1px var(--card-edge);
+  transition: box-shadow 250ms, transform 250ms;
+}
+
+.facts li:hover,
+.tiles li:hover {
+  box-shadow: inset 0 0 0 1px rgba(154, 168, 255, 0.35), 0 20px 50px -30px rgba(111, 134, 255, 0.6);
+  transform: translateY(-2px);
+}
+
+.facts li,
+.tiles li {
+  position: relative;
+  overflow: hidden;
+}
+
+.facts li::before,
+.tiles li::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(280px circle at var(--mx, 50%) var(--my, -200px), rgba(111, 134, 255, 0.16), transparent 65%);
+  opacity: 0;
+  transition: opacity 300ms;
+  pointer-events: none;
+}
+
+.facts li:hover::before,
+.tiles li:hover::before {
+  opacity: 1;
+}
+
+.facts h3,
+.tiles h3 {
+  margin: 0;
+}
+
+.facts p,
+.tiles p {
+  margin: 8px 0 0;
+  color: var(--ink-2);
+  font-size: 15.5px;
+}
+
+.facts code {
+  font-size: 0.88em;
+}
+
+.facts kbd,
+.tiles kbd {
+  min-width: 22px;
+  height: 22px;
+  font-size: 12px;
+  margin-right: 2px;
+}
+
+/* ---- harness --------------------------------------------------------------------------------------------------------------- */
+
+.harness-frame .harness {
+  padding: 28px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #121935, #0d1329);
+  box-shadow: inset 0 0 0 1px var(--card-edge), 0 40px 90px -40px rgba(0, 0, 0, 0.9);
+}
+
+.hx-head {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+}
+
+@property --hx {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
+/* The health score as a ring that fills to its value once it is drawn. */
+.hx-score {
+  --hx: var(--score, 0);
+  flex: none;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 112px;
+  height: 112px;
+  margin: 0;
+  border-radius: 50%;
+  background: conic-gradient(var(--k-added) calc(var(--hx) * 1%), rgba(154, 168, 255, 0.12) 0);
+  animation: hx-fill 1.4s cubic-bezier(0.3, 0.7, 0.2, 1) both;
+}
+
+@keyframes hx-fill {
+  from { --hx: 0; }
+}
+
+.hx-score::before {
+  content: '';
+  position: absolute;
+  inset: 9px;
+  border-radius: 50%;
+  background: #10162d;
+}
+
+.hx-score b,
+.hx-score span {
+  position: relative;
+  grid-area: 1 / 1;
+}
+
+.hx-score b {
+  font: 650 34px/1 var(--sans);
+  transform: translateY(-6px);
+}
+
+.hx-score span {
+  transform: translateY(18px);
+  color: var(--ink-2);
+  font: 500 11px/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hx-sum {
+  margin: 0;
+  color: var(--ink-2);
+}
+
+.hx-table {
+  width: 100%;
+  margin: 24px 0 0;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.hx-table th,
+.hx-table td {
+  padding: 9px 0;
+  border-bottom: 1px solid rgba(154, 168, 255, 0.1);
+  text-align: left;
+}
+
+.hx-table thead th {
+  color: var(--ink-2);
+  font: 500 12px/1 var(--mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.hx-table td {
+  font-family: var(--mono);
+  font-size: 14px;
+}
+
+.hx-table th[scope='row'] {
+  font-weight: 500;
+}
+
+.hx-issues {
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.hx-issues li {
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: rgba(242, 182, 92, 0.08);
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+
+.hx-issues p {
+  margin: 0;
+  font-size: 15px;
+}
+
+.hx-issues .hx-fix {
+  margin-top: 6px;
+  color: var(--ink-2);
+}
+
+/* ---- on the canvas: tiles -------------------------------------------------------------------------------------------------- */
+
+.more {
+  padding: 170px 0 0;
+}
+
+.more h2 {
+  max-width: 22ch;
+}
+
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 48px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* ---- MCP ------------------------------------------------------------------------------------------------------------------- */
+
+.term-wrap {
+  border-radius: 16px;
+  background: #0a0e1c;
+  box-shadow: inset 0 0 0 1px var(--card-edge), 0 40px 90px -40px rgba(0, 0, 0, 0.9), 0 0 80px -30px var(--glow);
+  overflow: hidden;
+}
+
+.terminal {
+  margin: 0;
+  padding: 26px 28px;
+  overflow-x: auto;
+  font: 400 15px/1.9 var(--mono);
+  color: var(--ink);
+}
+
+.terminal > span {
+  display: inline;
+}
+
+.terminal .you {
+  color: #fff;
+}
+
+.terminal .tool {
+  color: var(--link);
+}
+
+.terminal .out {
+  color: var(--k-added);
+}
+
+/* Lines appear one after another once the terminal is on screen (src/home.ts arms it; without script it is all there). */
+.terminal.is-armed > span {
+  opacity: 0;
+}
+
+.terminal.is-playing > span {
+  animation: term-line 400ms ease-out both;
+  animation-delay: calc(var(--i, 0) * 520ms);
+}
+
+@keyframes term-line {
+  from { opacity: 0; filter: blur(3px); }
+  to { opacity: 1; filter: none; }
+}
+
+.toolset {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 18px 28px 26px;
+  border-top: 1px solid rgba(154, 168, 255, 0.1);
+  list-style: none;
+}
+
+.toolset li {
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: rgba(154, 168, 255, 0.07);
+  color: var(--ink-2);
+  font: 500 12.5px/1 var(--mono);
+}
+
+/* ---- the stack ------------------------------------------------------------------------------------------------------------- */
+
+.stack {
+  padding: 170px 0 0;
+}
+
+.stack .lede {
+  margin-top: 20px;
+}
+
+.stack-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 48px 0 28px;
+  padding: 0;
+  list-style: none;
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(154, 168, 255, 0.12);
+  box-shadow: 0 0 0 1px rgba(154, 168, 255, 0.12);
+}
+
+.stack-list li {
+  padding: 26px 24px;
+  background: var(--film);
+  color: var(--ink-2);
+  font: 400 14px/1.5 var(--mono);
+  transition: background 250ms;
+}
+
+.stack-list li:hover {
+  background: #111733;
+}
+
+.stack-list b {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--ink);
+  font: 650 21px/1.2 var(--sans);
+  letter-spacing: -0.01em;
+}
+
+/* ---- proof ----------------------------------------------------------------------------------------------------------------- */
+
+.proof {
+  padding: 170px 0 0;
+}
+
+.proof h2 {
+  font-size: clamp(28px, 2.6vw, 38px);
+}
+
+.proof-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 32px;
+  margin: 36px 0 0;
+}
+
+.proof-list div {
+  padding-top: 18px;
+  border-top: 1px solid var(--rule);
+}
+
+.proof-list dt {
+  font-weight: 650;
+}
+
+.proof-list dd {
+  margin: 8px 0 0;
+  color: var(--ink-2);
+  font-size: 15px;
+}
+
+/* ---- download: the end of the request --------------------------------------------------------------------------------------- */
+
+.download {
+  padding: 190px 0 120px;
+  text-align: center;
+}
+
+.download::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 120px;
+  width: min(1200px, 120vw);
+  height: 640px;
+  transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(63, 82, 201, 0.35), transparent 72%);
+  filter: blur(10px);
+  z-index: -1;
+  pointer-events: none;
+}
+
+.end-card {
+  margin: 0 0 18px;
+  color: var(--faded);
+  font: 650 clamp(20px, 2vw, 28px) / 1.25 var(--sans);
+  letter-spacing: -0.02em;
+}
+
+.end-card span {
+  display: block;
+}
+
+.end-card b {
+  color: var(--link);
+}
+
+.download h2 {
+  margin: 0 auto;
+  max-width: none;
+  font-size: clamp(44px, 6vw, 96px);
+  letter-spacing: -0.045em;
+}
+
+.download .ctas {
+  justify-content: center;
+  margin-top: 36px;
+}
+
+.dl-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin: 64px auto 0;
+  max-width: 980px;
+  text-align: left;
+}
+
+.dl-group {
+  padding: 22px 24px;
+  border-radius: 14px;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1px var(--card-edge);
+}
+
+.dl-group[data-mine] {
+  box-shadow: inset 0 0 0 1.5px rgba(111, 134, 255, 0.6), 0 20px 60px -30px rgba(111, 134, 255, 0.7);
+}
+
+.dl-group h3 {
+  margin: 0 0 10px;
+  font-size: 17px;
+}
+
+.dl-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.dl-group li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-top: 1px solid rgba(154, 168, 255, 0.08);
+  font-size: 15px;
+}
+
+.dl-size {
+  color: var(--ink-2);
+  font: 400 13px/1.6 var(--mono);
+  white-space: nowrap;
+}
+
+.dl-terminal {
+  max-width: 980px;
+  margin: 56px auto 0;
+  text-align: left;
+}
+
+.dl-terminal h3 {
+  margin: 0 0 16px;
+  font-size: 18px;
+  text-align: center;
+}
+
+.cmds {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.cmd {
+  position: relative;
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: #0a0e1c;
+  box-shadow: inset 0 0 0 1px var(--card-edge);
+}
+
+.cmd p {
+  margin: 0 0 10px;
+  color: var(--ink-2);
+  font-size: 14px;
+}
+
+.cmd pre {
+  margin: 0;
+  padding: 0;
+  background: none;
+  overflow-x: auto;
+  font: 500 14px/1.5 var(--mono);
+}
+
+.cmd pre code {
+  background: none;
+  padding: 0;
+  color: var(--ink);
+}
+
+.copy {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 5px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: rgba(154, 168, 255, 0.1);
+  color: var(--ink);
+  font: 500 12.5px/1.2 var(--sans);
+  cursor: pointer;
+}
+
+.copy:hover {
+  background: rgba(154, 168, 255, 0.2);
+}
+
+.dl-terminal > .quiet {
+  margin-top: 16px;
+  text-align: center;
+  font-size: 14.5px;
+}
+
+/* ---- motion ---------------------------------------------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .hero-tag,
+  .hero h1 > span,
+  .hero .lede,
+  .hero .ctas,
+  .hero [data-platforms] {
+    animation: hero-in 900ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  .hero h1 > span:first-child { animation-delay: 80ms; }
+  .hero h1 > span:last-child { animation-delay: 200ms; }
+  .hero .lede { animation-delay: 320ms; }
+  .hero .ctas { animation-delay: 420ms; }
+  .hero [data-platforms] { animation-delay: 500ms; }
+
+  .shot {
+    animation: shot-in 1300ms 350ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+
+  /* "Runs": the light sweeps once across the word, and its trace draws itself under it. */
+  .h-runs em {
+    animation: sweep 2.2s 900ms ease-in-out both;
+  }
+
+  .h-runs em::after {
+    animation: draw 900ms 700ms cubic-bezier(0.6, 0, 0.2, 1) both;
+  }
+
+  .h-runs em::before {
+    animation: pop 400ms 1500ms cubic-bezier(0.2, 0.9, 0.3, 1.4) both;
+  }
+
+  .marquee .chips {
+    animation: drift 46s linear infinite;
+  }
+
+  .marquee:hover .chips {
+    animation-play-state: paused;
+  }
+
+  @supports (animation-timeline: view()) {
+    /* The editor window lies back and comes flat as the page scrolls. */
+    .shot-window {
+      animation-name: lay-flat;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: scroll(root);
+      animation-range: 0 560px;
+    }
+
+    .rise {
+      animation-name: rise;
+      animation-timing-function: linear;
+      animation-fill-mode: both;
+      animation-timeline: view();
+      animation-range: entry 0% entry 55%;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse {
+    display: none;
+  }
+
+  .marquee .chips {
+    flex-wrap: wrap;
+    width: auto;
+  }
+
+  .marquee {
+    mask-image: none;
+    padding: 0 var(--pad);
+    max-width: var(--wide);
+    margin-inline: auto;
+  }
+
+  .marquee .chips li[aria-hidden] {
+    display: none;
+  }
+
+  .hx-score {
+    animation: none;
+  }
+}
+
+@keyframes hero-in {
+  from { opacity: 0; transform: translateY(18px); filter: blur(6px); }
+}
+
+@keyframes shot-in {
+  from { opacity: 0; transform: translateY(60px); }
+}
+
+@keyframes lay-flat {
+  from { transform: rotateX(14deg) scale(0.94); }
+  to { transform: none; }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(34px); }
+}
+
+@keyframes sweep {
+  from { background-position: 100% 0; }
+  to { background-position: 0 0; }
+}
+
+@keyframes draw {
+  from { transform: scaleX(0); }
+}
+
+@keyframes pop {
+  from { transform: scale(0); }
+}
+
+@keyframes drift {
+  to { transform: translateX(-50%); }
+}
+
+/* ---- narrower screens ------------------------------------------------------------------------------------------------------ */
+
+@media (max-width: 1099px) {
+  .feature-grid,
+  .feature-grid.flip,
+  .vscode-grid,
+  .agents-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 40px;
+  }
+
+  .feature-grid.flip > :first-child {
+    order: 0;
+  }
+
+  .facts,
+  .tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .stack-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .proof-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dock-frame {
+    max-width: 520px;
+  }
+}
+
+@media (max-width: 760px) {
+  /* The first screen of a phone holds the slogan, the buttons and most of the hero loop (the e2e test measures it). */
+  .hero {
+    padding-top: 16px;
+  }
+
+  .hero-tag {
+    display: none;
+  }
+
+  .hero h1 {
+    margin-top: 6px;
+    font-size: clamp(28px, 8vw, 38px);
+  }
+
+  .hero .lede {
+    margin-top: 10px;
+    font-size: 16.5px;
+  }
+
+  .hero .ctas {
+    margin-top: 18px;
+    gap: 8px;
+  }
+
+  .hero .ctas .btn {
+    width: 100%;
+    min-height: 48px;
+  }
+
+  .film-open {
+    min-height: 36px;
+    font-size: 16px;
+  }
+
+  .hero [data-platforms] {
+    margin-top: 4px;
+    font-size: 14px;
+  }
+
+  .shot {
+    margin-top: 14px;
+    animation: none;
+  }
+
+  .shot-video {
+    aspect-ratio: 864 / 900;
+  }
+
+  .shot-cta {
+    position: static;
+    display: flex;
+    justify-content: center;
+    border-radius: 0;
+    opacity: 1;
+    transform: none;
+    background: var(--signal);
+    color: #fff;
+    box-shadow: none;
+  }
+
+  .works {
+    gap: 8px 18px;
+    font-size: 14px;
+  }
+
+  .band,
+  .journey,
+  .feature,
+  .harness-home,
+  .mcp-home,
+  .agents-home,
+  .more,
+  .stack,
+  .proof {
+    padding-top: 104px;
+  }
+
+  .journey-head,
+  .agents-head {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .journey .stage:not(.is-full) {
+    aspect-ratio: 3 / 4;
+  }
+
+  .facts,
+  .tiles,
+  .proof-list,
+  .dl-list,
+  .cmds {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .fan li + li::before,
+  .fan li + li::after {
+    display: none;
+  }
+
+  .hx-head {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .harness-frame .harness {
+    padding: 20px;
+  }
+
+  .download {
+    padding: 110px 0 80px;
+  }
+
+  .island-top {
+    top: 64px;
+  }
+}
