@@ -22,7 +22,7 @@ import { spawnSync, execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { shot, runCommand, dismissWelcome, tabTitles, until, sleep } from '/work/insilode/test/e2e-desktop/lib/probe.mjs'
+import { shot, runCommand as runPaletteCommand, dismissWelcome, tabTitles, until, sleep } from '/work/insilode/test/e2e-desktop/lib/probe.mjs'
 import { launchInsilode } from '/work/insilode/test/e2e-desktop/lib/app.mjs'
 import { sourceElectron } from '/work/insilode/test/e2e-desktop/run.mjs'
 
@@ -85,7 +85,7 @@ const newFolder = label => {
  * Starts Insilode (with its own fake agents) and puts the main-process recorder in. `maximized`: the folder's window state is maximized.
  * `restore: n`: n folders are seeded as the last session's windows and restored (no folder is given on the command line).
  */
-async function start(label, { args = [], settings, maximized, restore = 0 } = {}) {
+async function start(label, { args = [], settings, maximized, restore = 0, extensions = [toastExtension] } = {}) {
 	useFake()
 	const folders = Array.from({ length: Math.max(1, restore) }, (_, i) => newFolder(`${label}${i}`))
 	const folder = folders[0]
@@ -95,7 +95,8 @@ async function start(label, { args = [], settings, maximized, restore = 0 } = {}
 		windowsState.lastActiveWindow = windowsState.openedWindows[0]
 	}
 	const files = maximized || restore ? { 'User/globalStorage/storage.json': { windowsState } } : undefined
-	const app = await launchInsilode({ exe: sourceElectron(source), args: ['.', ...args], cwd: source, out, folder: restore ? undefined : folder, settings: restore ? { 'window.restoreWindows': 'all', ...settings } : settings, files, env: ENV, extensions: [toastExtension] })
+	const app = await launchInsilode({ exe: sourceElectron(source), args: ['.', ...args], cwd: source, out, folder: restore ? undefined : folder, settings: restore ? { 'window.restoreWindows': 'all', ...settings } : settings, files, env: ENV, extensions })
+	current = app
 	await app.main(({ app: electron, BrowserWindow, dialog }) => {
 		const aa = globalThis.__aa = { samples: [], shows: [], dialogs: [], answer: '^Cancel', queue: [] }
 		const ide = w => !w.isDestroyed() && /^vscode-file:/.test(w.webContents.getURL())
@@ -119,6 +120,31 @@ async function start(label, { args = [], settings, maximized, restore = 0 } = {}
 		}
 	})
 	return { app, folder, folders }
+}
+
+/** The app of the run in progress, for the palette diagnostics. */
+let current
+/** Where each window's quick input is and which document says it has the focus: what a palette call that fails needs to be understood. */
+async function paletteState() {
+	const pages = []
+	for (const p of current.pages().filter(p => !p.url().startsWith('data:'))) {
+		pages.push({ window: p.url().startsWith('vscode-file:') ? 'IDE' : 'Agents', hasFocus: await p.evaluate(() => document.hasFocus()).catch(() => null), quickInputVisible: await p.locator('.quick-input-widget:visible').count().catch(() => null), quickInputInDom: await p.locator('.quick-input-widget').count().catch(() => null), workbenchRoots: await p.locator('.monaco-workbench').count().catch(() => null) })
+	}
+	return { pages, osFocused: (await windows(current)).filter(w => w.focused).map(w => `${w.id}${w.visible ? '' : ' (hidden)'}`) }
+}
+/** The palette call of the harness, logged: which window it pressed in and, when it fails, where the widget went. */
+async function runCommand(page, title) {
+	const pressed = page.url().startsWith('vscode-file:') ? 'IDE' : 'Agents'
+	const before = await paletteState()
+	try {
+		await runPaletteCommand(page, title)
+		console.log(`palette "${title}" pressed in the ${pressed} window: ok`)
+	} catch (e) {
+		const after = await paletteState()
+		console.log(`palette "${title}" pressed in the ${pressed} window FAILED; before ${JSON.stringify(before)}; after ${JSON.stringify(after)}`)
+		e.message += ` [pressed in the ${pressed} window; after: ${JSON.stringify(after)}]`
+		throw e
+	}
 }
 
 /** The default answer to a native box, and (`next`) answers for the next boxes in order. */
@@ -560,7 +586,8 @@ await part('agents-standalone/RC02 a cancelled close', async () => {
 // ---------------------------------------------------------------------------------------------------------------------------------------
 // Run 9: what shows the hidden window (RC03): the Dock, a reload; what does not: a renderer that stops responding.
 await part('agents-standalone/RC03 the hidden window comes back', async () => {
-	const { app } = await start('comesback')
+	// No extension under development: for such a window "not responding" asks nothing (windowImpl.ts), and the box is what this run needs.
+	const { app } = await start('comesback', { extensions: [] })
 	try {
 		const page = await app.workbench()
 		await dismissWelcome(page)
@@ -595,7 +622,8 @@ await part('agents-standalone/RC03 the hidden window comes back', async () => {
 		await app.main(({ BrowserWindow }, id) => {
 			const contents = BrowserWindow.fromId(id).webContents
 			contents.executeJavaScript('for (;;) {}').catch(() => undefined)
-			setTimeout(() => contents.sendInputEvent({ type: 'mouseMove', x: 5, y: 5 }), 1000)
+			// The hang is noticed when an input event is not answered: keep sending them.
+			setInterval(() => { if (!contents.isDestroyed()) { contents.sendInputEvent({ type: 'mouseMove', x: 5, y: 5 }) } }, 2000)
 		}, ide2.id)
 		const q = await awaitAsk(app, before, 90000)
 		await sleep(3000)

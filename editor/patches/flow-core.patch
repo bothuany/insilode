@@ -2005,10 +2005,10 @@ index 9b2f8c79..8761b7c8 100644
  
  		// Apply position class
 diff --git a/src/vs/base/browser/dom.ts b/src/vs/base/browser/dom.ts
-index d3bca6eb..6b312c12 100644
+index d3bca6eb..0c3fe62f 100644
 --- a/src/vs/base/browser/dom.ts
 +++ b/src/vs/base/browser/dom.ts
-@@ -27,6 +27,24 @@ export interface IRegisteredCodeWindow {
+@@ -27,6 +27,35 @@ export interface IRegisteredCodeWindow {
  
  //# region Multi-Window Support Utilities
  
@@ -2019,8 +2019,19 @@ index d3bca6eb..6b312c12 100644
 + */
 +const hiddenWindows = new Set<Window>();
 +
-+/** Insilode: the window that was focused last (by its `focus` event): of several documents that all say they have the focus, the one the OS focused most recently is the active one. */
++/**
++ * Insilode: the window the user touched last (it was focused, or got a key or a click): of several documents that all say they have the focus
++ * (without a window manager nothing ever tells a page it lost it), that one is the active one. On a desktop only one document has the focus anyway.
++ */
 +let lastFocusedWindow: Window | undefined;
++
++function trackActivity(window: Window): IDisposable {
++	const disposables = new DisposableStore();
++	for (const type of ['focus', 'keydown', 'mousedown']) {
++		disposables.add(addDisposableListener(window, type, () => { lastFocusedWindow = window; }, true));
++	}
++	return disposables;
++}
 +
 +export function markWindowHidden(window: Window, hidden: boolean): void {
 +	if (hidden) {
@@ -2033,25 +2044,36 @@ index d3bca6eb..6b312c12 100644
  export const {
  	registerWindow,
  	getWindow,
-@@ -84,6 +102,8 @@ export const {
+@@ -77,6 +106,10 @@ export const {
+ 
+ 			disposables.add(toDisposable(() => {
+ 				windows.delete(window.vscodeWindowId);
++				hiddenWindows.delete(window); // Insilode: a closed window is held by neither
++				if (lastFocusedWindow === window) {
++					lastFocusedWindow = undefined;
++				}
+ 				onDidUnregisterWindow.fire(window);
+ 			}));
+ 
+@@ -84,6 +117,8 @@ export const {
  				onWillUnregisterWindow.fire(window);
  			}));
  
-+			disposables.add(addDisposableListener(window, EventType.FOCUS, () => { lastFocusedWindow = window; }));
++			disposables.add(trackActivity(window));
 +
  			onDidRegisterWindow.fire(registeredWindow);
  
  			return disposables;
-@@ -121,6 +141,8 @@ export const {
+@@ -121,6 +156,8 @@ export const {
  	};
  })();
  
-+mainWindow.addEventListener('focus', () => { lastFocusedWindow = mainWindow; }); // Insilode: see lastFocusedWindow
++trackActivity(mainWindow); // Insilode: see lastFocusedWindow
 +
  //#endregion
  
  //#region External Focus Tracking
-@@ -1074,8 +1096,9 @@ export function getActiveDocument(): Document {
+@@ -1074,8 +1111,9 @@ export function getActiveDocument(): Document {
  		return mainWindow.document;
  	}
  
@@ -2063,7 +2085,7 @@ index d3bca6eb..6b312c12 100644
  	if (focusedDoc) {
  		return focusedDoc;
  	}
-@@ -1086,7 +1109,8 @@ export function getActiveDocument(): Document {
+@@ -1086,7 +1124,8 @@ export function getActiveDocument(): Document {
  		return externalWindow.document;
  	}
  
