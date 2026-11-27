@@ -2005,10 +2005,10 @@ index 9b2f8c79..8761b7c8 100644
  
  		// Apply position class
 diff --git a/src/vs/base/browser/dom.ts b/src/vs/base/browser/dom.ts
-index d3bca6eb..0c3fe62f 100644
+index d3bca6eb..901b1cb2 100644
 --- a/src/vs/base/browser/dom.ts
 +++ b/src/vs/base/browser/dom.ts
-@@ -27,6 +27,35 @@ export interface IRegisteredCodeWindow {
+@@ -27,6 +27,38 @@ export interface IRegisteredCodeWindow {
  
  //# region Multi-Window Support Utilities
  
@@ -2026,11 +2026,14 @@ index d3bca6eb..0c3fe62f 100644
 +let lastFocusedWindow: Window | undefined;
 +
 +function trackActivity(window: Window): IDisposable {
-+	const disposables = new DisposableStore();
-+	for (const type of ['focus', 'keydown', 'mousedown']) {
-+		disposables.add(addDisposableListener(window, type, () => { lastFocusedWindow = window; }, true));
++	// Plain addEventListener, not addDisposableListener: this runs for the main window while this module loads, before DomListener is declared.
++	// `focus` without capture, so only the window's own focus counts (a capturing listener would hear every element.focus() inside it); a key or a click is heard in capture.
++	const touched = () => { lastFocusedWindow = window; };
++	const listeners: [string, boolean][] = [['focus', false], ['keydown', true], ['mousedown', true]];
++	for (const [type, capture] of listeners) {
++		window.addEventListener(type, touched, capture);
 +	}
-+	return disposables;
++	return toDisposable(() => listeners.forEach(([type, capture]) => window.removeEventListener(type, touched, capture)));
 +}
 +
 +export function markWindowHidden(window: Window, hidden: boolean): void {
@@ -2044,7 +2047,7 @@ index d3bca6eb..0c3fe62f 100644
  export const {
  	registerWindow,
  	getWindow,
-@@ -77,6 +106,10 @@ export const {
+@@ -77,6 +109,10 @@ export const {
  
  			disposables.add(toDisposable(() => {
  				windows.delete(window.vscodeWindowId);
@@ -2055,7 +2058,7 @@ index d3bca6eb..0c3fe62f 100644
  				onDidUnregisterWindow.fire(window);
  			}));
  
-@@ -84,6 +117,8 @@ export const {
+@@ -84,6 +120,8 @@ export const {
  				onWillUnregisterWindow.fire(window);
  			}));
  
@@ -2064,7 +2067,7 @@ index d3bca6eb..0c3fe62f 100644
  			onDidRegisterWindow.fire(registeredWindow);
  
  			return disposables;
-@@ -121,6 +156,8 @@ export const {
+@@ -121,6 +159,8 @@ export const {
  	};
  })();
  
@@ -2073,7 +2076,7 @@ index d3bca6eb..0c3fe62f 100644
  //#endregion
  
  //#region External Focus Tracking
-@@ -1074,8 +1111,9 @@ export function getActiveDocument(): Document {
+@@ -1074,8 +1114,9 @@ export function getActiveDocument(): Document {
  		return mainWindow.document;
  	}
  
@@ -2085,7 +2088,7 @@ index d3bca6eb..0c3fe62f 100644
  	if (focusedDoc) {
  		return focusedDoc;
  	}
-@@ -1086,7 +1124,8 @@ export function getActiveDocument(): Document {
+@@ -1086,7 +1127,8 @@ export function getActiveDocument(): Document {
  		return externalWindow.document;
  	}
  
