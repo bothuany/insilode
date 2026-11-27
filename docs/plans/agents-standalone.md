@@ -1,7 +1,7 @@
 ---
 cycle: agents-standalone
 author: rbdikmen@gmail.com
-phase: build
+phase: code-review
 branch: cycle/agents-standalone
 ---
 
@@ -74,6 +74,9 @@ The Agents page (`editor/extensions/flow-agent`, opened by `flow.agents.openPage
 | `insilode` from a shell | IDE shown |
 | `insilode --agents-only` from a shell | IDE stays hidden, Agents window focused |
 | Reload Window / renderer crash | IDE shown (the Agents window is not restored) |
+| the renderer stops responding for a while | IDE stays hidden (no focus stealing) |
+| click an agent in the status island | the agent opens in the Agents window, which comes forward; IDE stays hidden (user, 2026-11-28) |
+| macOS: click the Dock icon | IDE shown |
 
 - **Test:** probe test/e2e-desktop/probes/agents-alone.mjs, steps `agents-standalone/RC03 Ctrl+P in the Agents window, open hello.txt -> IDE shown with hello.txt`, `agents-standalone/RC03 "Show IDE Window" -> IDE shown, focused`, `agents-standalone/RC03 insilode from a shell -> IDE shown`, `agents-standalone/RC03 insilode --agents-only from a shell -> IDE stays hidden, Agents window focused`, `agents-standalone/RC03 Reload Window / renderer crash -> IDE shown (the Agents window is not restored): reload`, `agents-standalone/RC03 Reload Window / renderer crash -> IDE shown (the Agents window is not restored): crash`
 
@@ -104,6 +107,7 @@ The Agents page (`editor/extensions/flow-agent`, opened by `flow.agents.openPage
 | `insilode --agents-only` | never (also after 10 s in a source build) | open, focused |
 | `insilode --agents-only`, window state maximized | never | open |
 | `insilode` | yes | as today |
+| `insilode --agents-only`, two IDE windows restored from the last session | never, neither of them (user, 2026-11-28) | open |
 
 - **Test:** probe test/e2e-desktop/probes/agents-alone.mjs, steps `agents-standalone/RC05 insilode --agents-only: IDE never visible (also after 10 s in a source build), Agents window open, focused`, `agents-standalone/RC05 insilode --agents-only, window state maximized: IDE never visible, Agents window open`, `agents-standalone/RC05 insilode: IDE visible, as today`
 
@@ -142,3 +146,4 @@ Docker only (PROBE.md): `npm run docker:e2e -- --probe test/e2e-desktop/probes/a
 - plan: rules RC01-RC05 and items 1-9 written; next plan-review.
 - plan-review: reviewer found 12 (hidden-window show paths and the source-build force-show, IPC hiding any window id, throttling restore, ended sessions counted, toasts on mainContainer, missing probe, grep-only checks, reload, Ctrl+W, Quit, macOS/multi-window rows); all settled in the cards and items, three by the user; spike probe committed on spike/agents-core 284263a.
 - build: the user approved the plan and rule cards RC01-RC05 (2026-11-27); writer started.
+- code-review: round 1, 7 findings (closing flag stuck after a cancelled save, any focus() showing the hidden IDE, a second restored window visible, probe steps that pass vacuously, toasts scheduled on the hidden window, the macOS Dock, an IPC comment); the user decided the island click (Agents window) and restored windows (all hidden), the lead decided unresponsive (stays hidden) and the Dock (shows the IDE), rows added to RC03 and RC05. Docker run of plan-check 1 was cut off by a machine shutdown, no result.
