@@ -509,7 +509,8 @@ body.vscode-high-contrast .rp:focus, body.vscode-high-contrast .rp:focus-within 
 /* The path from the entry to the cursor and the callee under it are solid, the cards the cursor has been in are plain, the rest is faded. */
 .wv-reading .react-flow__node.tr-dim .card { opacity: .42; transition: opacity .2s; }
 .wv-reading .react-flow__node.tr-read .card { opacity: .8; transition: opacity .2s; }
-.wv-reading .react-flow__edge.tr-dim path { opacity: .28; }
+/* A wire is thinner than a card, so it fades less: at the card's .42 a grey wire on the dark canvas all but disappears. */
+.wv-reading .react-flow__edge.tr-dim path { opacity: .65; }
 .wv-reading .react-flow__edge.tr-path path, .wv-reading .react-flow__edge.tr-next path { opacity: 1; stroke-width: 2.2px !important; }
 /* In a high-contrast theme nothing fades: the state is in the border instead. */
 body.vscode-high-contrast .wv-reading .react-flow__node.tr-dim .card, body.vscode-high-contrast .wv-reading .react-flow__node.tr-read .card { opacity: 1; }
