@@ -1,7 +1,7 @@
 ---
 cycle: agents-standalone
 author: rbdikmen@gmail.com
-phase: code-review
+phase: probe
 branch: cycle/agents-standalone
 ---
 
