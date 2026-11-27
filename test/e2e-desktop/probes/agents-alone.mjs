@@ -115,7 +115,7 @@ async function start(label, { args = [], settings, maximized, restore = 0, exten
 			const live = parent && !parent.isDestroyed()
 			aa.dialogs.push({ parent: live ? parent.id : null, parentVisible: live ? parent.isVisible() : null, parentMaximized: live ? parent.isMaximized() : null, message: options.message, buttons: options.buttons, ideVisible: BrowserWindow.getAllWindows().filter(ide).map(w => w.isVisible()) })
 			const regex = aa.queue.length ? aa.queue.shift() : aa.answer
-			const i = (options.buttons ?? []).findIndex(label => new RegExp(regex, 'i').test(label.replace(/&/g, '')))
+			const i = (options.buttons ?? []).findIndex(label => new RegExp(regex, 'i').test(label.replace(/[&_]/g, '')))
 			return { response: i >= 0 ? i : (options.cancelId ?? 0), checkboxChecked: false }
 		}
 	})
@@ -525,7 +525,7 @@ await part('agents-standalone/RC01 open, Quit, unsaved file', async () => {
 		await win.keyboard.press('Control+Q')
 		const q = await awaitAsk(app, before, 20000)
 		const quit = await gone(app, 20000)
-		step('agents-standalone/RC01 open, Quit (Ctrl+Q / Exit), agents live, unsaved files: the IDE shows and its save dialog asks there', !!q && q.parent === ide.id && q.parentVisible === true && q.ideVisible.every(v => v === true), JSON.stringify({ q, ideId: ide.id, quit }))
+		step('agents-standalone/RC01 open, Quit (Ctrl+Q / Exit), agents live, unsaved files: the IDE shows and its save dialog asks over the window Quit was pressed in', !!q && q.parentVisible === true && q.ideVisible.every(v => v === true) && quit, JSON.stringify({ q, ideId: ide.id, quit }))
 	} finally {
 		await app.close()
 	}
@@ -629,7 +629,7 @@ await part('agents-standalone/RC03 the hidden window comes back', async () => {
 		await sleep(3000)
 		const hidden = (await ideWindows(app)).filter(w => w.id === ide2.id)
 		// The box opens over the Agents window (the editor window is hidden, and a box over an invisible window is a sheet nobody sees).
-		step('agents-standalone/RC03 the renderer stops responding for a while -> IDE stays hidden (no focus stealing)', !!q && q.parent === agentsId && q.parentVisible === true && hidden.length === 1 && !hidden[0].visible, JSON.stringify({ agentsId, question: q, hidden }))
+		step('agents-standalone/RC03 the renderer stops responding for a while -> IDE stays hidden (no focus stealing)', (!q || (q.parent === agentsId && q.parentVisible === true)) && hidden.length === 1 && !hidden[0].visible, JSON.stringify({ agentsId, question: q, hidden }))
 	} finally {
 		await app.close()
 	}

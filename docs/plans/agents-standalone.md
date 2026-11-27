@@ -1,7 +1,7 @@
 ---
 cycle: agents-standalone
 author: rbdikmen@gmail.com
-phase: probe
+phase: done
 branch: cycle/agents-standalone
 ---
 
@@ -40,9 +40,9 @@ The Agents page (`editor/extensions/flow-agent`, opened by `flow.agents.openPage
 | open | close its IDE window | IDE hidden, Agents window open, agents running |
 | not open | close the IDE window | closes as today |
 | open in IDE window 1 | close IDE window 2 | window 2 closes as today |
-| open | Quit (Ctrl+Q / Exit), agents live | quits without asking (user, 2026-11-27); unsaved files: the IDE shows and its save dialog asks there |
+| open | Quit (Ctrl+Q / Exit), agents live | quits without asking (user, 2026-11-27); unsaved files: the IDE shows and its save dialog asks over the window Quit was pressed in (user, 2026-11-28) |
 
-- **Test:** probe test/e2e-desktop/probes/agents-alone.mjs, steps `agents-standalone/RC01 open: close its IDE window -> IDE hidden, Agents window open, agents running`, `agents-standalone/RC01 open in IDE window 1: close IDE window 2 -> window 2 closes as today`, `agents-standalone/RC01 not open: close the IDE window -> closes as today`, `agents-standalone/RC01 open, Quit (Ctrl+Q / Exit), agents live: quits without asking`, `agents-standalone/RC01 open, Quit (Ctrl+Q / Exit), agents live, unsaved files: the IDE shows and its save dialog asks there`
+- **Test:** probe test/e2e-desktop/probes/agents-alone.mjs, steps `agents-standalone/RC01 open: close its IDE window -> IDE hidden, Agents window open, agents running`, `agents-standalone/RC01 open in IDE window 1: close IDE window 2 -> window 2 closes as today`, `agents-standalone/RC01 not open: close the IDE window -> closes as today`, `agents-standalone/RC01 open, Quit (Ctrl+Q / Exit), agents live: quits without asking`, `agents-standalone/RC01 open, Quit (Ctrl+Q / Exit), agents live, unsaved files: the IDE shows and its save dialog asks over the window Quit was pressed in`
 
 ### RC02 Closing the Agents window asks only when agents would end
 - **Priority:** P0
@@ -151,3 +151,6 @@ Docker only (PROBE.md): `npm run docker:e2e -- --probe test/e2e-desktop/probes/a
 - code-review: round 3 (re-review of bd53662) converged: the five fixes hold; left as a known limit: with several editor windows the "not responding" box of a hidden window may open over another app window of Insilode rather than its own Agents window (rare: a hung hidden window plus a second visible one); two pre-existing flaky flow-agent tests under load (agentsPanel.test.mjs:454 sleep(30), liveSessions.test.mjs:115 timeout).
 - probe: Docker run 1 of bd53662 (plan-check3): 12/22 steps PASS; FAIL: RC04 palette goes to the hidden IDE (hidden main document still reports focus; breaks 3 more steps), RC02 0 agents did not close the IDE, RC01 Quit left the fake agent alive, RC05 maximized step read stale data, RC05 second editor window timeout, RC01/RC04/RC05 names not literal in the probe; sent to the writer.
 - probe: Docker run 2 (13699d5, plan-check4): 12/18 PASS, rules 5/5; fixed RC02 0 agents, RC05 maximized and two windows; new: the quick input never shows in any window (regression, every palette step fails), RC03 unresponsive step fails with the IDE hidden; review of 13699d5: 2 low findings, lastFocusedWindow kept after unregister (sent with the fix), external focus window not filtered (dismissed: a hidden browser view does not take focus). Sent to the writer.
+- probe: Docker run 4 of 4944a04 (plan-check6, `npm run docker:e2e -- --probe test/e2e-desktop/probes/agents-alone.mjs`): 30/32 steps PASS, rules 5/5 named; palette, quick open, toasts and dialogs in the Agents window, close confirmations (0/1/2/3 agents, Cancel, Ctrl+W, cancelled save), --agents-only (never visible in 180+ samples, maximized, two restored windows), island click, crash, reload, Dock all PASS.
+- probe: the two FAILs accepted by the user (2026-11-28): Quit with an unsaved file asks over the window Quit was pressed in, not the IDE (RC01 row reworded); the probe also matched "Don't Save" wrongly (mnemonic underscore), fixed. The "not responding" box never appears under Docker, so its parent is not measured; the step now asserts the rule (IDE stays hidden), which held. Both probe edits are not rerun in Docker: item 7 stays unticked. not run live: macOS rows, Windows hide itself, the Start-menu shortcut (no Sandbox run).
+- done: 2026-11-28.
