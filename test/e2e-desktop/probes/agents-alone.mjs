@@ -34,10 +34,10 @@ if (!source) {
 mkdirSync(join(out, 'shots'), { recursive: true })
 
 const results = { steps: [] }
+// The names are written out in full at each call (`agents-standalone/RCnn <row>`), so a search for a card's name finds the step.
 const step = (name, pass, evidence) => {
-	const full = `agents-standalone/${name}`
-	results.steps.push({ name: full, pass: !!pass, evidence })
-	console.log(`${pass ? 'PASS' : 'FAIL'} ${full}: ${evidence}`)
+	results.steps.push({ name, pass: !!pass, evidence })
+	console.log(`${pass ? 'PASS' : 'FAIL'} ${name}: ${evidence}`)
 }
 /** Runs a part of the probe; an exception is a failed step named after it, and the probe goes on with the next part. */
 const part = async (name, fn) => {
@@ -100,6 +100,10 @@ async function start(label, { args = [], settings, maximized, restore = 0 } = {}
 		const aa = globalThis.__aa = { samples: [], shows: [], dialogs: [], answer: '^Cancel', queue: [] }
 		const ide = w => !w.isDestroyed() && /^vscode-file:/.test(w.webContents.getURL())
 		const watch = w => w.on('show', () => aa.shows.push({ id: w.id, at: Date.now() }))
+		// Every maximize() call: without a window manager (xvfb) `isMaximized()` never turns true, the call is what shows the state was applied.
+		aa.maximizes = []
+		const maximize = BrowserWindow.prototype.maximize
+		BrowserWindow.prototype.maximize = function () { aa.maximizes.push({ id: this.id, at: Date.now() }); return maximize.apply(this, arguments) }
 		BrowserWindow.getAllWindows().forEach(watch)
 		electron.on('browser-window-created', (_event, w) => watch(w))
 		setInterval(() => aa.samples.push(BrowserWindow.getAllWindows().filter(ide).map(w => w.isVisible())), 100)
@@ -119,7 +123,7 @@ async function start(label, { args = [], settings, maximized, restore = 0 } = {}
 
 /** The default answer to a native box, and (`next`) answers for the next boxes in order. */
 const answer = (app, regex, next = []) => app.main((_, a) => { globalThis.__aa.answer = a.regex; globalThis.__aa.queue = a.next }, { regex, next })
-const recorded = app => app.main(() => ({ samples: globalThis.__aa.samples, shows: globalThis.__aa.shows, dialogs: globalThis.__aa.dialogs }))
+const recorded = app => app.main(() => ({ samples: globalThis.__aa.samples, shows: globalThis.__aa.shows, dialogs: globalThis.__aa.dialogs, maximizes: globalThis.__aa.maximizes }))
 const windows = app => app.main(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(w => !w.isDestroyed()).map(w => {
 	const url = w.webContents.getURL()
 	return { id: w.id, ide: /^vscode-file:/.test(url), overlay: url.startsWith('data:'), visible: w.isVisible(), focused: w.isFocused(), minimized: w.isMinimized(), maximized: w.isMaximized() }
@@ -175,6 +179,13 @@ async function closeIde(app, id) {
 	await closeWindow(app, id)
 	await until('the editor window to hide', async () => (await ideWindows(app)).some(w => w.id === id && !w.visible), { ms: 15000 })
 }
+/** A second `insilode` on the same profile, as typed in a shell: it hands its arguments to the running one and exits. */
+function secondInstance(app, extra) {
+	const env = { ...process.env, ...ENV, VSCODE_SKIP_PRELAUNCH: '1' }
+	delete env.ELECTRON_RUN_AS_NODE
+	const r = spawnSync(sourceElectron(source), ['.', '--user-data-dir', join(app.profile, 'user-data'), '--extensions-dir', join(app.profile, 'extensions'), '--disable-gpu', '--no-sandbox', '--disable-dev-shm-usage', '--password-store=basic', ...extra], { cwd: source, env, timeout: 60000, encoding: 'utf8' })
+	return `exit ${r.status}${r.error ? ` ${r.error.message}` : ''}`
+}
 const ideOnly = async app => { const w = await ideWindows(app); return w.length === 1 ? w[0] : undefined }
 const sampleSummary = async (app, ids) => {
 	const rec = await recorded(app)
@@ -184,7 +195,7 @@ const sampleSummary = async (app, ids) => {
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
 // Run 1: hide on close (RC01), the UI in the Agents window (RC04), what brings the window back (RC03), the question (RC02).
-await part('RC01 open: close its IDE window', async () => {
+await part('agents-standalone/RC01 open: close its IDE window', async () => {
 	const { app } = await start('hide')
 	try {
 		const page = await app.workbench()
@@ -200,13 +211,14 @@ await part('RC01 open: close its IDE window', async () => {
 		await closeIde(app, ide.id)
 		const hidden = (await ideWindows(app)).find(w => w.id === ide.id)
 		const per10s = await ticksIn(10000)
-		step('RC01 open: close its IDE window -> IDE hidden, Agents window open, agents running', !!hidden && !hidden.visible && !!(await agentsPage(app)) && per10s >= 8, `hidden: ${JSON.stringify(hidden)}, ${per10s} ticks in 10 s, fake agent alive: ${fake.alive()}`)
+		step('agents-standalone/RC01 open: close its IDE window -> IDE hidden, Agents window open, agents running', !!hidden && !hidden.visible && !!(await agentsPage(app)) && per10s >= 8, `hidden: ${JSON.stringify(hidden)}, ${per10s} ticks in 10 s, fake agent alive: ${fake.alive()}`)
 		win = await agentsPage(app)
 		console.log('screenshot:', await shot(win, 'r1-agents-ide-hidden'))
 
 		// RC04: quick open and the palette show in the Agents window, not in the hidden one.
 		const focus0 = await focusOf(app, page, win)
-		step('RC04 hidden: the Agents window has the focus after the editor window hides (focus evidence)', focus0.agentsDocument === true && focus0.ideDocument === false, JSON.stringify(focus0))
+		// The hidden page may still say it has the focus (no window manager under xvfb never tells it otherwise): what counts is that the Agents window has it and, next step, that quick open goes there.
+		step('agents-standalone/RC04 hidden: the Agents window has the focus after the editor window hides (focus evidence)', focus0.agentsDocument === true && focus0.osFocused.includes((await agentsWindow(app)).id), JSON.stringify(focus0))
 		const input = win.locator('.quick-input-widget .quick-input-box input')
 		const where = []
 		for (const key of ['Control+P', 'Control+Shift+P']) {
@@ -216,13 +228,13 @@ await part('RC01 open: close its IDE window', async () => {
 			await win.keyboard.press('Escape')
 			await sleep(500)
 		}
-		step('RC04 hidden: Ctrl+P / Ctrl+Shift+P -> Agents window', where.every(w => w.agents && w.ide === 0), JSON.stringify({ where, focus: await focusOf(app, page, win) }))
+		step('agents-standalone/RC04 hidden: Ctrl+P / Ctrl+Shift+P -> Agents window', where.every(w => w.agents && w.ide === 0), JSON.stringify({ where, focus: await focusOf(app, page, win) }))
 		console.log('screenshot:', await shot(win, 'r1-palette-in-agents'))
 
 		// RC04: a toast the user did not cause.
 		await runCommand(win, 'Probe: Toast')
 		await until('a toast', async () => (await toasts(win)) + (await toasts(page)) > 0, { ms: 15000 }).catch(() => undefined)
-		step('RC04 hidden: a notification toast -> Agents window', (await toasts(win)) >= 1 && (await toasts(page)) === 0, `toasts: agents window ${await toasts(win)}, editor window ${await toasts(page)}`)
+		step('agents-standalone/RC04 hidden: a notification toast -> Agents window', (await toasts(win)) >= 1 && (await toasts(page)) === 0, `toasts: agents window ${await toasts(win)}, editor window ${await toasts(page)}`)
 		console.log('screenshot:', await shot(win, 'r1-toast-in-agents'))
 
 		// RC02 with one agent: the question, over the Agents window; Cancel changes nothing.
@@ -232,8 +244,8 @@ await part('RC01 open: close its IDE window', async () => {
 		await closeWindow(app, agentsId)
 		let q = await awaitAsk(app, ask)
 		const after1 = await ticksIn(4000)
-		step('RC02 hidden, 1 agent: asks "1 agent running, close?"', q?.message === '1 agent running, close?' && q.buttons.some(b => /Close/.test(b)) && q.buttons.some(b => /Cancel/.test(b)) && !!(await agentsPage(app)) && after1 >= 3, JSON.stringify({ q, ticksIn4s: after1 }))
-		step('RC04 hidden: a confirmation dialog -> over the Agents window', q?.parent === agentsId && q.parentVisible === true && q.ideVisible.every(v => v === false), JSON.stringify({ agentsId, parent: q?.parent, parentVisible: q?.parentVisible, ideVisible: q?.ideVisible }))
+		step('agents-standalone/RC02 hidden, 1 agent: asks "1 agent running, close?"', q?.message === '1 agent running, close?' && q.buttons.some(b => /Close/.test(b)) && q.buttons.some(b => /Cancel/.test(b)) && !!(await agentsPage(app)) && after1 >= 3, JSON.stringify({ q, ticksIn4s: after1 }))
+		step('agents-standalone/RC04 hidden: a confirmation dialog -> over the Agents window', q?.parent === agentsId && q.parentVisible === true && q.ideVisible.every(v => v === false), JSON.stringify({ agentsId, parent: q?.parent, parentVisible: q?.parentVisible, ideVisible: q?.ideVisible }))
 
 		// RC03: an editor that opens in the hidden window shows it (Open in IDE, quick open).
 		await win.keyboard.press('Control+P')
@@ -243,7 +255,7 @@ await part('RC01 open: close its IDE window', async () => {
 		await win.keyboard.press('Enter')
 		await until('the editor window to show', async () => (await ideWindows(app)).some(w => w.id === ide.id && w.visible), { ms: 15000 }).catch(() => undefined)
 		await sleep(1500)
-		step('RC03 Ctrl+P in the Agents window, open hello.txt -> IDE shown with hello.txt', (await ideWindows(app)).some(w => w.id === ide.id && w.visible) && (await tabTitles(page)).some(t => /hello\.txt/.test(t)), `${JSON.stringify(await ideWindows(app))}, tabs: ${JSON.stringify(await tabTitles(page))}`)
+		step('agents-standalone/RC03 Ctrl+P in the Agents window, open hello.txt -> IDE shown with hello.txt', (await ideWindows(app)).some(w => w.id === ide.id && w.visible) && (await tabTitles(page)).some(t => /hello\.txt/.test(t)), `${JSON.stringify(await ideWindows(app))}, tabs: ${JSON.stringify(await tabTitles(page))}`)
 		console.log('screenshot:', await shot(page, 'r1-open-in-ide'))
 
 		// RC03: "Show IDE Window" (the window hides again first), and a second agent for the next rows.
@@ -253,7 +265,7 @@ await part('RC01 open: close its IDE window', async () => {
 		await until('the editor window to show', async () => (await ideWindows(app)).some(w => w.id === ide.id && w.visible), { ms: 15000 }).catch(() => undefined)
 		await sleep(1000)
 		const shown = (await ideWindows(app)).find(w => w.id === ide.id)
-		step('RC03 "Show IDE Window" -> IDE shown, focused', shown?.visible === true && (shown.focused === true || (await focusOf(app, page, undefined)).ideDocument === true), JSON.stringify({ shown, focus: await focusOf(app, page, win) }))
+		step('agents-standalone/RC03 "Show IDE Window" -> IDE shown, focused', shown?.visible === true && (shown.focused === true || (await focusOf(app, page, undefined)).ideDocument === true), JSON.stringify({ shown, focus: await focusOf(app, page, win) }))
 		await runCommand(page, 'New Claude Agent')
 		await needAgents(2)
 		await closeIde(app, ide.id)
@@ -265,11 +277,11 @@ await part('RC01 open: close its IDE window', async () => {
 		await closeWindow(app, agentsId)
 		q = await awaitAsk(app, ask)
 		const afterCancel = await ticksIn(4000)
-		step('RC02 hidden, 2 agents, Cancel: nothing changes', q?.message === '2 agents running, close?' && per5s >= 8 && afterCancel >= 6 && !!(await agentsPage(app)) && (await ideWindows(app)).every(w => !w.visible), JSON.stringify({ q, ticksIn5sBefore: per5s, ticksIn4sAfter: afterCancel }))
+		step('agents-standalone/RC02 hidden, 2 agents, Cancel: nothing changes', q?.message === '2 agents running, close?' && per5s >= 8 && afterCancel >= 6 && !!(await agentsPage(app)) && (await ideWindows(app)).every(w => !w.visible), JSON.stringify({ q, ticksIn5sBefore: per5s, ticksIn4sAfter: afterCancel }))
 		ask = await asked(app)
 		await win.keyboard.press('Control+W')
 		q = await awaitAsk(app, ask)
-		step('RC02 hidden, 2 agents: Ctrl+W on the Agents tab asks the same', q?.message === '2 agents running, close?' && q.parent === agentsId && !!(await agentsPage(app)) && (await ideWindows(app)).every(w => !w.visible), JSON.stringify(q))
+		step('agents-standalone/RC02 hidden, 2 agents: Ctrl+W on the Agents tab asks the same', q?.message === '2 agents running, close?' && q.parent === agentsId && !!(await agentsPage(app)) && (await ideWindows(app)).every(w => !w.visible), JSON.stringify(q))
 
 		// RC02 Close: with exactly these two agents, the question is answered Close and everything goes.
 		await answer(app, '^Close')
@@ -277,8 +289,8 @@ await part('RC01 open: close its IDE window', async () => {
 		await closeWindow(app, agentsId)
 		q = await awaitAsk(app, ask)
 		const quit = await gone(app)
-		await sleep(3000)
-		step('RC02 hidden, 2 agents, Close: IDE window closes, agents end, app quits', q?.message === '2 agents running, close?' && q.parent === agentsId && quit && !fake.alive(), `question: ${JSON.stringify(q)}, quit: ${quit}, fake agent alive after quit: ${fake.alive()}`)
+		const ended = await until('the fake agents to end', async () => !fake.alive(), { ms: 15000 }).then(() => true, () => false)
+		step('agents-standalone/RC02 hidden, 2 agents, Close: IDE window closes, agents end, app quits', q?.message === '2 agents running, close?' && q.parent === agentsId && quit && ended, `question: ${JSON.stringify(q)}, quit: ${quit}, fake agents ended within 15 s of the quit: ${ended}`)
 	} finally {
 		await app.close()
 	}
@@ -286,7 +298,7 @@ await part('RC01 open: close its IDE window', async () => {
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
 // Run 2: `insilode --agents-only` (RC05), then Insilode started again from a shell (RC03), then no agents to end (RC02).
-await part('RC05 insilode --agents-only', async () => {
+await part('agents-standalone/RC05 insilode --agents-only', async () => {
 	const { app } = await start('agentsonly', { args: ['--agents-only'] })
 	try {
 		const t0 = Date.now()
@@ -296,29 +308,23 @@ await part('RC05 insilode --agents-only', async () => {
 		const summary = await sampleSummary(app, ws.filter(w => w.ide).map(w => w.id))
 		const agents = await agentsPage(app)
 		const focus = await focusOf(app, undefined, agents)
-		step('RC05 insilode --agents-only: IDE never visible (also after 10 s in a source build), Agents window open, focused', summary.samples >= 100 && summary.visibleSamples === 0 && summary.ideShowEvents === 0 && !!agents && focus.agentsDocument === true, JSON.stringify({ ...summary, windows: ws, focus }))
+		step('agents-standalone/RC05 insilode --agents-only: IDE never visible (also after 10 s in a source build), Agents window open, focused', summary.samples >= 100 && summary.visibleSamples === 0 && summary.ideShowEvents === 0 && !!agents && focus.agentsDocument === true, JSON.stringify({ ...summary, windows: ws, focus }))
 		console.log('screenshot:', await shot(agents, 'r2-agents-only'))
 
 		// A second instance, as `insilode` or `insilode --agents-only` from a shell: it hands its arguments to this one.
-		const userData = join(app.profile, 'user-data')
-		const second = extra => {
-			const env = { ...process.env, ...ENV, VSCODE_SKIP_PRELAUNCH: '1' }
-			delete env.ELECTRON_RUN_AS_NODE
-			const r = spawnSync(sourceElectron(source), ['.', '--user-data-dir', userData, '--extensions-dir', join(app.profile, 'extensions'), '--disable-gpu', '--no-sandbox', '--disable-dev-shm-usage', '--password-store=basic', ...extra], { cwd: source, env, timeout: 60000, encoding: 'utf8' })
-			return `exit ${r.status}${r.error ? ` ${r.error.message}` : ''}`
-		}
+		const second = extra => secondInstance(app, extra)
 		const before = (await windows(app)).filter(w => !w.overlay).length
 		const ran = second(['--agents-only'])
 		await sleep(5000)
 		const afterFlag = await windows(app)
 		const focusFlag = await focusOf(app, undefined, await agentsPage(app))
-		step('RC03 insilode --agents-only from a shell -> IDE stays hidden, Agents window focused', afterFlag.filter(w => w.ide).every(w => !w.visible) && afterFlag.filter(w => !w.overlay).length === before && !!(await agentsPage(app)) && focusFlag.agentsDocument === true, JSON.stringify({ ran, windows: afterFlag, focus: focusFlag }))
+		step('agents-standalone/RC03 insilode --agents-only from a shell -> IDE stays hidden, Agents window focused', afterFlag.filter(w => w.ide).every(w => !w.visible) && afterFlag.filter(w => !w.overlay).length === before && !!(await agentsPage(app)) && focusFlag.agentsDocument === true, JSON.stringify({ ran, windows: afterFlag, focus: focusFlag }))
 
 		const ran2 = second([])
 		await until('the editor window to show', async () => (await ideWindows(app)).some(w => w.visible), { ms: 20000 }).catch(() => undefined)
 		await sleep(1500)
 		const afterPlain = await windows(app)
-		step('RC03 insilode from a shell -> IDE shown', afterPlain.filter(w => w.ide).length === 1 && afterPlain.filter(w => w.ide).every(w => w.visible), JSON.stringify({ ran: ran2, windows: afterPlain }))
+		step('agents-standalone/RC03 insilode from a shell -> IDE shown', afterPlain.filter(w => w.ide).length === 1 && afterPlain.filter(w => w.ide).every(w => w.visible), JSON.stringify({ ran: ran2, windows: afterPlain }))
 		console.log('screenshot:', await shot(app.pages().find(p => p.url().startsWith('vscode-file:')), 'r2-insilode-again'))
 
 		// RC02: no agent runs, so closing the Agents window with the editor window hidden asks nothing and closes both.
@@ -328,7 +334,7 @@ await part('RC05 insilode --agents-only', async () => {
 		const asks = await asked(app)
 		await closeWindow(app, (await agentsWindow(app)).id)
 		const quit = await gone(app)
-		step('RC02 hidden, 0 agents: IDE window closes without asking', quit, `quit: ${quit} (a question answered Cancel would have held it; asked before: ${asks})`)
+		step('agents-standalone/RC02 hidden, 0 agents: IDE window closes without asking', quit, `quit: ${quit} (a question answered Cancel would have held it; asked before: ${asks})`)
 	} finally {
 		await app.close()
 	}
@@ -336,7 +342,7 @@ await part('RC05 insilode --agents-only', async () => {
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
 // Run 3: `--agents-only` with a maximized window state (RC05), then a renderer crash while hidden (RC03).
-await part('RC05 insilode --agents-only, window state maximized', async () => {
+await part('agents-standalone/RC05 insilode --agents-only, window state maximized', async () => {
 	const { app } = await start('maximized', { args: ['--agents-only'], maximized: true })
 	try {
 		const t0 = Date.now()
@@ -345,18 +351,22 @@ await part('RC05 insilode --agents-only, window state maximized', async () => {
 		const ws = await windows(app)
 		const ide = ws.find(w => w.ide)
 		const summary = await sampleSummary(app, ws.filter(w => w.ide).map(w => w.id))
-		step('RC05 insilode --agents-only, window state maximized: IDE never visible, Agents window open', summary.samples >= 100 && summary.visibleSamples === 0 && summary.ideShowEvents === 0 && !!(await agentsPage(app)), JSON.stringify({ ...summary, windows: ws }))
+		step('agents-standalone/RC05 insilode --agents-only, window state maximized: IDE never visible, Agents window open', summary.samples >= 100 && summary.visibleSamples === 0 && summary.ideShowEvents === 0 && !!(await agentsPage(app)), JSON.stringify({ ...summary, windows: ws }))
 
 		// The renderer of the hidden window dies: the window shows, and the state it was kept from is applied then.
 		await answer(app, 'Reopen|New Window')
+		const crashAt = Date.now()
 		await app.main(({ BrowserWindow }, id) => BrowserWindow.fromId(id).webContents.forcefullyCrashRenderer(), ide.id)
 		await until('an editor window to show', async () => (await ideWindows(app)).some(w => w.visible), { ms: 60000 }).catch(() => undefined)
 		await sleep(3000)
 		const afterCrash = await ideWindows(app)
-		const boxes = (await recorded(app)).dialogs
-		step('RC03 Reload Window / renderer crash -> IDE shown (the Agents window is not restored): crash', afterCrash.some(w => w.visible) && boxes.length >= 1 && boxes[0].parentVisible === true && !(await agentsPage(app)), JSON.stringify({ afterCrash, boxes }))
-		// The crash box is asked about the hidden window itself, after it was shown: that window must be maximized by then, or the seed was not read.
-		step('RC05 insilode --agents-only, window state maximized: the state is applied when the window shows (the seeded state was read)', boxes[0]?.parentVisible === true && boxes[0]?.parentMaximized === true, JSON.stringify(boxes))
+		const after = await recorded(app)
+		const boxes = after.dialogs // this run's only box is the crash one
+		step('agents-standalone/RC03 Reload Window / renderer crash -> IDE shown (the Agents window is not restored): crash', afterCrash.some(w => w.visible) && boxes.length >= 1 && boxes[0].parentVisible === true && !(await agentsPage(app)), JSON.stringify({ afterCrash, boxes }))
+		// The hidden window was kept from maximizing; shown by the crash, it must be maximized then, or the seeded state was not read. Under xvfb
+		// isMaximized() cannot turn true (no window manager), so the maximize() call on this window after the crash is the evidence.
+		const calls = (after.maximizes ?? []).filter(m => m.id === ide.id && m.at >= crashAt)
+		step('agents-standalone/RC05 insilode --agents-only, window state maximized: the state is applied when the window shows (the seeded state was read)', calls.length >= 1 && boxes[0]?.parentVisible === true, JSON.stringify({ maximizeCallsOnTheWindowAfterTheCrash: calls.length, boxIsMaximized: boxes[0]?.parentMaximized, maximizeCalls: after.maximizes }))
 	} finally {
 		await app.close()
 	}
@@ -364,7 +374,7 @@ await part('RC05 insilode --agents-only, window state maximized', async () => {
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
 // Run 4: `--agents-only` with two editor windows restored from the last session (RC05): neither shows.
-await part('RC05 insilode --agents-only, two IDE windows restored', async () => {
+await part('agents-standalone/RC05 insilode --agents-only, two IDE windows restored', async () => {
 	const { app } = await start('restored', { args: ['--agents-only'], restore: 2 })
 	try {
 		const t0 = Date.now()
@@ -375,7 +385,7 @@ await part('RC05 insilode --agents-only, two IDE windows restored', async () => 
 		const ideIds = ws.filter(w => w.ide).map(w => w.id)
 		const summary = await sampleSummary(app, ideIds)
 		const agents = await agentsPages(app)
-		step('RC05 insilode --agents-only, two IDE windows restored from the last session: never, neither of them; Agents window open', ideIds.length === 2 && summary.samples >= 100 && summary.visibleSamples === 0 && summary.ideShowEvents === 0 && agents.length >= 1, JSON.stringify({ ...summary, ideWindows: ideIds.length, agentsWindows: agents.length, windows: ws }))
+		step('agents-standalone/RC05 insilode --agents-only, two IDE windows restored from the last session: never, neither of them; Agents window open', ideIds.length === 2 && summary.samples >= 100 && summary.visibleSamples === 0 && summary.ideShowEvents === 0 && agents.length >= 1, JSON.stringify({ ...summary, ideWindows: ideIds.length, agentsWindows: agents.length, windows: ws }))
 	} finally {
 		await app.close()
 	}
@@ -383,14 +393,14 @@ await part('RC05 insilode --agents-only, two IDE windows restored', async () => 
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
 // Run 5: a normal start (RC05), the IDE visible (RC04, RC02), a second editor window (RC01), no Agents window (RC01).
-await part('RC05 insilode', async () => {
+await part('agents-standalone/RC05 insilode', async () => {
 	const { app } = await start('visible')
 	try {
 		const page = await app.workbench()
 		await dismissWelcome(page)
 		const rec = await recorded(app)
 		const visible = rec.samples.filter(s => s.some(v => v)).length
-		step('RC05 insilode: IDE visible, as today', visible > 0, `${visible} of ${rec.samples.length} samples had a visible editor window`)
+		step('agents-standalone/RC05 insilode: IDE visible, as today', visible > 0, `${visible} of ${rec.samples.length} samples had a visible editor window`)
 		await sleep(5000)
 		const win = await openAgents(app, page)
 		for (let i = 0; i < 3; i++) {
@@ -407,20 +417,20 @@ await part('RC05 insilode', async () => {
 		const input = win.locator('.quick-input-widget .quick-input-box input')
 		await win.keyboard.press('Control+P')
 		const shown = await input.waitFor({ state: 'visible', timeout: 15000 }).then(() => true, () => false)
-		step('RC04 visible, Agents window focused: Ctrl+P -> Agents window (as today)', shown && (await quickInput(page)) === 0, JSON.stringify({ agents: shown, ide: await quickInput(page), focus: await focusOf(app, page, win) }))
+		step('agents-standalone/RC04 visible, Agents window focused: Ctrl+P -> Agents window (as today)', shown && (await quickInput(page)) === 0, JSON.stringify({ agents: shown, ide: await quickInput(page), focus: await focusOf(app, page, win) }))
 		await win.keyboard.press('Escape')
 		await runCommand(page, 'Probe: Toast')
 		await until('a toast', async () => (await toasts(win)) + (await toasts(page)) > 0, { ms: 15000 }).catch(() => undefined)
-		step('RC04 visible: a notification -> IDE window (as today)', (await toasts(page)) >= 1 && (await toasts(win)) === 0, `toasts: editor window ${await toasts(page)}, agents window ${await toasts(win)}`)
+		step('agents-standalone/RC04 visible: a notification -> IDE window (as today)', (await toasts(page)) >= 1 && (await toasts(win)) === 0, `toasts: editor window ${await toasts(page)}, agents window ${await toasts(win)}`)
 
 		// RC01: the Agents window belongs to window 1; closing window 2 closes it as today.
-		await runCommand(page, 'New Window')
+		secondInstance(app, ['--new-window'])
 		await until('a second editor window', async () => (await ideWindows(app)).length === 2, { ms: 60000 })
 		const second = (await ideWindows(app)).find(w => w.id !== ide.id)
 		await closeWindow(app, second.id)
 		await until('window 2 to close', async () => (await ideWindows(app)).length === 1, { ms: 20000 }).catch(() => undefined)
 		const left = await ideWindows(app)
-		step('RC01 open in IDE window 1: close IDE window 2 -> window 2 closes as today', left.length === 1 && left[0].id === ide.id && left[0].visible && !!(await agentsPage(app)), JSON.stringify(left))
+		step('agents-standalone/RC01 open in IDE window 1: close IDE window 2 -> window 2 closes as today', left.length === 1 && left[0].id === ide.id && left[0].visible && !!(await agentsPage(app)), JSON.stringify(left))
 
 		// RC02: the editor window is visible, so closing the Agents window asks nothing and the agents live on in the editor window.
 		await answer(app, '^Cancel')
@@ -429,12 +439,12 @@ await part('RC05 insilode', async () => {
 		await until('the Agents window to close', async () => !(await agentsPage(app)), { ms: 15000 }).catch(() => undefined)
 		const per4s = await ticksIn(4000)
 		const questions = (await asked(app)) - before
-		step('RC02 visible, 3 agents: Agents window closes without asking; agents keep running in the IDE', !(await agentsPage(app)) && questions === 0 && per4s >= 8 && (await ideWindows(app)).every(w => w.visible), JSON.stringify({ questions, ticksIn4s: per4s, windows: await ideWindows(app) }))
+		step('agents-standalone/RC02 visible, 3 agents: Agents window closes without asking; agents keep running in the IDE', !(await agentsPage(app)) && questions === 0 && per4s >= 8 && (await ideWindows(app)).every(w => w.visible), JSON.stringify({ questions, ticksIn4s: per4s, windows: await ideWindows(app) }))
 
 		// RC01: no Agents window now, so closing the editor window is what it always was.
 		await closeWindow(app, ide.id)
 		const quit = await gone(app)
-		step('RC01 not open: close the IDE window -> closes as today', quit, `quit: ${quit}`)
+		step('agents-standalone/RC01 not open: close the IDE window -> closes as today', quit, `quit: ${quit}`)
 	} finally {
 		await app.close()
 	}
@@ -442,7 +452,7 @@ await part('RC05 insilode', async () => {
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
 // Run 6: Quit while the editor window is hidden and agents run (RC01): it asks nothing.
-await part('RC01 open, Quit', async () => {
+await part('agents-standalone/RC01 open, Quit', async () => {
 	const { app } = await start('quit')
 	try {
 		const page = await app.workbench()
@@ -463,14 +473,16 @@ await part('RC01 open, Quit', async () => {
 			await app.main(({ app: electron }) => electron.quit()).catch(() => undefined)
 			quit = await gone(app, 12000)
 		}
-		step('RC01 open, Quit (Ctrl+Q / Exit), agents live: quits without asking', quit && !fake.alive(), `${how}; quit: ${quit}; fake agent alive after quit: ${fake.alive()}${quit ? '' : `; questions asked: ${(await asked(app)) - before}`}`)
+		// The terminals' processes end a moment after the app: wait for them before saying one outlived it.
+		const ended = await until('the fake agent to end', async () => !fake.alive(), { ms: 15000 }).then(() => true, () => false)
+		step('agents-standalone/RC01 open, Quit (Ctrl+Q / Exit), agents live: quits without asking', quit && ended, `${how}; quit: ${quit}; fake agent ended within 15 s of the quit: ${ended}${quit ? '' : `; questions asked: ${(await asked(app)) - before}`}`)
 	} finally {
 		await app.close()
 	}
 })
 
 // Run 7: Quit with an unsaved file: the editor window shows and its save question asks there.
-await part('RC01 open, Quit, unsaved file', async () => {
+await part('agents-standalone/RC01 open, Quit, unsaved file', async () => {
 	const { app } = await start('quit-dirty', { settings: { 'files.hotExit': 'off' } })
 	try {
 		const page = await app.workbench()
@@ -487,7 +499,7 @@ await part('RC01 open, Quit, unsaved file', async () => {
 		await win.keyboard.press('Control+Q')
 		const q = await awaitAsk(app, before, 20000)
 		const quit = await gone(app, 20000)
-		step('RC01 open, Quit (Ctrl+Q / Exit), agents live, unsaved files: the IDE shows and its save dialog asks there', !!q && q.parent === ide.id && q.parentVisible === true && q.ideVisible.every(v => v === true), JSON.stringify({ q, ideId: ide.id, quit }))
+		step('agents-standalone/RC01 open, Quit (Ctrl+Q / Exit), agents live, unsaved files: the IDE shows and its save dialog asks there', !!q && q.parent === ide.id && q.parentVisible === true && q.ideVisible.every(v => v === true), JSON.stringify({ q, ideId: ide.id, quit }))
 	} finally {
 		await app.close()
 	}
@@ -503,11 +515,12 @@ async function dirtyHello(page) {
 	await page.keyboard.press('Enter')
 	await page.locator('.monaco-editor .view-lines').first().click({ timeout: 20000 })
 	await page.keyboard.type('x')
+	await sleep(500)
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
 // Run 8: a close that is vetoed (the save question is cancelled) leaves nothing behind (RC02).
-await part('RC02 a cancelled close', async () => {
+await part('agents-standalone/RC02 a cancelled close', async () => {
 	const { app } = await start('cancelled', { settings: { 'files.hotExit': 'off' } })
 	try {
 		const page = await app.workbench()
@@ -537,7 +550,7 @@ await part('RC02 a cancelled close', async () => {
 		ask = await asked(app)
 		await closeWindow(app, agentsId)
 		const third = await awaitAsk(app, ask)
-		step('RC02 hidden, Close, then the save question is cancelled: the IDE hides again on close and the Agents close asks again', first?.message === '1 agent running, close?' && /save|changes/i.test(second?.message ?? '') && second.parent === ide.id && afterCancel.some(w => w.visible) && stillThere && hiddenAgain && third?.message === '1 agent running, close?', JSON.stringify({ first, second, afterCancel, stillThere, hiddenAgain, third }))
+		step('agents-standalone/RC02 hidden, Close, then the save question is cancelled: the IDE hides again on close and the Agents close asks again', first?.message === '1 agent running, close?' && /save|changes/i.test(second?.message ?? '') && second.parent === ide.id && afterCancel.some(w => w.visible) && stillThere && hiddenAgain && third?.message === '1 agent running, close?', JSON.stringify({ first, second, afterCancel, stillThere, hiddenAgain, third }))
 		console.log('screenshot:', await shot(win, 'r8-after-cancelled-close'))
 	} finally {
 		await app.close()
@@ -546,7 +559,7 @@ await part('RC02 a cancelled close', async () => {
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
 // Run 9: what shows the hidden window (RC03): the Dock, a reload; what does not: a renderer that stops responding.
-await part('RC03 the hidden window comes back', async () => {
+await part('agents-standalone/RC03 the hidden window comes back', async () => {
 	const { app } = await start('comesback')
 	try {
 		const page = await app.workbench()
@@ -559,7 +572,7 @@ await part('RC03 the hidden window comes back', async () => {
 		// macOS: a click on the Dock icon is Electron's `activate` event, which the code listens for on every platform.
 		await app.main(({ app: electron }) => electron.emit('activate', {}, true))
 		await until('the editor window to show', async () => (await ideWindows(app)).some(w => w.id === ide.id && w.visible), { ms: 15000 }).catch(() => undefined)
-		step('RC03 macOS: click the Dock icon -> IDE shown (the activate event, emitted by hand)', (await ideWindows(app)).some(w => w.id === ide.id && w.visible), JSON.stringify(await ideWindows(app)))
+		step('agents-standalone/RC03 macOS: click the Dock icon -> IDE shown (the activate event, emitted by hand)', (await ideWindows(app)).some(w => w.id === ide.id && w.visible), JSON.stringify(await ideWindows(app)))
 
 		// Reload Window from the Agents window: the editor window shows; the Agents window is not restored.
 		await closeIde(app, ide.id)
@@ -568,7 +581,7 @@ await part('RC03 the hidden window comes back', async () => {
 		await until('the editor window to show again', async () => (await ideWindows(app)).some(w => w.visible), { ms: 60000 }).catch(() => undefined)
 		await page.waitForSelector('.monaco-workbench', { timeout: 90000 }).catch(() => undefined)
 		await sleep(3000)
-		step('RC03 Reload Window / renderer crash -> IDE shown (the Agents window is not restored): reload', (await ideWindows(app)).some(w => w.visible) && !(await agentsPage(app)), JSON.stringify(await windows(app)))
+		step('agents-standalone/RC03 Reload Window / renderer crash -> IDE shown (the Agents window is not restored): reload', (await ideWindows(app)).some(w => w.visible) && !(await agentsPage(app)), JSON.stringify(await windows(app)))
 		console.log('screenshot:', await shot(page, 'r9-after-reload'))
 
 		// A renderer that stops responding: the box asks (and is answered Keep Waiting), but nothing shows the window. The page is hung for good.
@@ -588,7 +601,7 @@ await part('RC03 the hidden window comes back', async () => {
 		await sleep(3000)
 		const hidden = (await ideWindows(app)).filter(w => w.id === ide2.id)
 		// The box opens over the Agents window (the editor window is hidden, and a box over an invisible window is a sheet nobody sees).
-		step('RC03 the renderer stops responding for a while -> IDE stays hidden (no focus stealing)', !!q && q.parent === agentsId && q.parentVisible === true && hidden.length === 1 && !hidden[0].visible, JSON.stringify({ agentsId, question: q, hidden }))
+		step('agents-standalone/RC03 the renderer stops responding for a while -> IDE stays hidden (no focus stealing)', !!q && q.parent === agentsId && q.parentVisible === true && hidden.length === 1 && !hidden[0].visible, JSON.stringify({ agentsId, question: q, hidden }))
 	} finally {
 		await app.close()
 	}
@@ -596,7 +609,7 @@ await part('RC03 the hidden window comes back', async () => {
 
 // ---------------------------------------------------------------------------------------------------------------------------------------
 // Run 10: a click on an agent in the status island while the editor window is hidden (RC03).
-await part('RC03 click an agent in the status island', async () => {
+await part('agents-standalone/RC03 click an agent in the status island', async () => {
 	const { app } = await start('island', { settings: { 'flow.agents.desktop.overlay.enabled': true, 'flow.agents.desktop.overlay.style': 'list', 'flow.agents.desktop.overlay.autoHide': { noAgents: true, insilodeFocused: false } } })
 	try {
 		const page = await app.workbench()
@@ -615,7 +628,7 @@ await part('RC03 click an agent in the status island', async () => {
 		await sleep(1000)
 		const island = await until('the status island', async () => { const p = app.overlayPage(); return p && (await p.locator('.row').count()) > 0 ? p : undefined }, { ms: 40000 }).catch(() => undefined)
 		if (!island) {
-			step('RC03 click an agent in the status island -> the agent opens in the Agents window, which comes forward; IDE stays hidden', false, `the island showed no agent row (windows: ${JSON.stringify(await windows(app))})`)
+			step('agents-standalone/RC03 click an agent in the status island -> the agent opens in the Agents window, which comes forward; IDE stays hidden', false, `the island showed no agent row (windows: ${JSON.stringify(await windows(app))})`)
 			return
 		}
 		await island.locator('.row').first().click()
@@ -624,7 +637,7 @@ await part('RC03 click an agent in the status island', async () => {
 		const agents = ws.find(w => w.id === agentsId)
 		const frame = await pageFrame(win)
 		const panes = frame ? await frame.locator('.xterm').count().catch(() => -1) : -1
-		step('RC03 click an agent in the status island -> the agent opens in the Agents window, which comes forward; IDE stays hidden', ws.filter(w => w.ide).every(w => !w.visible) && agents?.visible === true && agents.minimized === false && (agents.focused === true || (await focusOf(app, undefined, win)).agentsDocument === true) && panesBefore === 0 && panes >= 1, JSON.stringify({ windows: ws, terminalPanesBefore: panesBefore, terminalPanesAfter: panes }))
+		step('agents-standalone/RC03 click an agent in the status island -> the agent opens in the Agents window, which comes forward; IDE stays hidden', ws.filter(w => w.ide).every(w => !w.visible) && agents?.visible === true && agents.minimized === false && (agents.focused === true || (await focusOf(app, undefined, win)).agentsDocument === true) && panesBefore === 0 && panes >= 1, JSON.stringify({ windows: ws, terminalPanesBefore: panesBefore, terminalPanesAfter: panes }))
 		console.log('screenshot:', await shot(win, 'r10-island-click'))
 	} finally {
 		await app.close()

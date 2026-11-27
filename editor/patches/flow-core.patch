@@ -2004,3 +2004,72 @@ index 9b2f8c79..8761b7c8 100644
  		}
  
  		// Apply position class
+diff --git a/src/vs/base/browser/dom.ts b/src/vs/base/browser/dom.ts
+index d3bca6eb..6b312c12 100644
+--- a/src/vs/base/browser/dom.ts
++++ b/src/vs/base/browser/dom.ts
+@@ -27,6 +27,24 @@ export interface IRegisteredCodeWindow {
+ 
+ //# region Multi-Window Support Utilities
+ 
++/**
++ * Insilode: windows that are hidden (not closed) while another window runs the app: the editor window while the Agents window runs without it. A
++ * hidden window never counts as the active one, whatever `hasFocus()` says: without a window manager (xvfb), and for a window hidden while it had
++ * the focus, its page is never told it lost it.
++ */
++const hiddenWindows = new Set<Window>();
++
++/** Insilode: the window that was focused last (by its `focus` event): of several documents that all say they have the focus, the one the OS focused most recently is the active one. */
++let lastFocusedWindow: Window | undefined;
++
++export function markWindowHidden(window: Window, hidden: boolean): void {
++	if (hidden) {
++		hiddenWindows.add(window);
++	} else {
++		hiddenWindows.delete(window);
++	}
++}
++
+ export const {
+ 	registerWindow,
+ 	getWindow,
+@@ -84,6 +102,8 @@ export const {
+ 				onWillUnregisterWindow.fire(window);
+ 			}));
+ 
++			disposables.add(addDisposableListener(window, EventType.FOCUS, () => { lastFocusedWindow = window; }));
++
+ 			onDidRegisterWindow.fire(registeredWindow);
+ 
+ 			return disposables;
+@@ -121,6 +141,8 @@ export const {
+ 	};
+ })();
+ 
++mainWindow.addEventListener('focus', () => { lastFocusedWindow = mainWindow; }); // Insilode: see lastFocusedWindow
++
+ //#endregion
+ 
+ //#region External Focus Tracking
+@@ -1074,8 +1096,9 @@ export function getActiveDocument(): Document {
+ 		return mainWindow.document;
+ 	}
+ 
+-	const documents = Array.from(getWindows()).map(({ window }) => window.document);
+-	const focusedDoc = documents.find(doc => doc.hasFocus());
++	const documents = Array.from(getWindows()).filter(({ window }) => !hiddenWindows.has(window)).map(({ window }) => window.document);
++	const focusedDocs = documents.filter(doc => doc.hasFocus());
++	const focusedDoc = focusedDocs.find(doc => doc.defaultView === lastFocusedWindow) ?? focusedDocs[0];
+ 	if (focusedDoc) {
+ 		return focusedDoc;
+ 	}
+@@ -1086,7 +1109,8 @@ export function getActiveDocument(): Document {
+ 		return externalWindow.document;
+ 	}
+ 
+-	return mainWindow.document;
++	// A hidden main window is no fallback: the first window that is shown is
++	return hiddenWindows.has(mainWindow) ? (documents[0] ?? mainWindow.document) : mainWindow.document;
+ }
+ 
+ /**

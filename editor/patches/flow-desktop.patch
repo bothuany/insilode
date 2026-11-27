@@ -2062,10 +2062,10 @@ index 0000000..59928f0
 +}
 diff --git a/src/vs/workbench/contrib/insilodeAgentsAlone/electron-browser/insilodeAgentsAlone.contribution.ts b/src/vs/workbench/contrib/insilodeAgentsAlone/electron-browser/insilodeAgentsAlone.contribution.ts
 new file mode 100644
-index 0000000..2c5bb67
+index 0000000..dc41892
 --- /dev/null
 +++ b/src/vs/workbench/contrib/insilodeAgentsAlone/electron-browser/insilodeAgentsAlone.contribution.ts
-@@ -0,0 +1,270 @@
+@@ -0,0 +1,272 @@
 +/*---------------------------------------------------------------------------------------------
 + *  Insilode: the Agents window on its own. The Agents window is an auxiliary window of this window's page (one renderer, one
 + *  extension host, every agent's terminal), so the editor window cannot really go while it runs. Instead:
@@ -2080,8 +2080,8 @@ index 0000000..2c5bb67
 + *  `insilode --agents-only` creates the window hidden (main process); this opens the Agents page in it.
 + *--------------------------------------------------------------------------------------------*/
 +
-+import { addDisposableListener, getWindowById } from '../../../../base/browser/dom.js';
-+import { Event } from '../../../../base/common/event.js';
++import { addDisposableListener, getWindowById, markWindowHidden } from '../../../../base/browser/dom.js';
++import { mainWindow } from '../../../../base/browser/window.js';
 +import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
 +import { localize, localize2 } from '../../../../nls.js';
 +import { Action2, registerAction2 } from '../../../../platform/actions/common/actions.js';
@@ -2206,6 +2206,7 @@ index 0000000..2c5bb67
 +	private setHidden(hidden: boolean): void {
 +		this.hidden = hidden;
 +		this.ideHiddenContext.set(hidden);
++		markWindowHidden(mainWindow, hidden); // the hidden window never counts as the active one (quick open, dialogs and toasts follow the active window)
 +		if (hidden) {
 +			this.focusAgents();
 +		}
@@ -2271,8 +2272,9 @@ index 0000000..2c5bb67
 +			}
 +		}));
 +
-+		// The Agents window is gone while the editor window is hidden: nothing visible is left, so that goes too (and with it the app)
-+		disposables.add(Event.once(agentsWindow.onUnload)(() => {
++		// The Agents window is gone while the editor window is hidden: nothing visible is left, so that goes too (and with it the app). The DOM
++		// event, not the service's onUnload: that emitter is disposed by the window's own listener before this one would be called.
++		disposables.add(addDisposableListener(agentsWindow.window, 'unload', () => {
 +			disposables.dispose();
 +			if (this.agents === agents) {
 +				this.agents = undefined;
