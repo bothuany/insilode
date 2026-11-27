@@ -1818,7 +1818,7 @@ index 22bcd111..3e914a77 100644
  			mark('code/didCreateCodeWindow');
  
 diff --git a/src/vs/platform/launch/electron-main/launchMainService.ts b/src/vs/platform/launch/electron-main/launchMainService.ts
-index 1984c46f..ff7faee5 100644
+index 1984c46f..b1718b8c 100644
 --- a/src/vs/platform/launch/electron-main/launchMainService.ts
 +++ b/src/vs/platform/launch/electron-main/launchMainService.ts
 @@ -5,6 +5,7 @@
@@ -1829,7 +1829,15 @@ index 1984c46f..ff7faee5 100644
  import { IProcessEnvironment, isMacintosh } from '../../../base/common/platform.js';
  import { URI } from '../../../base/common/uri.js';
  import { whenDeleted } from '../../../base/node/pfs.js';
-@@ -148,6 +149,15 @@ export class LaunchMainService implements ILaunchMainService {
+@@ -15,6 +16,7 @@ import { createDecorator } from '../../instantiation/common/instantiation.js';
+ import { ILogService } from '../../log/common/log.js';
+ import { IURLService } from '../../url/common/url.js';
+ import { ICodeWindow } from '../../window/electron-main/window.js';
++import { CodeWindow } from '../../windows/electron-main/windowImpl.js';
+ import { IWindowSettings } from '../../window/common/window.js';
+ import { IOpenConfiguration, IWindowsMainService, OpenContext } from '../../windows/electron-main/windows.js';
+ import { IProtocolUrl } from '../../url/electron-main/url.js';
+@@ -148,6 +150,24 @@ export class LaunchMainService implements ILaunchMainService {
  			usedWindows = await this.windowsMainService.openAgentsWindow(baseConfig);
  		}
  
@@ -1840,6 +1848,15 @@ index 1984c46f..ff7faee5 100644
 +			lastActive.sendWhenReady('vscode:runAction', CancellationToken.None, { id: 'flow.agents.openPage', from: 'menu' });
 +
 +			usedWindows = [lastActive];
++		}
++
++		// Insilode: started again with nothing to open while the editor window is hidden: it comes back (focus shows it). The default below
++		// would open a second, empty window on Windows and Linux and leave the hidden one hidden.
++		else if (!args._.length && !args['folder-uri'] && !args['file-uri'] && !args['new-window'] && this.windowsMainService.getWindows().some(window => window instanceof CodeWindow && window.hidden)) {
++			const hidden = this.windowsMainService.getWindows().find(window => window instanceof CodeWindow && window.hidden)!;
++			this.windowsMainService.openExistingWindow(hidden, baseConfig);
++
++			usedWindows = [hidden];
 +		}
 +
  		// Start without file/folder arguments

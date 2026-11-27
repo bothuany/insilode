@@ -42,7 +42,7 @@ The Agents page (`editor/extensions/flow-agent`, opened by `flow.agents.openPage
 | open in IDE window 1 | close IDE window 2 | window 2 closes as today |
 | open | Quit (Ctrl+Q / Exit), agents live | quits without asking (user, 2026-11-27); unsaved files: the IDE shows and its save dialog asks there |
 
-- **Test:**
+- **Test:** probe test/e2e-desktop/probes/agents-alone.mjs, steps `agents-standalone/RC01 open: close its IDE window -> IDE hidden, Agents window open, agents running`, `agents-standalone/RC01 open in IDE window 1: close IDE window 2 -> window 2 closes as today`, `agents-standalone/RC01 not open: close the IDE window -> closes as today`, `agents-standalone/RC01 open, Quit (Ctrl+Q / Exit), agents live: quits without asking`, `agents-standalone/RC01 open, Quit (Ctrl+Q / Exit), agents live, unsaved files: the IDE shows and its save dialog asks there`
 
 ### RC02 Closing the Agents window asks only when agents would end
 - **Priority:** P0
@@ -59,7 +59,7 @@ The Agents page (`editor/extensions/flow-agent`, opened by `flow.agents.openPage
 | visible | 3 | - | Agents window closes without asking; agents keep running in the IDE |
 | hidden, macOS | 0 | - | IDE window closes, app stays in the Dock |
 
-- **Test:**
+- **Test:** `agents-standalone/RC02 counts live agents` (unit test, editor/extensions/flow-agent/test/desktop.test.mjs); probe test/e2e-desktop/probes/agents-alone.mjs, steps `agents-standalone/RC02 hidden, 2 agents, Close: IDE window closes, agents end, app quits`, `agents-standalone/RC02 hidden, 2 agents, Cancel: nothing changes`, `agents-standalone/RC02 hidden, 1 agent: asks "1 agent running, close?"`, `agents-standalone/RC02 hidden, 0 agents: IDE window closes without asking`, `agents-standalone/RC02 visible, 3 agents: Agents window closes without asking; agents keep running in the IDE`, `agents-standalone/RC02 hidden, 2 agents: Ctrl+W on the Agents tab asks the same`
 
 ### RC03 The hidden IDE comes back when it is needed
 - **Priority:** P1
@@ -75,7 +75,7 @@ The Agents page (`editor/extensions/flow-agent`, opened by `flow.agents.openPage
 | `insilode --agents-only` from a shell | IDE stays hidden, Agents window focused |
 | Reload Window / renderer crash | IDE shown (the Agents window is not restored) |
 
-- **Test:**
+- **Test:** probe test/e2e-desktop/probes/agents-alone.mjs, steps `agents-standalone/RC03 Ctrl+P in the Agents window, open hello.txt -> IDE shown with hello.txt`, `agents-standalone/RC03 "Show IDE Window" -> IDE shown, focused`, `agents-standalone/RC03 insilode from a shell -> IDE shown`, `agents-standalone/RC03 insilode --agents-only from a shell -> IDE stays hidden, Agents window focused`, `agents-standalone/RC03 Reload Window / renderer crash -> IDE shown (the Agents window is not restored): reload`, `agents-standalone/RC03 Reload Window / renderer crash -> IDE shown (the Agents window is not restored): crash`
 
 ### RC04 Workbench UI follows the Agents window while the IDE is hidden
 - **Priority:** P1
@@ -91,7 +91,7 @@ The Agents page (`editor/extensions/flow-agent`, opened by `flow.agents.openPage
 | visible, Agents window focused | Ctrl+P | Agents window (as today) |
 | visible | a notification | IDE window (as today) |
 
-- **Test:**
+- **Test:** probe test/e2e-desktop/probes/agents-alone.mjs, steps `agents-standalone/RC04 hidden: Ctrl+P / Ctrl+Shift+P -> Agents window`, `agents-standalone/RC04 hidden: a notification toast -> Agents window`, `agents-standalone/RC04 hidden: a confirmation dialog -> over the Agents window`, `agents-standalone/RC04 visible, Agents window focused: Ctrl+P -> Agents window (as today)`, `agents-standalone/RC04 visible: a notification -> IDE window (as today)`
 
 ### RC05 An agents-only start never shows the IDE
 - **Priority:** P1
@@ -105,7 +105,7 @@ The Agents page (`editor/extensions/flow-agent`, opened by `flow.agents.openPage
 | `insilode --agents-only`, window state maximized | never | open |
 | `insilode` | yes | as today |
 
-- **Test:**
+- **Test:** probe test/e2e-desktop/probes/agents-alone.mjs, steps `agents-standalone/RC05 insilode --agents-only: IDE never visible (also after 10 s in a source build), Agents window open, focused`, `agents-standalone/RC05 insilode --agents-only, window state maximized: IDE never visible, Agents window open`, `agents-standalone/RC05 insilode: IDE visible, as today`
 
 ## Items
 
@@ -125,9 +125,9 @@ Only item 7 proves behaviour (Docker, a patch change rebuilds VS Code: 20-40 min
   check: `! (grep -h "^diff --git" editor/patches/*.patch | sort | uniq -d | grep -q .) && grep -q "running, close" editor/patches/flow-desktop.patch`
 - [ ] 7. Probe in the repo: `test/e2e-desktop/probes/agents-alone.mjs`, starting from the spike's (`git show spike/agents-core:test/e2e-desktop/probes/agents-alone.mjs`), one step per example row it can drive, each step named `agents-standalone/RCnn <row>`; RC05 samples visibility every 100 ms for 15 s. The fake ticking `claude` on PATH stands in for a real one.
   check: `npm run docker:e2e -- --probe test/e2e-desktop/probes/agents-alone.mjs --out "$(mktemp -d)"`
-- [ ] 8. Docs: `docs/agent-tools.md` says how to start Agents only (flag, shortcut), what closing each window does, and how to get the IDE back.
+- [x] 8. Docs: `docs/agent-tools.md` says how to start Agents only (flag, shortcut), what closing each window does, and how to get the IDE back.
   check: `grep -q -- "--agents-only" docs/agent-tools.md`
-- [ ] 9. Architecture and harness: `npm run arch` and `npm run test:e2e-unit` pass.
+- [x] 9. Architecture and harness: `npm run arch` and `npm run test:e2e-unit` pass.
   check: `npm run arch && npm run test:e2e-unit`
 
 ## Probe

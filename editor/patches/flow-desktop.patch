@@ -2024,10 +2024,10 @@ index 0000000..3cc7df5
 +}
 diff --git a/src/vs/workbench/contrib/insilodeAgentsAlone/electron-browser/insilodeAgentsAlone.contribution.ts b/src/vs/workbench/contrib/insilodeAgentsAlone/electron-browser/insilodeAgentsAlone.contribution.ts
 new file mode 100644
-index 0000000..df3f186
+index 0000000..e33f225
 --- /dev/null
 +++ b/src/vs/workbench/contrib/insilodeAgentsAlone/electron-browser/insilodeAgentsAlone.contribution.ts
-@@ -0,0 +1,270 @@
+@@ -0,0 +1,267 @@
 +/*---------------------------------------------------------------------------------------------
 + *  Insilode: the Agents window on its own. The Agents window is an auxiliary window of this window's page (one renderer, one
 + *  extension host, every agent's terminal), so the editor window cannot really go while it runs. Instead:
@@ -2115,17 +2115,14 @@ index 0000000..df3f186
 +
 +		// Closing the window hides it while the Agents window is open (RC01); quit and reload are not closing
 +		this._register(this.lifecycleService.onBeforeShutdown(e => {
-+			if (this.closing) {
-+				return;
-+			}
-+
-+			if (e.reason === ShutdownReason.CLOSE && this.agents) {
++			if (!this.closing && e.reason === ShutdownReason.CLOSE && this.agents) {
 +				this.logService.info('[insilode agents-alone] the editor window closes while the Agents window is open: hiding it instead');
 +				e.veto(this.hide(), 'insilode.agentsAlone');
 +				return;
 +			}
 +
-+			// Hot exit may need no question, but when one comes (unsaved files) it must come in a window the user can see
++			// The window is going away (quit, reload, or Close in the question): hot exit may need no question, but when one comes
++			// (unsaved files) it must come in a window the user can see
 +			if (this.hidden && this.workingCopyService.modifiedWorkingCopies.length > 0) {
 +				this.show();
 +			}
