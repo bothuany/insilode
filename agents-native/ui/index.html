@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Insilode Agents</title>
+<link rel="stylesheet" href="xterm.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<aside>
+	<h1>Insilode Agents</h1>
+	<div id="ide" class="ide off">IDE not running</div>
+	<button id="new-shell">New shell</button>
+	<button id="new-agent">New agent</button>
+	<button id="open-ide">Open in IDE</button>
+	<button id="show-flow" title="Stub: see README">Show in Flow</button>
+	<ul id="sessions"></ul>
+</aside>
+<main id="term"></main>
+<div id="modal" hidden>
+	<div class="box">
+		<p id="modal-text"></p>
+		<button id="modal-yes">Close window</button>
+		<button id="modal-no">Cancel</button>
+	</div>
+</div>
+<script src="xterm.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

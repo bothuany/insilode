@@ -1,0 +1,19 @@
+html, body { margin: 0; height: 100%; background: #16181d; color: #d7dae0; font: 13px system-ui, sans-serif; }
+body { display: flex; }
+aside { width: 240px; padding: 12px; box-sizing: border-box; background: #1e2128; display: flex; flex-direction: column; gap: 8px; }
+h1 { font-size: 15px; margin: 0 0 4px; }
+.ide { padding: 4px 8px; border-radius: 4px; }
+.ide.on { background: #1f4d2e; }
+.ide.off { background: #4d3a1f; }
+button { height: 30px; background: #2b3040; color: inherit; border: 1px solid #3a4152; border-radius: 4px; cursor: pointer; }
+button:focus-visible { outline: 2px solid #6aa0ff; }
+ul { list-style: none; margin: 8px 0 0; padding: 0; }
+li { padding: 6px 8px; border-radius: 4px; cursor: pointer; }
+li.sel { background: #2f3a55; }
+li.dead { opacity: .5; }
+main { flex: 1; padding: 8px; overflow: hidden; }
+#modal { position: fixed; inset: 0; background: #0008; display: flex; align-items: center; justify-content: center; }
+#modal[hidden] { display: none; }
+.box { background: #252a35; padding: 20px; border-radius: 6px; min-width: 300px; }
+.box p { font-size: 15px; margin: 0 0 16px; }
+.box button { padding: 0 14px; margin-right: 8px; }
