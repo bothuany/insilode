@@ -1645,7 +1645,7 @@ index 5077e95f..c51206fd 100644
  	'wait': { type: 'boolean', cat: 'o', alias: 'w', description: localize('wait', "Wait for the files to be closed before returning.") },
  	'waitMarkerFilePath': { type: 'string' },
 diff --git a/src/vs/platform/windows/electron-main/windowImpl.ts b/src/vs/platform/windows/electron-main/windowImpl.ts
-index 307ac9e9..a754569d 100644
+index 307ac9e9..5d2f11ae 100644
 --- a/src/vs/platform/windows/electron-main/windowImpl.ts
 +++ b/src/vs/platform/windows/electron-main/windowImpl.ts
 @@ -54,6 +54,9 @@ export interface IWindowCreationOptions {
@@ -1774,7 +1774,36 @@ index 307ac9e9..a754569d 100644
  			const iconPath = config.isSessionsWindow && isWindows ? join(this.environmentMainService.appRoot, 'resources/win32/sessions.ico') : undefined;
  			if (iconPath) {
  				options.icon = iconPath;
-@@ -1065,6 +1134,10 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
+@@ -960,6 +1029,19 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
+ 		return this.marketplaceHeadersPromise;
+ 	}
+ 
++	/**
++	 * Insilode: the window a dialog about this window opens over: the window itself, or, while it is hidden (a dialog over an invisible window
++	 * is a sheet nobody sees on macOS), the visible window of the app that is neither an editor window nor the status island (the Agents window),
++	 * else none.
++	 */
++	private dialogParent(): electron.BrowserWindow | undefined {
++		if (!this._hidden) {
++			return this._win ?? undefined;
++		}
++
++		return electron.BrowserWindow.getAllWindows().find((window: electron.BrowserWindow) => window !== this._win && window.isVisible() && window.isFocusable() && !this.windowsMainService.getWindowById(window.id));
++	}
++
+ 	private async onWindowError(error: WindowError.UNRESPONSIVE): Promise<void>;
+ 	private async onWindowError(error: WindowError.RESPONSIVE): Promise<void>;
+ 	private async onWindowError(error: WindowError.PROCESS_GONE, details: { reason: string; exitCode: number }): Promise<void>;
+@@ -1053,7 +1135,7 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
+ 						message: localize('appStalled', "The window is not responding"),
+ 						detail: localize('appStalledDetail', "You can reopen or close the window or keep waiting."),
+ 						checkboxLabel: this._config?.workspace ? localize('doNotRestoreEditors', "Don't restore editors") : undefined
+-					}, this._win);
++					}, this.dialogParent());
+ 
+ 					// Handle choice
+ 					if (response !== 2 /* keep waiting */) {
+@@ -1065,6 +1147,10 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
  
  				// Process gone
  				else if (type === WindowError.PROCESS_GONE) {
@@ -1785,7 +1814,7 @@ index 307ac9e9..a754569d 100644
  					let message: string;
  					if (!details) {
  						message = localize('appGone', "The window terminated unexpectedly");
-@@ -1294,11 +1367,16 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
+@@ -1294,11 +1380,16 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
  		const wasLoaded = this.wasLoaded;
  		this.wasLoaded = true;
  

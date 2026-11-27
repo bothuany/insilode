@@ -1,5 +1,5 @@
 diff --git a/src/vs/code/electron-main/app.ts b/src/vs/code/electron-main/app.ts
-index d0e7e0f7..37d6b77a 100644
+index d0e7e0f7..4722700d 100644
 --- a/src/vs/code/electron-main/app.ts
 +++ b/src/vs/code/electron-main/app.ts
 @@ -60,6 +60,11 @@ import { IInstantiationService, ServicesAccessor } from '../../platform/instanti
@@ -30,7 +30,18 @@ index d0e7e0f7..37d6b77a 100644
  				await this.windowsMainService?.openEmptyWindow({ context: OpenContext.DOCK });
  			}
  		});
-@@ -1264,6 +1275,9 @@ export class CodeApplication extends Disposable {
+@@ -795,6 +806,10 @@ export class CodeApplication extends Disposable {
+ 		// Open Windows
+ 		mark('code/willOpenFirstWindow');
+ 		const windows = await appInstantiationService.invokeFunction(accessor => this.openFirstWindow(accessor, initialProtocolUrls));
++
++		// Insilode: `--agents-only` belongs to this start only. The app's own arguments go with every window it opens later (the Dock icon, New
++		// Window), and those are normal windows.
++		this.environmentMainService.args['agents-only'] = undefined;
+ 		mark('code/didOpenFirstWindow');
+ 
+ 		// Signal phase: after window open
+@@ -1264,6 +1279,9 @@ export class CodeApplication extends Disposable {
  		// Keyboard Layout
  		services.set(IKeyboardLayoutMainService, new SyncDescriptor(KeyboardLayoutMainService));
  
@@ -40,7 +51,7 @@ index d0e7e0f7..37d6b77a 100644
  		// Native Host
  		services.set(INativeHostMainService, new SyncDescriptor(NativeHostMainService, undefined, false /* proxied to other processes */));
  
-@@ -1449,6 +1463,14 @@ export class CodeApplication extends Disposable {
+@@ -1449,6 +1467,14 @@ export class CodeApplication extends Disposable {
  		const keyboardLayoutChannel = ProxyChannel.fromService(accessor.get(IKeyboardLayoutMainService), disposables);
  		mainProcessElectronServer.registerChannel('keyboardLayout', keyboardLayoutChannel);
  
@@ -1456,10 +1467,10 @@ index 0000000..9717b56
 +</script></body></html>`;
 diff --git a/src/vs/workbench/contrib/insilodeDesktop/electron-browser/insilodeDesktop.contribution.ts b/src/vs/workbench/contrib/insilodeDesktop/electron-browser/insilodeDesktop.contribution.ts
 new file mode 100644
-index 0000000..54f94bf
+index 0000000..165e2b4
 --- /dev/null
 +++ b/src/vs/workbench/contrib/insilodeDesktop/electron-browser/insilodeDesktop.contribution.ts
-@@ -0,0 +1,186 @@
+@@ -0,0 +1,188 @@
 +/*---------------------------------------------------------------------------------------------
 + *  Insilode: agent status outside the window, for Insilode's Agents extension (flow-agent, src/desktop.ts).
 + *
@@ -1541,9 +1552,11 @@ index 0000000..54f94bf
 +			if (e.windowId !== this.nativeHostService.windowId) {
 +				return;
 +			}
-+			commandService.executeCommand(REVEAL_AGENT, e.id).catch(err => this.logService.warn(`[insilode desktop] ${REVEAL_AGENT} failed: ${err}`));
-+			// While the editor window is hidden the agent opens in the Agents window, which flow-agent brings forward: focusing this window would only be ignored
-+			if (!this.contextKeyService.getContextKeyValue<boolean>('insilode.ideHidden')) {
++			// While the editor window is hidden the agent opens in the Agents window, which flow-agent brings forward (it is told so: only then does
++			// it leave the terminal alone); focusing this window would only be ignored. With the editor window visible nothing is different from before.
++			const hidden = !!this.contextKeyService.getContextKeyValue<boolean>('insilode.ideHidden');
++			commandService.executeCommand(REVEAL_AGENT, e.id, hidden ? { agentsWindow: true } : undefined).catch(err => this.logService.warn(`[insilode desktop] ${REVEAL_AGENT} failed: ${err}`));
++			if (!hidden) {
 +				this.nativeHostService.focusWindow({ mode: FocusMode.Force });
 +			}
 +		}));

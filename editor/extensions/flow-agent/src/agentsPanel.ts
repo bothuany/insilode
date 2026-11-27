@@ -160,6 +160,8 @@ export class AgentsPanel implements vscode.Disposable {
 		this.panel = undefined;
 		this.stopPoll();
 		this.ready = false;
+		this.hasRows = false;
+		this.pendingFocus = undefined; // it was for this page, not for the next one
 		clearTimeout(this.timer);
 		this.searching?.abort();
 		this.detachAll();
@@ -176,7 +178,7 @@ export class AgentsPanel implements vscode.Disposable {
 			return false;
 		}
 		this.panel.reveal();
-		if (this.ready) {
+		if (this.hasRows) {
 			this.send({ type: 'focusSession', id });
 		} else {
 			this.pendingFocus = id;
@@ -184,7 +186,9 @@ export class AgentsPanel implements vscode.Disposable {
 		return true;
 	}
 
+	/** An agent to show once the page has its rows (focusSession came before them), and whether it has them: a focus for a row the page does not know yet is dropped. */
 	private pendingFocus: string | undefined;
+	private hasRows = false;
 
 	private send(m: AgentsPageMessage | AgentsPageFolderPicked) {
 		void this.panel?.webview.postMessage(m);
@@ -202,16 +206,12 @@ export class AgentsPanel implements vscode.Disposable {
 				// A page that loads again has forgotten what it showed: what the old one attached must not keep its size or take its input.
 				this.detachAll();
 				this.ready = true;
+				this.hasRows = false; // the rows of this page are on their way
 				this.startPoll();
 				this.post();
 				// A page that (re)loads gets the list of earlier sessions and the layout it had.
 				void this.sendIndex();
-				this.sendLayouts(true);
-				if (this.pendingFocus !== undefined) {
-					this.send({ type: 'focusSession', id: this.pendingFocus });
-					this.pendingFocus = undefined;
-				}
-				return;
+				return this.sendLayouts(true);
 			case 'new': return void vscode.commands.executeCommand('flow.agents.start', m.cli);
 			case 'show': return this.agents.show(m.id);
 			case 'flow': return this.agents.openImpactFlow(m.id, m.index);
@@ -488,6 +488,11 @@ export class AgentsPanel implements vscode.Disposable {
 				recent: this.peers?.view().recent ?? [],
 			};
 			this.send(data);
+			this.hasRows = true;
+			if (this.pendingFocus !== undefined) {
+				this.send({ type: 'focusSession', id: this.pendingFocus });
+				this.pendingFocus = undefined;
+			}
 		}, 60);
 	}
 }

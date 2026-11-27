@@ -145,11 +145,12 @@ export async function activate(context: vscode.ExtensionContext) {
 		}),
 		// Called by core when the user clicks an agent in the desktop status overlay (desktop.ts): only a live agent this
 		// window knows is shown, so a stale or made-up id does nothing (and never resumes an ended session).
-		vscode.commands.registerCommand('flow.agents.reveal', (id: unknown) => {
+		vscode.commands.registerCommand('flow.agents.reveal', (id: unknown, where?: { agentsWindow?: boolean }) => {
 			const s = typeof id === 'string' ? agents.sessions.get(id) : undefined;
 			if (s && s.state !== 'ended') {
-				// In the Agents window when it is open (it is what the editor window being hidden leaves), else the terminal.
-				if (!page.focusSession(s.id)) {
+				// Core says `agentsWindow` while the editor window is hidden: the agent then opens in the Agents window (when it is open). Otherwise,
+				// and for every other caller (flow-view's Home, the island with the editor window visible), the terminal, as ever.
+				if (!(where?.agentsWindow === true && page.focusSession(s.id))) {
 					agents.show(s.id);
 				}
 			}

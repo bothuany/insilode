@@ -574,6 +574,7 @@ await part('RC03 the hidden window comes back', async () => {
 		// A renderer that stops responding: the box asks (and is answered Keep Waiting), but nothing shows the window. The page is hung for good.
 		await sleep(5000)
 		await openAgents(app, page)
+		const agentsId = (await agentsWindow(app)).id
 		const ide2 = await ideOnly(app)
 		await closeIde(app, ide2.id)
 		await answer(app, 'Keep Waiting')
@@ -586,7 +587,8 @@ await part('RC03 the hidden window comes back', async () => {
 		const q = await awaitAsk(app, before, 90000)
 		await sleep(3000)
 		const hidden = (await ideWindows(app)).filter(w => w.id === ide2.id)
-		step('RC03 the renderer stops responding for a while -> IDE stays hidden (no focus stealing)', !!q && hidden.length === 1 && !hidden[0].visible, JSON.stringify({ question: q, hidden }))
+		// The box opens over the Agents window (the editor window is hidden, and a box over an invisible window is a sheet nobody sees).
+		step('RC03 the renderer stops responding for a while -> IDE stays hidden (no focus stealing)', !!q && q.parent === agentsId && q.parentVisible === true && hidden.length === 1 && !hidden[0].visible, JSON.stringify({ agentsId, question: q, hidden }))
 	} finally {
 		await app.close()
 	}
@@ -600,9 +602,11 @@ await part('RC03 click an agent in the status island', async () => {
 		const page = await app.workbench()
 		await dismissWelcome(page)
 		await sleep(5000)
-		const win = await openAgents(app, page)
+		// The agent first, the page after: the page then opens with no pane, and a pane in it afterwards is the click's doing.
 		await runCommand(page, 'New Claude Agent')
 		await needAgents(1)
+		const win = await openAgents(app, page)
+		const panesBefore = await (await pageFrame(win)).locator('.xterm').count().catch(() => -1)
 		const ide = await ideOnly(app)
 		await closeIde(app, ide.id)
 		const agentsId = (await agentsWindow(app)).id
@@ -620,7 +624,7 @@ await part('RC03 click an agent in the status island', async () => {
 		const agents = ws.find(w => w.id === agentsId)
 		const frame = await pageFrame(win)
 		const panes = frame ? await frame.locator('.xterm').count().catch(() => -1) : -1
-		step('RC03 click an agent in the status island -> the agent opens in the Agents window, which comes forward; IDE stays hidden', ws.filter(w => w.ide).every(w => !w.visible) && agents?.visible === true && agents.minimized === false && (agents.focused === true || (await focusOf(app, undefined, win)).agentsDocument === true), JSON.stringify({ windows: ws, terminalPanesInThePage: panes }))
+		step('RC03 click an agent in the status island -> the agent opens in the Agents window, which comes forward; IDE stays hidden', ws.filter(w => w.ide).every(w => !w.visible) && agents?.visible === true && agents.minimized === false && (agents.focused === true || (await focusOf(app, undefined, win)).agentsDocument === true) && panesBefore === 0 && panes >= 1, JSON.stringify({ windows: ws, terminalPanesBefore: panesBefore, terminalPanesAfter: panes }))
 		console.log('screenshot:', await shot(win, 'r10-island-click'))
 	} finally {
 		await app.close()
