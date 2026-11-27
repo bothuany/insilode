@@ -31,6 +31,7 @@ test('the page-only messages become one action each', T, () => {
 	assert.deepEqual(a.agentsAction({ type: 'custom', index: 0, name: 'Gemini' }), { type: 'custom', index: 0, name: 'Gemini' })
 	assert.equal(a.agentsAction({ type: 'custom', index: 0 }), undefined)
 	assert.deepEqual(a.agentsAction({ type: 'kept' }), { type: 'kept' })
+	assert.deepEqual(a.agentsAction({ type: 'ide' }), { type: 'ide' })
 })
 
 test('the dock\'s row and worktree actions pass', T, () => {

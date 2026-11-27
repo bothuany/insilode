@@ -1,7 +1,7 @@
 import { memo, useContext, useEffect, useRef, useState, createContext, type CSSProperties, type MouseEvent, type PointerEvent } from 'react'
 import { Handle, Position, useStore, type NodeProps, type Node } from '@xyflow/react'
 import * as monaco from 'monaco-editor'
-import { CODE_PAD, HEADER_H, OUTLINE_H, headerH, isChangeRoot, KIND_COLOR, portWidth, subLines, LINE_H, SCHEMA_MAX, SCHEMA_OPS_H, SCHEMA_ROW, type CardData, type FrameData } from './layout'
+import { CODE_PAD, HEADER_H, OUTLINE_H, headerH, isChangeRoot, KIND_COLOR, portWidth, subLines, LINE_H, SCHEMA_MAX, SCHEMA_OPS_H, SCHEMA_ROW, type CardData, type CodeLine, type FrameData } from './layout'
 import { chipList, linkOf, ROW_H, STRIP_H, type CardChips, type ChipRow, type TypeLink } from './chips'
 import { bindEditor, hoverCode, leaveCode, wordAtPoint } from './ide'
 import { cardLabel, cutNote } from './impact/cardLabel'
@@ -479,6 +479,9 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
   const lang = langOf(node.file)
   const html = useColorized(lines.map(l => l.text).join('\n'), lang)
   const delHtml = useColorized(rows.flatMap(r => ('del' in r ? [r.del] : [])).join('\n'), lang)
+  // The one-row card's signature is coloured like the code it stands for; it lost its brace, so it is coloured on its own.
+  const sigText = flat ? ((rows.find(r => 'text' in r) as CodeLine | undefined)?.text ?? '') : ''
+  const sigHtml = useColorized(sigText, lang)
   let delNo = 0
   const callByLine = new Map<number, typeof calls>()
   for (const c of calls) callByLine.set(c.edge.callLine, [...(callByLine.get(c.edge.callLine) ?? []), c])
@@ -559,7 +562,11 @@ export const CardNode = memo(({ data }: NodeProps<Node<CardData>>) => {
       >
         <KindGlyph kind={node.kind} />
         {flat ? (
-          <span className="sig" title={`${node.label}${file ? `  ${file}:${node.startLine}` : ''}`}>{rows.find(r => 'text' in r)?.text ?? member}</span>
+          sigText && sigHtml ? (
+            <span className="sig" title={`${node.label}${file ? `  ${file}:${node.startLine}` : ''}`} dangerouslySetInnerHTML={{ __html: sigHtml[0] ?? '' }} />
+          ) : (
+            <span className="sig" title={`${node.label}${file ? `  ${file}:${node.startLine}` : ''}`}>{sigText || member}</span>
+          )
         ) : (
         <div className="titles" title={node.tableChange ? [node.label, node.sub, changeNote(node.tableChange).replace(/^ · /, '')].filter(Boolean).join('\n') : undefined}>
           <div className="title">

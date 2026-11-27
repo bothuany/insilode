@@ -109,6 +109,8 @@ export interface AgentsPageData {
 	/** Other open windows' projects and sessions, and projects with no window (peers.ts). */
 	peers?: PeerProject[];
 	recent?: RecentProject[];
+	/** The page sits in its own Agents window, so the toolbar offers to bring up the editor window, which closing only hides. */
+	ide?: boolean;
 }
 
 /** One message of a conversation's tail, read-only. */

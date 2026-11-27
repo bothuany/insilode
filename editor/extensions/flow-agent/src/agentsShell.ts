@@ -41,22 +41,40 @@ export const SHELL_CSS = String.raw`
 .menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
 
 .split { display: flex; flex: 1; min-height: 0; }
-.side { flex: 0 0 236px; overflow: auto; border-right: 1px solid var(--line); padding: 10px 8px 24px; background: var(--col); }
+.side { flex: 0 0 248px; overflow: auto; border-right: 1px solid var(--line); padding: 6px 0 24px; background: var(--col); font: 12px/1.4 var(--mono); }
 @media (max-width: 960px) { .side { flex-basis: 204px; } .tools { padding: 8px 12px; } }
-.sebox { display: flex; gap: 6px; margin: 0 4px 10px; }
-.sesearch { flex: 1; min-width: 0; box-sizing: border-box; height: 28px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--input); }
+.sebox { display: flex; gap: 6px; align-items: center; margin: 2px 12px 8px; }
+.sesearch { flex: 1; min-width: 0; box-sizing: border-box; height: 26px; padding: 0 2px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; font: inherit; }
+.sesearch:focus { outline: none; border-bottom-color: var(--muted); }
+.sebox .btn.small { border-color: transparent; color: var(--muted); font: inherit; }
 .sresult .sact.snip { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
 .snip mark { background: color-mix(in srgb, var(--focus) 30%, transparent); color: inherit; border-radius: 2px; }
-.sgroup { margin: 0 0 14px; }
-.shead { display: flex; align-items: center; gap: 6px; margin: 0 4px 4px; min-width: 0; }
-.sproj { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sgroup { margin: 0 0 8px; }
+.shead { display: flex; align-items: center; gap: 4px; min-height: 26px; padding: 6px 12px 2px; min-width: 0; }
+.sproj { flex: 1; min-width: 0; color: var(--muted); font-size: 11px; letter-spacing: .02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* A project's actions stay out of sight until the pointer or the keyboard reaches its group. */
+.shead .btn.small { height: 18px; padding: 0 5px; border-color: transparent; color: var(--muted); font: 11px var(--mono); opacity: 0; }
+.shead .btn.small:hover { color: var(--text); background: var(--hover); }
+.sgroup:hover .shead .btn.small, .srecent:hover .shead .btn.small, .shead .btn.small:focus-visible, .shead .btn.small[aria-expanded="true"] { opacity: 1; }
 .slabel { margin: 4px 4px 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
-.srow { display: flex; align-items: flex-start; gap: 8px; padding: 5px 8px; border: 1px solid transparent; border-radius: 7px; cursor: grab; min-width: 0; }
+/* Ledger: one line per session. The selected one is inverted like a terminal's cursor line; one open in a pane has a rule at its left. */
+.srow { display: flex; align-items: center; gap: 10px; min-height: 26px; padding: 0 12px; cursor: grab; min-width: 0; }
 .srow:hover { background: var(--hover); }
-.srow.sel { border-color: var(--focus); background: color-mix(in srgb, var(--focus) 12%, transparent); }
-.srow.inpane { box-shadow: inset 2px 0 0 var(--focus); }
-.srow.ended { opacity: .62; }
-.srow:focus-visible { outline: 1.5px solid var(--focus); outline-offset: -1.5px; }
+.srow.sel { background: var(--text); color: var(--bg); }
+.srow.sel .sstate, .srow.sel .sdot, .srow.sel .sact { color: inherit; }
+.srow.inpane { box-shadow: inset 2px 0 0 var(--muted); }
+.srow.ended { color: var(--muted); }
+.srow:focus-visible { outline: 1px solid var(--muted); outline-offset: -1px; }
+.srow > .sname { flex: 1 1 auto; min-width: 0; }
+.srow > .sstate { flex: none; color: var(--muted); font-size: 11px; white-space: nowrap; }
+/* In the list the state is a glyph, so it still reads on the inverted line: filled while it runs, hollow or a dot once it is over. */
+.srow > i.sdot { width: 10px; height: auto; margin: 0; border: 0; border-radius: 0; background: none; color: var(--idle); font-style: normal; text-align: center; line-height: 1; }
+.srow > i.sdot::before { content: '○'; }
+.srow > i.sdot.working { color: var(--working); } .srow > i.sdot.working::before { content: '●'; }
+.srow > i.sdot.needs { color: var(--blocked); } .srow > i.sdot.needs::before { content: '◆'; }
+.srow > i.sdot.done { color: var(--done); } .srow > i.sdot.done::before { content: '✓'; }
+.srow > i.sdot.recent { color: var(--working); } .srow > i.sdot.recent::before { content: '◌'; }
+.srow > i.sdot.ended { color: var(--ended); } .srow > i.sdot.ended::before { content: '·'; }
 .sdot { flex: none; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--idle); }
 .sdot.working { background: var(--working); } .sdot.needs { background: var(--blocked); } .sdot.done { background: var(--done); }
 .sdot.recent { background: transparent; border: 1.5px solid var(--working); }
@@ -73,11 +91,7 @@ export const SHELL_CSS = String.raw`
 @media (prefers-reduced-motion: no-preference) { .queue { animation: qin .16s ease-out; } }
 @keyframes qin { from { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; } to { max-height: 60px; opacity: 1; } }
 .sicon { flex: none; display: block; margin-top: 1px; }
-.sglyph { flex: none; margin-top: 1px; }
 .sbody { display: flex; flex: 1 1 auto; flex-direction: column; min-width: 0; }
-.ssub { display: flex; gap: 4px; min-width: 0; color: var(--muted); font-size: 11.5px; }
-.ssub .swhere { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ssub .ssep, .ssub .sstate { flex: none; white-space: nowrap; }
 .plus { flex: none; width: 24px; padding: 0; justify-content: center; font-size: 15px; line-height: 1; }
 .pop { position: fixed; z-index: 25; width: 300px; max-width: calc(100vw - 8px); max-height: 80vh; overflow: auto; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--vscode-menu-background, var(--bg)); color: var(--vscode-menu-foreground, var(--text)); box-shadow: 0 6px 18px rgb(0 0 0 / .35); }
 .pop .slabel { margin: 8px 2px 4px; }
@@ -100,8 +114,9 @@ export const SHELL_CSS = String.raw`
 .sname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sact { color: var(--muted); font-size: 11.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .srecent { margin: 0 0 8px; }
-.srecent .sact { margin: 0 4px; }
-.cmore { margin: 2px 4px 0; }
+.srecent .sact { margin: 0 12px; }
+.cmore { margin: 2px 12px 0; padding: 0; border-color: transparent; color: var(--muted); font: 11px var(--mono); }
+.cmore:hover { color: var(--text); }
 .main { flex: 1 1 auto; min-width: 0; overflow: auto; padding: 12px 16px 24px; }
 .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
 
@@ -573,13 +588,15 @@ const viewBtn = (v, label, tip) => { const b = h('button', { type: 'button', cla
 const viewBtns = [viewBtn('work', 'Workspace', 'Terminal panes you can split and rearrange'), viewBtn('board', 'Board', 'Agents by what they wait for'), viewBtn('list', 'List', 'Agents as a table')];
 // The Harness panel's toggle (agentsHarnessPanel.ts) and the "…" menu: the saved layouts and the help that have no place of their own in the toolbar.
 const harnessBtn = h('button', { type: 'button', class: 'btn', 'aria-pressed': 'false', title: 'Show the harness of the focused pane\'s project: instructions, hooks, permissions, MCP servers (' + MOD + 'H)', onclick: () => toggleHarness() }, 'Harness');
+// Shown in the Agents window only: closing the editor window there hides it, and this brings it back.
+const ideBtn = h('button', { type: 'button', class: 'btn hidden', title: 'Show the editor window (closing it only hides it while the Agents window is open)', onclick: () => post({ type: 'ide' }) }, 'IDE');
 const dotsBtn = h('button', { type: 'button', class: 'btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'Layouts and help', title: 'Layouts and help', onclick: e => { e.stopPropagation(); showMenu(dotsBtn, dotsItems); } }, '⋯');
 const dotsItems = () => [{ note: 'Layouts: save the panes, or apply a saved set' }, ...layoutItems(), { sep: true }, { label: 'Keyboard shortcuts', run: () => showShortcuts() }];
 // What paintHead fills: the counts by state, the token and dollar totals and the plan's limits.
 const countsEl = h('div', { class: 'counts', role: 'status', 'aria-label': 'Sessions by state' });
 const totalsEl = h('span', { class: 'totals hidden' });
 const limitsEl = h('div', { class: 'limits hidden' });
-add(tools, newBtn, countsEl, harnessBtn, h('span', { class: 'grow' }), totalsEl, limitsEl, h('div', { class: 'seg2', role: 'group', 'aria-label': 'View' }, viewBtns), dotsBtn);
+add(tools, newBtn, countsEl, harnessBtn, ideBtn, h('span', { class: 'grow' }), totalsEl, limitsEl, h('div', { class: 'seg2', role: 'group', 'aria-label': 'View' }, viewBtns), dotsBtn);
 
 // The shortcuts, listed with the platform's own modifier. A dialog, so it can be read at leisure; Escape or Close puts it away.
 function showShortcuts() {
@@ -631,16 +648,12 @@ function rowEl(key, contentFn, label, kids, extra) {
 	rowEls.set(key, el);
 	return el;
 }
-// The harness's mark, at the row's right end.
-const glyphOf = cli => MARK[cli] ? raw('span', 'sglyph', MARK[cli] + '') : h('span', { class: 'sglyph mark cust', title: 'custom agent' }, 'custom');
-// One shape for every session, own, another window's, another program's or ended: a state dot, the name, the harness's mark and a muted line
-// "where it runs or the CLI, then the state and when". The state has a place that never shrinks, so only the place's name is cut when the row is narrow.
+// One line for every session, own, another window's, another program's or ended: a state glyph, the name and the state, like a terminal's list.
+// Where it runs and what it is doing are in the name's tooltip; the state never shrinks, so only the name is cut when the row is narrow.
 function sessRow(key, content, label, o) {
-	const el = rowEl(key, content, label, [h('i', { class: 'sdot ' + o.dot, title: o.dotTip || DOT_LABEL[o.dot] }),
-		h('span', { class: 'sbody' }, h('span', { class: 'sname', title: o.name }, o.name),
-			h('span', { class: 'ssub', title: o.where + ' · ' + o.state + (o.tip ? '\n' + o.tip : '') }, h('span', { class: 'swhere' }, o.where), h('span', { class: 'ssep' }, '·'), h('span', { class: 'sstate' }, o.state))),
-		glyphOf(o.cli)], o.extra);
-	return el;
+	return rowEl(key, content, label, [h('i', { class: 'sdot ' + o.dot, title: o.dotTip || DOT_LABEL[o.dot] }),
+		h('span', { class: 'sname', title: o.name + '\n' + o.where + ' · ' + o.state + (o.tip ? '\n' + o.tip : '') }, o.name),
+		h('span', { class: 'sstate' }, o.state)], o.extra);
 }
 function srow(s, content, key) {
 	const dot = rowDot(s);
@@ -697,6 +710,8 @@ function searchResults() {
 	if (f.more) { out.push(h('p', { class: 'note' }, (f.cut ? 'The search stopped early, so older sessions may match too. ' : '') + 'Showing the newest matches. Type more to narrow the search.')); }
 	return out;
 }
+// Whether a folder is the root or lies under it. Separators and case are evened out: Windows paths come either way from the CLIs.
+const inside = (cwd, root) => { const n = p => String(p || '').replace(/[\\/]+/g, '/').replace(/\/$/, '').toLowerCase(); const c = n(cwd), r = n(root); return !!r && (c === r || c.startsWith(r + '/')); };
 // A project's header: its name, one "+" that opens the launcher on its folder (when the folder is known) and whatever opens its window.
 function projectHead(name, where, key, cwd, extra) {
 	const plus = cwd ? h('button', { type: 'button', class: 'btn small plus', title: 'New session in ' + name, 'aria-label': 'New session in ' + name, 'aria-haspopup': 'dialog', 'aria-expanded': launch.open && launch.key === key ? 'true' : 'false' }, '+') : null;
@@ -717,27 +732,57 @@ function paintSide() {
 	const pick = (label, msg, tip) => h('button', { type: 'button', class: 'btn small', title: tip, onclick: () => post(msg) }, label);
 	const cwdOf = key => { const c = chat.projects.find(x => x.key === key); return c ? c.cwd : undefined; };
 	const ownChat = chat.projects.find(p => p.own);
+	// A session of this window that works in another project's folder (started from that project's "+", or moved there) is listed
+	// under that project, so the group names where the agent works, as its pane header does. Each group's mine holds those rows.
+	const ownRoot = (data.project && data.project.cwd) || (ownChat && ownChat.cwd);
+	// The other groups' folders come with the session index: until it is here, every row stays in this window's group, so none jumps.
+	const away = ownRoot && chat.got ? data.rows.filter(s => s.cwd && !inside(s.cwd, ownRoot)) : [];
+	const home = data.rows.filter(s => away.indexOf(s) < 0);
+	const ownRow = s => srow(s, () => ownContent(s), 'row:' + s.id);
+	const mineOf = it => shown(it.mine).map(ownRow);
 	// One entry per project: what to draw, and what orders it (a live session, then the latest activity).
-	const items = [{ rows: data.rows, chatKey: ownChat && ownChat.key, draw: () => h('div', { class: 'sgroup' },
-		projectHead((data.project && data.project.name) || 'This window', 'This window', 'own', (data.project && data.project.cwd) || (ownChat && ownChat.cwd)),
-		shown(data.rows).map(s => srow(s, () => ownContent(s), 'row:' + s.id)), ownChat ? chatRows(ownChat.key) : null) }];
+	const items = [{ rows: home, mine: [], chatKey: ownChat && ownChat.key, draw: () => h('div', { class: 'sgroup' },
+		projectHead((data.project && data.project.name) || 'This window', 'This window', 'own', ownRoot),
+		shown(home).map(ownRow), ownChat ? chatRows(ownChat.key) : null) }];
 	// Every open project, with or without sessions: the sidebar is also the way to jump between the open project windows.
 	for (const p of data.peers) {
-		items.push({ rows: p.rows, chatKey: p.key, draw: () => { const list = shown(p.rows); return h('div', { class: 'sgroup' },
+		const it = { rows: p.rows, mine: [], root: cwdOf(p.key), name: p.name, chatKey: p.key };
+		it.draw = () => { const list = shown(p.rows).map(s => srow(s, () => peerContent(p, s), 'peer:' + s.id)).concat(mineOf(it)); return h('div', { class: 'sgroup' },
 			projectHead(p.name, p.name, p.key, cwdOf(p.key), pick('Open in IDE', { type: 'peer', action: 'ide', key: p.key }, 'Bring up the window of ' + p.name)),
-			list.length ? list.map(s => srow(s, () => peerContent(p, s), 'peer:' + s.id)) : h('p', { class: 'note' }, 'No sessions'), chatRows(p.key)); } });
+			list.length ? list : h('p', { class: 'note' }, 'No sessions'), chatRows(p.key)); };
+		items.push(it);
 	}
 	for (const p of data.recent) {
-		items.push({ rows: [], chatKey: p.key, draw: () => h('div', { class: 'srecent' },
+		const it = { rows: [], mine: [], root: cwdOf(p.key), chatKey: p.key };
+		it.draw = () => h('div', { class: 'srecent' },
 			projectHead(p.name, p.name, p.key, cwdOf(p.key), pick('Open project', { type: 'peer', action: 'ide', key: p.key }, 'Open ' + p.name + ' in a window')),
-			h('div', { class: 'sact', title: p.sessions.join(', ') }, p.sessions.join(', ') + ' (closed)'), chatRows(p.key)) });
+			mineOf(it), h('div', { class: 'sact', title: p.sessions.join(', ') }, p.sessions.join(', ') + ' (closed)'), chatRows(p.key));
+		items.push(it);
 	}
 	// Projects the agents have worked in that this window does not know as open or recent.
 	const known = new Set(data.peers.map(p => p.key).concat(data.recent.map(p => p.key)));
 	for (const p of chat.projects.filter(x => !x.own && !known.has(x.key))) {
-		items.push({ rows: [], chatKey: p.key, draw: () => h('div', { class: 'sgroup' }, projectHead(p.name, p.where, p.key, p.cwd), chatRows(p.key)) });
+		const it = { rows: [], mine: [], root: p.cwd, chatKey: p.key };
+		it.draw = () => h('div', { class: 'sgroup' }, projectHead(p.name, p.where, p.key, p.cwd), mineOf(it), chatRows(p.key));
+		items.push(it);
+	}
+	// Each away row goes to the group with the deepest folder holding it. A window the index has no folder for is matched by its
+	// name, which is its folder's (peers.ts). A folder no group knows gets a group of its own, the outermost first, so the order
+	// of the rows does not decide which folder heads it.
+	const deepest = cwd => { let to; for (const it of items) { if (it.root && inside(cwd, it.root) && (!to || it.root.length > to.root.length)) { to = it; } } return to; };
+	for (const s of away.slice().sort((a, b) => a.cwd.length - b.cwd.length)) {
+		let to = deepest(s.cwd) || items.find(it => !it.root && it.name && it.name.toLowerCase() === String(base(s.cwd)).toLowerCase());
+		if (!to) {
+			const root = s.cwd;
+			to = { rows: [], mine: [], root };
+			const it = to;
+			it.draw = () => h('div', { class: 'sgroup' }, projectHead(base(root), root, 'cwd:' + root, root), mineOf(it));
+			items.push(it);
+		}
+		to.mine.push(s);
 	}
 	for (const it of items) {
+		it.rows = it.rows.concat(it.mine);
 		const cp = chat.projects.find(x => x.key === it.chatKey);
 		const cs = cp ? cp.sessions : [];
 		it.live = it.rows.some(r => r.state !== 'ended') || cs.some(x => { const l = liveOf(x); return l && l.basis === 'live'; });
@@ -783,6 +828,7 @@ function paintHead() {
 			// Each part its own element: two text nodes side by side would form one flex item, and the gap would not part them.
 			w.label, h('span', { class: 'bar' }, h('i', { style: 'width:' + p + '%' })), h('span', null, p + '%'), w.resetsAt ? h('span', null, 'resets in ' + until(w.resetsAt - now())) : null);
 	}) : [];
+	ideBtn.className = data.ide ? 'btn' : 'btn hidden';
 	const withCost = data.rows.some(s => s.cost);
 	totalsEl.className = withCost ? 'totals' : 'totals hidden';
 	totalsEl.setAttribute('title', 'Tokens and dollars are what the CLIs report for each session; dollars are estimates.');
