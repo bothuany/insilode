@@ -1,6 +1,7 @@
-// What each problem section shows, in one place. A slot is a still of the real app (a headless capture of this site's own canvas
-// and pages) until it has a loop: add `video` (an .mp4 or .webm under public/media/, a looping, silent clip) and the still becomes
-// its poster. Loops play only while on screen, and never when the visitor asks for reduced motion.
+// What each feature section shows, in one place. A slot is a still of the real app (a headless capture of this site's own canvas
+// and pages) until it has a loop: add `video` (the path of a silent, looping clip under public/media/ without its extension; its
+// .webm and .mp4 are both offered) and the still becomes its poster. Loops play only while on screen, and never when the visitor
+// asks for reduced motion.
 import { NAME } from './brand'
 import type { DemoData, HarnessItem } from './demo'
 import { playWhileVisible } from './loop'
@@ -14,6 +15,12 @@ export interface Clip {
 }
 
 export const CLIPS: Record<string, Clip> = {
+  reading: {
+    poster: 'media/hero.webp',
+    width: 1600,
+    height: 940,
+    alt: `The ${NAME} canvas on POST /orders, with the code of the card the reader is on.`,
+  },
   changes: {
     poster: 'media/changes.webp',
     width: 1600,
@@ -46,7 +53,12 @@ function clipElement(c: Clip) {
   img.decoding = 'async'
   if (!c.video || reduced()) return img
   const v = document.createElement('video')
-  v.src = c.video
+  for (const [ext, type] of [['webm', 'video/webm'], ['mp4', 'video/mp4']]) {
+    const source = document.createElement('source')
+    source.src = `${c.video}.${ext}`
+    source.type = type
+    v.append(source)
+  }
   v.poster = c.poster
   v.muted = true
   v.loop = true
@@ -89,6 +101,8 @@ export function mountHarness(slot: HTMLElement, data: DemoData) {
   score.className = 'hx-score'
   score.innerHTML = '<b></b><span>health</span>'
   score.querySelector('b')!.textContent = String(h.score)
+  // The ring around the score fills to it (home.css).
+  score.style.setProperty('--score', String(h.score))
   const sum = document.createElement('p')
   sum.className = 'hx-sum'
   sum.textContent = `${h.items.length} pieces shape the agent in this project. ${h.startupTokens} tokens are loaded before you type.`

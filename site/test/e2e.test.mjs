@@ -106,17 +106,43 @@ async function walk(frame, tour) {
 	}
 }
 
-test('home: the hero canvas loads on its own, a plain wheel scrolls the page past it, and the tour plays', { skip }, async () => {
+/** Scrolls the home page so the pinned canvas's track is at step `i` of `n` (the middle of that step's stretch of the scroll). */
+const toStep = (page, i, n) =>
+	page.evaluate((i, n) => {
+		const track = document.querySelector('[data-track]')
+		const pin = track.querySelector('.journey-pin')
+		const span = track.offsetHeight - pin.offsetHeight
+		scrollTo(0, scrollY + track.getBoundingClientRect().top - parseFloat(getComputedStyle(pin).top) + ((i + 0.5) / n) * span)
+	}, i, n)
+/** Waits until the canvas's viewport has stopped moving (a tour step's camera move is an animation). */
+const still = async frame => {
+	const transform = () => frame.evaluate(() => getComputedStyle(document.querySelector('.react-flow__viewport')).transform)
+	let last = await transform()
+	let since = Date.now()
+	await until(async () => {
+		const now = await transform()
+		if (now !== last) {
+			last = now
+			since = Date.now()
+		}
+		return Date.now() - since > 700
+	}, 'the canvas to stop moving')
+}
+
+test('home: the canvas loads on its own, a plain wheel scrolls the page past it, and the tour plays', { skip }, async () => {
 	const { page, problems } = await open()
 	assert.equal(await page.evaluate(() => !!document.querySelector('.stage-poster')), true, 'a poster stands in first')
 	const canvas = await inside(page, '.stage-frame')
 	await drawn(canvas)
 	await until(() => page.evaluate(() => document.querySelector('[data-stage]').classList.contains('is-live')), 'the poster to give way to the canvas')
-	assert.equal(await page.evaluate(() => document.querySelector('.stage-frame').tabIndex), -1, 'the hero canvas is not in the tab order')
+	assert.equal(await page.evaluate(() => document.querySelector('.stage-frame').tabIndex), -1, 'the canvas is not in the tab order')
 
-	// The editor window comes first, the live canvas under it: bring the canvas on screen. A wheel over it scrolls the page, not the canvas.
-	await page.evaluate(() => document.querySelector('[data-stage]').scrollIntoView({ block: 'center' }))
-	await wait(300)
+	// On its last step the scroll no longer moves the tour, so a wheel there shows what a wheel over the canvas does: it scrolls the
+	// page and never zooms the canvas.
+	const order = tours.find(t => t.id === 'order')
+	await toStep(page, order.steps.length - 1, order.steps.length)
+	await until(async () => (await caption(canvas))?.title === order.steps.at(-1).title, 'the scroll to bring the tour to its last step')
+	await still(canvas)
 	const top = await page.evaluate(() => scrollY)
 	const box = await (await page.$('.stage-frame')).boundingBox()
 	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
@@ -124,11 +150,50 @@ test('home: the hero canvas loads on its own, a plain wheel scrolls the page pas
 	const before = await zoom()
 	await page.mouse.wheel({ deltaY: 400 })
 	await until(() => page.evaluate(top => scrollY > top + 200, top), 'the page to scroll')
+	await wait(300)
 	assert.equal(await zoom(), before, 'the canvas did not zoom')
-	await page.evaluate(() => document.querySelector('[data-stage]').scrollIntoView({ block: 'center' }))
 
+	// The Play button hands the tour to the visitor: it starts again from the first step, and the tour bar walks it.
+	await page.evaluate(() => document.querySelector('[data-stage]').scrollIntoView({ block: 'center' }))
 	await page.click('[data-play="order"]')
-	await walk(canvas, tours.find(t => t.id === 'order'))
+	await walk(canvas, order)
+	assert.deepEqual(problems, [])
+	await page.close()
+})
+
+test('home: scrolling past the pinned canvas walks the order tour step by step, and the list beside it follows', { skip }, async () => {
+	const { page, problems } = await open()
+	const canvas = await inside(page, '.stage-frame')
+	await drawn(canvas)
+	const order = tours.find(t => t.id === 'order')
+	const n = order.steps.length
+	assert.deepEqual(await page.$$eval('[data-steps] li', l => l.map(li => li.textContent)), order.steps.map((s, i) => `${i + 1}${s.title}`), 'the list is the tour\'s own steps')
+	for (const i of [0, 3, n - 1]) {
+		await toStep(page, i, n)
+		await until(async () => (await caption(canvas))?.title === order.steps[i].title, `the canvas to show step ${i + 1}`)
+		assert.equal(await page.$eval('[data-steps] .is-now', li => li.textContent), `${i + 1}${order.steps[i].title}`)
+		assert.notEqual((await caption(canvas)).side, 'centre', `step ${i + 1} stands by its card`)
+	}
+	// A click on a step in the list scrolls to it, and the canvas goes there.
+	await page.click('[data-steps] li:nth-child(2) button')
+	await until(async () => (await caption(canvas))?.title === order.steps[1].title, 'a click on step 2 to bring the canvas there')
+	assert.deepEqual(problems, [])
+	await page.close()
+})
+
+test('home: the status island drops in while the agents are on screen, and the dock answers the waiting agent', { skip }, async () => {
+	const { page, problems } = await open()
+	assert.equal(await page.$eval('iframe.island', f => f.classList.contains('is-down')), false, 'no island before the agents')
+	await page.evaluate(() => document.querySelector('#agents').scrollIntoView())
+	await until(() => page.$eval('iframe.island', f => f.classList.contains('is-down')), 'the island to drop in')
+	const dock = await inside(page, 'iframe.dock')
+	await until(() => dock.evaluate(() => document.querySelectorAll('.agent').length === 3), 'three agents in the dock')
+	assert.match(await dock.evaluate(() => document.querySelector('.agent').textContent), /Codex.*Run pytest billing-service\/tests/s)
+	await until(async () => /Needs approval/.test(await textOf(await inside(page, 'iframe.island'))), 'the island to say an agent needs approval')
+	await page.click('[data-allow]')
+	await until(() => dock.evaluate(() => !document.querySelector('.agent.approval')), 'the approval to be answered')
+	await page.evaluate(() => scrollTo(0, 0))
+	await until(() => page.$eval('iframe.island', f => !f.classList.contains('is-down')), 'the island to leave with the agents')
 	assert.deepEqual(problems, [])
 	await page.close()
 })
@@ -232,7 +297,7 @@ test('home: the harness section is the real scan of the demo project, with its o
 	await until(() => page.$('.hx-table'), 'the harness scan')
 	assert.equal(await page.$eval('.hx-score b', b => b.textContent), '96')
 	assert.match(await page.$eval('.hx-issues', l => l.textContent), /graphql-schema\.md.*matches no file in the project/)
-	assert.equal(await page.$$eval('[data-clip] img', imgs => imgs.length), 3, 'the three stills are in their slots')
+	assert.equal(await page.$$eval('[data-clip]', slots => slots.filter(s => s.querySelector('img, video')).length), 4, 'the four clips are in their slots')
 	assert.deepEqual(problems, [])
 	await page.close()
 })
