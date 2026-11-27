@@ -20,16 +20,23 @@ const say = (m: ToShell) => window.parent !== window && window.parent.postMessag
 const params = new URLSearchParams(location.search)
 // `?hero`: this canvas is the picture on the home page, which scrolls: the reading pane stays closed there (ui/src/webview.tsx).
 const hero = params.has('hero')
-let edited = params.get('mode') === 'changed'
+const hadChange = params.get('mode') === 'changed'
+let edited = hadChange
 let kept = false
 const state = () => ({ edited, kept })
+
+/** A card tree without the agent's change marks: what the cards show once the change is kept. */
+const plain = ({ diff: _, ...n }: FlowNode): FlowNode => ({ ...n, children: n.children.map(c => ({ ...c, node: plain(c.node) })) })
 
 /** The flow for a target. While the agent's change is waiting for Keep or Undo, the endpoints it reaches draw it on their cards. */
 function graphOf(t: Target): FlowNode {
   const { edited, kept } = state()
   if (t.kind === 'changes') {
-    if (!edited || kept) throw new Error('There are no changes to show: ask an agent to change something, or run the demo from the Agents dock.')
-    return data.changes.root
+    if (!hadChange) throw new Error('There are no changes to show: ask an agent to change something, or run the demo from the Agents dock.')
+    // As in the app, the change set is traced again after a decision: kept, its cards go back to plain; undone, the code it drew is
+    // gone (a method the agent added no longer exists), so only its root is left.
+    if (!edited) return { ...data.changes.root, sub: 'Undone: the code is back to how it was before the agent’s change.', children: [] }
+    return kept ? plain(data.changes.root) : data.changes.root
   }
   const flow = (edited ? data.after : data.before).flows[t.id]
   if (!flow) throw new Error('This endpoint is not part of the demo.')
