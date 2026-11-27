@@ -15,29 +15,34 @@ export interface Clip {
 }
 
 export const CLIPS: Record<string, Clip> = {
+  // The loops are made from this site's own pages with HyperFrames (site/video).
   reading: {
-    poster: 'media/hero.webp',
-    width: 1600,
-    height: 940,
-    alt: `The ${NAME} canvas on POST /orders, with the code of the card the reader is on.`,
-  },
-  changes: {
-    poster: 'media/changes.webp',
+    poster: 'media/loops/reading-poster.webp',
+    video: 'media/loops/reading',
     width: 1600,
     height: 1000,
-    alt: `The ${NAME} canvas after Claude Code added discount codes to orders: the change set fans out to the four endpoints it reaches, each cut down to the changed methods.`,
+    alt: `The ${NAME} canvas on POST /orders with its reading pane: l steps into OrderService.place, j steps over to createInvoice, l steps into it, and Enter opens the HTTP call into the Python create_invoice, while the canvas follows as a trace.`,
+  },
+  changes: {
+    poster: 'media/loops/review-poster.webp',
+    video: 'media/loops/review',
+    width: 1600,
+    height: 1000,
+    alt: `The ${NAME} canvas after Claude Code added discount codes to orders: the change fans out to the four endpoints it reaches, the canvas reviews its two changed cards, and after Keep on OrderService.applyDiscount the card turns plain.`,
   },
   services: {
-    poster: 'media/services.webp',
+    poster: 'media/loops/services-poster.webp',
+    video: 'media/loops/services',
     width: 1600,
-    height: 640,
-    alt: 'The flow of GET /orders/{id}/invoice: a Java controller and client, a dashed HTTP edge into a Python route, its service and the invoices table.',
+    height: 1000,
+    alt: 'The invoice tour on the canvas: a Java endpoint, its HTTP call to billing, the Python route it reaches, its query and the invoices table.',
   },
   agents: {
-    poster: 'media/agents.webp',
-    width: 1344,
-    height: 1264,
-    alt: `The Agents dock of ${NAME} with three agents: one waits for approval to run a command, one is working through its todo list, one has finished.`,
+    poster: 'media/loops/agents-poster.webp',
+    video: 'media/loops/agents',
+    width: 1600,
+    height: 1000,
+    alt: `The Agents page of ${NAME}: Alt+Shift+N opens the waiting Codex session in a pane, then two Claude Code sessions are dragged onto the right and bottom edges and split the workspace.`,
   },
 }
 

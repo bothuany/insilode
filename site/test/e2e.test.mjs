@@ -154,7 +154,8 @@ test('home: the canvas loads on its own, a plain wheel scrolls the page past it,
 	assert.equal(await zoom(), before, 'the canvas did not zoom')
 
 	// The Play button hands the tour to the visitor: it starts again from the first step, and the tour bar walks it.
-	await page.evaluate(() => document.querySelector('[data-stage]').scrollIntoView({ block: 'center' }))
+	await toStep(page, 0, order.steps.length)
+	await until(() => page.$eval('[data-play="order"]', b => { const r = b.getBoundingClientRect(); return r.top >= 0 && r.bottom <= innerHeight }), 'the Play button to be on screen')
 	await page.click('[data-play="order"]')
 	await walk(canvas, order)
 	assert.deepEqual(problems, [])

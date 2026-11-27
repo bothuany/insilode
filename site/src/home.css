@@ -709,7 +709,7 @@ a.go:hover::after {
     margin: 0;
   }
 
-  .journey .stage {
+  .journey .stage:not(.is-full) {
     aspect-ratio: auto;
     height: min(calc(100vh - 150px), 820px);
   }
