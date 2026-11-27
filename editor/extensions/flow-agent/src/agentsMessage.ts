@@ -29,6 +29,8 @@ export type AgentsAction =
 	| { type: 'custom'; index: number; name: string }
 	/** The kept worktrees' quick pick (Agents: Kept Worktrees…). */
 	| { type: 'kept' }
+	/** Brings up the editor window from the Agents window (Insilode: Show IDE Window). */
+	| { type: 'ide' }
 	/** The sidebar's earlier sessions across the machine (projectIndex.ts) and the search through them. */
 	| { type: 'chatList' }
 	/** Past sessions whose conversation contains the text, across the projects the host lists (sessionSearch.ts). */
@@ -119,6 +121,8 @@ export function agentsAction(raw: unknown): AgentsAction | undefined {
 			return typeof m.index === 'number' && Number.isInteger(m.index) && m.index >= 0 && m.index < 100 && typeof m.name === 'string' && m.name.length <= 200 ? { type: 'custom', index: m.index, name: m.name } : undefined;
 		case 'kept':
 			return { type: 'kept' };
+		case 'ide':
+			return { type: 'ide' };
 		case 'chatList':
 			return { type: 'chatList' };
 		case 'chatSearch':

@@ -101,12 +101,15 @@ export class AgentsPanel implements vscode.Disposable {
 			this.opening = true;
 			void this.openInWindow().finally(() => { this.opening = false; });
 		} else {
+			this.inWindow = false;
 			this.create(vscode.ViewColumn.Active);
 		}
 	}
 
 	/** A window is being made: a second click meanwhile must not make a second one. */
 	private opening = false;
+	/** The page got its own Agents window (not a tab of the editor window). */
+	private inWindow = false;
 
 	private async openInWindow() {
 		let column: unknown;
@@ -115,7 +118,8 @@ export class AgentsPanel implements vscode.Disposable {
 		} catch {
 			// A core without the command (an older build) shows the page as a tab.
 		}
-		this.create(typeof column === 'number' && column >= 1 ? column : vscode.ViewColumn.Active);
+		this.inWindow = typeof column === 'number' && column >= 1;
+		this.create(this.inWindow ? column as number : vscode.ViewColumn.Active);
 	}
 
 	private create(column: vscode.ViewColumn): void {
@@ -236,6 +240,8 @@ export class AgentsPanel implements vscode.Disposable {
 				return custom && custom.name === m.name ? void this.agents.spawn('custom', undefined, custom) : undefined;
 			}
 			case 'kept': return void vscode.commands.executeCommand('flow.agents.keptWorktrees');
+			// The core's command (flow-desktop.patch): a build without it has no hidden editor window to bring up.
+			case 'ide': return void Promise.resolve(vscode.commands.executeCommand('insilode.agentsAlone.showIde')).catch(() => undefined);
 			// Another window's project or session: looked up by key and id in what this window read (peers.ts), never a path.
 			case 'peer': return void this.peers?.act(m.action, m.key, m.id);
 			// The sidebar's earlier sessions: every id in what the host answers is its own.
@@ -486,6 +492,7 @@ export class AgentsPanel implements vscode.Disposable {
 				project: { name: vscode.workspace.workspaceFolders?.[0]?.name ?? 'This window', ...(vscode.workspace.workspaceFolders?.[0] ? { cwd: vscode.workspace.workspaceFolders[0].uri.fsPath } : {}) },
 				peers: this.peers?.view().peers ?? [],
 				recent: this.peers?.view().recent ?? [],
+				ide: this.inWindow,
 			};
 			this.send(data);
 			this.hasRows = true;

@@ -1216,6 +1216,40 @@ const peerRow = (over = {}) => ({ id: 'p1', cli: 'claude', name: 'Remote worker'
 const peers = () => [{ key: '0123456789ab', name: 'other-app', rows: [peerRow(), peerRow({ id: 'p2', name: 'Waiting', state: 'blocked', attention: 'approval', need: 'Run rm', flows: 0 }), peerRow({ id: 'p3', name: 'Gone peer', state: 'ended' })] }]
 const recent = () => [{ key: 'ba9876543210', name: 'old-app', sessions: ['Fix login', 'Refactor'] }]
 
+test('a session of this window that works in another project\'s folder is listed under that project, not this window\'s', T, () => {
+	const p = boot()
+	const away = [
+		row({ id: SID(5), name: 'Over there', state: 'working', cwd: 'c:\\Work\\Other-App\\src' }),
+		row({ id: SID(6), name: 'Elsewhere', state: 'working', cwd: 'C:\\lab\\scratch' }),
+	]
+	p.data(rows().concat(away), { project: { name: 'my-app', cwd: '/work/app' }, peers: peers() })
+	assert.match(p.side().byClass('sgroup')[0].textContent, /^my-app.*Over there.*Elsewhere/, 'until the index brings the folders, nothing moves')
+	p.send({ type: 'chatIndex', projects: [{ key: '0123456789ab', name: 'other-app', where: '~/other-app', cwd: 'C:\\work\\other-app', own: false, sessions: [] }] })
+	const group = name => p.side().byClass('sgroup').find(g => g.byClass('sproj')[0].textContent === name)
+	assert.doesNotMatch(group('my-app').textContent, /Over there|Elsewhere/)
+	assert.match(group('my-app').textContent, /Needy/)
+	assert.match(group('other-app').textContent, /Over there/)
+	assert.match(group('scratch').textContent, /Elsewhere/)
+	openRow(p, 'Over there')
+	assert.deepEqual(p.all('termAttach').at(-1), { type: 'termAttach', id: SID(5) }, 'it is still this window\'s own session')
+})
+
+test('away sessions find a window the index has no folder for by its name, and nested unknown folders share one group whatever the order', T, () => {
+	const p = boot()
+	p.data(rows().concat([
+		row({ id: SID(5), name: 'Deep', state: 'working', cwd: '/lab/x/y' }),
+		row({ id: SID(6), name: 'Shallow', state: 'working', cwd: '/lab/x' }),
+		row({ id: SID(7), name: 'Peer by name', state: 'working', cwd: '/elsewhere/other-app' }),
+	]), { project: { name: 'my-app', cwd: '/work/app' }, peers: peers() })
+	p.send({ type: 'chatIndex', projects: [] })
+	const names = p.side().byClass('sgroup').map(g => g.byClass('sproj')[0].textContent)
+	assert.deepEqual(names.filter(n => n === 'x' || n === 'y'), ['x'])
+	const group = name => p.side().byClass('sgroup').find(g => g.byClass('sproj')[0].textContent === name)
+	assert.match(group('x').textContent, /Deep/)
+	assert.match(group('x').textContent, /Shallow/)
+	assert.match(group('other-app').textContent, /Peer by name/)
+})
+
 test('a session of another window opens as a read-only transcript with a way to that window; nothing is attached or started', T, () => {
 	const p = boot()
 	p.data(rows(), { project: { name: 'my-app' }, peers: peers() })
@@ -1734,6 +1768,18 @@ test('j and k move through the cards of the board, / focuses the search; none of
 	assert.equal(Node.focused.className, 'search')
 })
 
+test('the IDE button shows only in the Agents window and brings up the editor window', T, () => {
+	const p = boot()
+	p.data(rows())
+	const ide = p.body.byClass('tools')[0].button('IDE')
+	assert.match(ide.className, /hidden/, 'a tab of the editor window has no use for it')
+	p.data(rows(), { ide: true })
+	assert.doesNotMatch(ide.className, /hidden/)
+	p.posted.length = 0
+	ide.fire('click')
+	assert.deepEqual(p.posted, [{ type: 'ide' }])
+})
+
 test('kept worktrees get their own section with a Manage button', T, () => {
 	const p = boot()
 	p.data(rows(), { kept: [{ agent: 'Old agent', branch: 'insilode/old', base: 'main', folder: 'old-wt' }] })
@@ -1970,7 +2016,9 @@ const outside = (live = LIVE(), extra = {}) => ({ type: 'chatIndex', projects: [
 ] })
 const tailOf = (id, text, extra = {}) => ({ type: 'tail', id, entries: [{ role: 'user', text }, { role: 'assistant', text: 'On it.' }], ...extra })
 
-test('a session another program runs is a row of its project like any other: where it runs and its state in one muted line; an estimate says so', T, () => {
+// Where a session runs is the line after its name in the name's tooltip; the row itself is one line: glyph, name, state.
+const whereOf = r => r.byClass('sname')[0].attrs.title.split('\n')[1].split(' · ')[0]
+test('a session another program runs is a row of its project like any other: one line with its state, where it runs in the tooltip; an estimate says so', T, () => {
 	const p = boot()
 	p.data([])
 	p.send(outside())
@@ -1978,52 +2026,49 @@ test('a session another program runs is a row of its project like any other: whe
 	assert.doesNotMatch(side.textContent, /On this machine|Running elsewhere|external ·/)
 	const rowsOf = side.byClass('srow').filter(r => r.textContent.includes('Elsewhere work'))
 	assert.equal(rowsOf.length, 1, 'once, in its project')
-	const sub = rowsOf[0].byClass('ssub')[0]
-	assert.equal(sub.byClass('swhere')[0].textContent, 'Claude desktop')
-	assert.equal(sub.byClass('sstate')[0].textContent, 'working')
-	assert.equal(sub.attrs.title, 'Claude desktop · working')
+	assert.equal(whereOf(rowsOf[0]), 'Claude desktop')
+	assert.equal(rowsOf[0].byClass('sstate')[0].textContent, 'working')
+	assert.match(rowsOf[0].byClass('sname')[0].attrs.title, /^Elsewhere work\nClaude desktop · working/)
 	assert.ok(rowsOf[0].byClass('sdot')[0].className.includes('working'))
-	assert.equal(rowsOf[0].children.at(-1).className.split(' ')[0], 'sglyph', 'the harness\'s mark is the last thing in the row')
+	assert.equal(rowsOf[0].children.at(-1).className, 'sstate', 'the state ends the line; no harness mark')
 	const codex = side.byClass('srow').find(r => r.textContent.includes('Codex work'))
-	assert.equal(codex.byClass('swhere')[0].textContent, 'Codex')
+	assert.equal(whereOf(codex), 'Codex')
 	assert.equal(codex.byClass('sstate')[0].textContent, 'active recently')
 	assert.ok(codex.byClass('sdot')[0].className.includes('recent'))
 	assert.match(codex.byClass('sdot')[0].attrs.title, /estimate/)
 	// An earlier session says it ended and when, with the CLI as its place.
 	const quiet = side.byClass('srow').find(r => r.textContent.includes('Quiet work'))
-	assert.equal(quiet.byClass('swhere')[0].textContent, 'Claude Code')
+	assert.equal(whereOf(quiet), 'Claude Code')
 	assert.equal(quiet.byClass('sstate')[0].textContent, 'ended 1h ago')
 	assert.equal(quiet.byClass('sdot')[0].className, 'sdot ended')
 	// Within its project the live one is above the quiet one (the host sorts them; the page keeps the order).
 	const names = side.byClass('crow').map(r => r.byClass('sname')[0].textContent)
 	assert.ok(names.indexOf('Elsewhere work') < names.indexOf('Quiet work'))
-	// The state never shares the cut with the place: only the place may be shortened.
-	const css = html.match(/\.ssub \.swhere \{[^}]*\}/)[0] + html.match(/\.ssub \.ssep, \.ssub \.sstate \{[^}]*\}/)[0]
-	assert.match(css, /swhere \{[^}]*text-overflow: ellipsis/)
-	assert.match(css, /sstate \{[^}]*flex: none/)
+	// The state is never cut: only the name may be shortened.
+	assert.match(html, /\.srow > \.sstate \{[^}]*flex: none/)
 })
 
 test('an own session, one of another window and an ended one have the same row shape', T, () => {
 	const p = boot()
 	p.data(rows(), { project: { name: 'my-app' }, peers: peers() })
 	p.body.button('Ended').fire('click')
-	const sub = name => p.side().byClass('srow').find(r => r.textContent.includes(name)).byClass('ssub')[0]
-	assert.equal(sub('Worker').byClass('swhere')[0].textContent, 'Claude Code')
+	const sub = name => p.side().byClass('srow').find(r => r.textContent.includes(name))
+	assert.equal(whereOf(sub('Worker')), 'Claude Code')
 	assert.equal(sub('Worker').byClass('sstate')[0].textContent, 'working')
 	assert.equal(sub('Needy').byClass('sstate')[0].textContent, 'needs you')
-	assert.equal(sub('Finisher').byClass('swhere')[0].textContent, 'Codex')
+	assert.equal(whereOf(sub('Finisher')), 'Codex')
 	assert.equal(sub('Finisher').byClass('sstate')[0].textContent, 'done')
 	assert.equal(sub('Remote worker').byClass('sstate')[0].textContent, 'working')
 	assert.match(sub('Gone').byClass('sstate')[0].textContent, /^ended /)
 	const gone = p.side().byClass('srow').find(r => r.textContent.includes('Gone') && !r.textContent.includes('peer'))
 	assert.equal(gone.byClass('sdot')[0].className, 'sdot ended')
-	// Idle is green like done; the dot and the glyph sit at the row's two ends.
+	// Idle is green like done; the state glyph starts the line and the state ends it.
 	p.data([row({ id: SID(5), name: 'Resting', state: 'idle' })])
 	const rest = p.side().byClass('srow').find(r => r.textContent.includes('Resting'))
 	assert.equal(rest.byClass('sdot')[0].className, 'sdot done')
 	assert.equal(rest.children[0].tagName, 'I')
-	assert.equal(rest.children.at(-1).className.split(' ')[0], 'sglyph')
-	// A long name is cut on its own line, so it never runs under the glyph.
+	assert.equal(rest.children.at(-1).className, 'sstate')
+	// A long name is cut, so it never runs under the state.
 	assert.match(html, /\.sname \{[^}]*text-overflow: ellipsis/)
 })
 
@@ -2049,7 +2094,7 @@ test('a live mark the page cannot trust (a status or source it does not know, an
 	assert.match(state(), /^ended /)
 	p.send(outside({ status: 'idle', source: '<b>desk</b>', basis: 'live' }))
 	const row = p.side().byClass('srow').find(r => r.textContent.includes('Elsewhere work'))
-	assert.equal(row.byClass('swhere')[0].textContent, '<b>desk</b>', 'shown as text')
+	assert.equal(whereOf(row), '<b>desk</b>', 'shown as text')
 	assert.equal(p.side().find(n => n.tagName === 'B').length, 0)
 })
 
